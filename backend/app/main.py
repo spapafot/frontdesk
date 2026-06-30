@@ -9,6 +9,7 @@ from app.api.routes import (
     knowledge,
     settings as settings_routes,
     speech,
+    voice,
 )
 from app.core.config import settings
 
@@ -29,3 +30,4 @@ app.include_router(settings_routes.router)
 app.include_router(conversations.router)
 app.include_router(analytics.router)
 app.include_router(speech.router)
+app.include_router(voice.router)

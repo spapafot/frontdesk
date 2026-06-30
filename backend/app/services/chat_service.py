@@ -59,12 +59,18 @@ async def _load_history(
     return history
 
 
-async def stream_chat(
+async def run_turn(
     message: str,
     conversation_id: int | None = None,
     business_id: int | None = None,
     voice: bool = False,
-) -> AsyncGenerator[str, None]:
+) -> AsyncGenerator[dict, None]:
+    """Run one assistant turn, yielding structured events.
+
+    Transport-agnostic core shared by the SSE chat route (``stream_chat``) and
+    the voice WebSocket handler. Events are dicts of the form
+    ``{"type": "conversation"|"sources"|"token"|"done"|"error", ...}``.
+    """
     async with SessionLocal() as session:
         business_repo = BusinessRepository(session)
         conversation_repo = ConversationRepository(session)
@@ -75,7 +81,7 @@ async def stream_chat(
             else await business_repo.get_or_create_default()
         )
         if business is None:
-            yield _sse({"type": "error", "message": "No business configured."})
+            yield {"type": "error", "message": "No business configured."}
             return
         await session.commit()
 
@@ -89,10 +95,10 @@ async def stream_chat(
             conversation.title = message.strip()[:120] or None
         await session.commit()
 
-        yield _sse({"type": "conversation", "conversation_id": conversation.id})
+        yield {"type": "conversation", "conversation_id": conversation.id}
 
         if not settings.deepseek_api_key:
-            yield _sse({"type": "error", "message": "DEEPSEEK_API_KEY is not configured."})
+            yield {"type": "error", "message": "DEEPSEEK_API_KEY is not configured."}
             return
 
         tz = ZoneInfo(business.timezone)
@@ -150,7 +156,7 @@ async def stream_chat(
 
         try:
             if sources:
-                yield _sse({"type": "sources", "sources": sources})
+                yield {"type": "sources", "sources": sources}
 
             final_text = ""
             stream = await client.chat.completions.create(
@@ -165,7 +171,7 @@ async def stream_chat(
                 delta = chunk.choices[0].delta.content
                 if delta:
                     final_text += delta
-                    yield _sse({"type": "token", "content": delta})
+                    yield {"type": "token", "content": delta}
 
             await conversation_repo.add_message(
                 conversation.id,
@@ -179,6 +185,17 @@ async def stream_chat(
                 },
             )
             await session.commit()
-            yield _sse({"type": "done", "conversation_id": conversation.id})
+            yield {"type": "done", "conversation_id": conversation.id}
         except Exception as exc:  # noqa: BLE001 - surface any failure to the client
-            yield _sse({"type": "error", "message": f"Assistant error: {exc}"})
+            yield {"type": "error", "message": f"Assistant error: {exc}"}
+
+
+async def stream_chat(
+    message: str,
+    conversation_id: int | None = None,
+    business_id: int | None = None,
+    voice: bool = False,
+) -> AsyncGenerator[str, None]:
+    """SSE wrapper over ``run_turn`` for the HTTP chat endpoint."""
+    async for event in run_turn(message, conversation_id, business_id, voice):
+        yield _sse(event)
