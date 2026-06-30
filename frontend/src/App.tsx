@@ -15,6 +15,7 @@ import { AdminPage } from "./pages/AdminPage";
 import { AnalyticsPage } from "./pages/AnalyticsPage";
 import { ChatPage } from "./pages/ChatPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { VoicePage } from "./pages/VoicePage";
 
 const SELECTED_KEY = "selectedConversationId";
 
@@ -135,6 +136,12 @@ export default function App() {
             rating={selectedConversation?.rating ?? null}
             onConversationCreated={onConversationCreated}
             onRate={onRate}
+          />
+        )}
+        {view === "voice" && (
+          <VoicePage
+            selectedConversationId={selectedConversationId}
+            onConversationCreated={onConversationCreated}
           />
         )}
         {view === "admin" && <AdminPage />}

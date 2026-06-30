@@ -2,7 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.repositories.knowledge_repository import KnowledgeRepository
-from app.services.embeddings import embed
+from app.services.embeddings import embed_query
 
 # cosine distance ranges 0 (identical) .. 2 (opposite). Convert to a 0..1 score.
 # Anything below this score is treated as not confidently relevant.
@@ -19,7 +19,7 @@ async def search_knowledge(
     """Embed the query and return the most relevant knowledge chunks."""
     if limit is None:
         limit = settings.rag_top_k
-    query_embedding = await embed(query)
+    query_embedding = await embed_query(query)
     repo = KnowledgeRepository(session)
     rows = await repo.search(business_id, query_embedding, limit=limit)
 

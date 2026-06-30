@@ -11,7 +11,27 @@ from app.core.db import SessionLocal
 from app.prompts.system_prompt import build_system_prompt
 from app.repositories.business_repository import BusinessRepository
 from app.repositories.conversation_repository import ConversationRepository
-from app.services import tool_service
+from app.services.rag_service import search_knowledge
+
+# Injected just before the user's question so the model answers from retrieved
+# context in a single streaming call (no tool round-trips).
+KB_CONTEXT_TEMPLATE = (
+    "Here is the information available to answer the customer's current question. It may "
+    "come from several sources, be in any order, and include unrelated material - read "
+    "all of it and use the parts that are relevant. Rely ONLY on this information; if the "
+    "answer cannot be determined from it, say you do not have that information."
+    "\n---\n{context}\n---"
+)
+NO_CONTEXT_NOTE = (
+    "No relevant information was found for the customer's current question. If you "
+    "cannot answer it from the earlier conversation, say you do not have that "
+    "information."
+)
+# Added for voice turns so the reply is short enough to be read aloud quickly.
+VOICE_STYLE_NOTE = (
+    "This conversation is spoken aloud. Answer in at most 1-3 short sentences, in "
+    "plain words, with no lists, headings, or symbols."
+)
 
 
 @lru_cache
@@ -26,30 +46,50 @@ def _sse(payload: dict) -> str:
     return f"data: {json.dumps(payload, default=str)}\n\n"
 
 
-async def _load_history(repo: ConversationRepository, conversation_id: int) -> list[dict]:
+async def _load_history(
+    repo: ConversationRepository, conversation_id: int, limit: int | None = None
+) -> list[dict]:
     history: list[dict] = []
     for message in await repo.get_messages(conversation_id):
         if message.role in ("user", "assistant") and message.content:
             history.append({"role": message.role, "content": message.content})
+    # For voice, keep only the most recent turns so the prompt stays small.
+    if limit is not None and len(history) > limit:
+        history = history[-limit:]
     return history
 
 
-async def stream_chat(
+async def run_turn(
     message: str,
     conversation_id: int | None = None,
     business_id: int | None = None,
-) -> AsyncGenerator[str, None]:
+    site_key: str | None = None,
+    voice: bool = False,
+) -> AsyncGenerator[dict, None]:
+    """Run one assistant turn, yielding structured events.
+
+    Transport-agnostic core shared by the SSE chat route (``stream_chat``) and
+    the voice WebSocket handler. Events are dicts of the form
+    ``{"type": "conversation"|"sources"|"token"|"done"|"error", ...}``.
+
+    Tenant resolution order: explicit ``site_key`` (used by the embeddable
+    widget), then ``business_id``, then the single default business.
+    """
     async with SessionLocal() as session:
         business_repo = BusinessRepository(session)
         conversation_repo = ConversationRepository(session)
 
-        business = (
-            await business_repo.get(business_id)
-            if business_id
-            else await business_repo.get_or_create_default()
-        )
+        if site_key:
+            business = await business_repo.get_by_public_key(site_key)
+            if business is None:
+                yield {"type": "error", "message": "Invalid site key."}
+                return
+        elif business_id:
+            business = await business_repo.get(business_id)
+        else:
+            business = await business_repo.get_or_create_default()
         if business is None:
-            yield _sse({"type": "error", "message": "No business configured."})
+            yield {"type": "error", "message": "No business configured."}
             return
         await session.commit()
 
@@ -63,10 +103,10 @@ async def stream_chat(
             conversation.title = message.strip()[:120] or None
         await session.commit()
 
-        yield _sse({"type": "conversation", "conversation_id": conversation.id})
+        yield {"type": "conversation", "conversation_id": conversation.id}
 
         if not settings.deepseek_api_key:
-            yield _sse({"type": "error", "message": "DEEPSEEK_API_KEY is not configured."})
+            yield {"type": "error", "message": "DEEPSEEK_API_KEY is not configured."}
             return
 
         tz = ZoneInfo(business.timezone)
@@ -79,15 +119,43 @@ async def stream_chat(
             custom_instructions=business.custom_instructions,
         )
 
-        history = await _load_history(conversation_repo, conversation.id)
-        messages: list[dict] = [{"role": "system", "content": system_prompt}, *history]
+        history_limit = settings.voice_history_messages if voice else None
+        history = await _load_history(conversation_repo, conversation.id, history_limit)
+        messages: list[dict] = [{"role": "system", "content": system_prompt}]
+        if voice:
+            messages.append({"role": "system", "content": VOICE_STYLE_NOTE})
+        messages.extend(history)
+
+        # RAG-always: retrieve the relevant knowledge up front so the model can answer
+        # in a single streaming call instead of multiple blocking tool round-trips.
+        # Voice turns retrieve fewer chunks to keep the prompt small and fast.
+        rag_limit = settings.voice_rag_top_k if voice else None
+        results = await search_knowledge(session, business.id, message, limit=rag_limit)
+        had_sources = bool(results)
+        sources = [
+            {
+                "title": r.get("title"),
+                "score": r.get("score"),
+                "snippet": (r.get("content") or "")[:200],
+            }
+            for r in results
+        ]
+        if results:
+            context_block = "\n\n".join(
+                f"[{r.get('title') or 'Document'}]\n{r.get('content') or ''}"
+                for r in results
+            )
+            messages.append(
+                {"role": "system", "content": KB_CONTEXT_TEMPLATE.format(context=context_block)}
+            )
+        else:
+            messages.append({"role": "system", "content": NO_CONTEXT_NOTE})
+
         messages.append({"role": "user", "content": message})
         await conversation_repo.add_message(conversation.id, "user", message)
         await session.commit()
 
         client = get_client()
-        sources: list[dict] = []
-        searched = False
 
         # DeepSeek V4 thinking-mode toggle (passed through the OpenAI-compatible API).
         extra_body = {
@@ -95,77 +163,8 @@ async def stream_chat(
         }
 
         try:
-            for _ in range(settings.max_tool_iterations):
-                response = await client.chat.completions.create(
-                    model=settings.deepseek_model,
-                    messages=messages,
-                    tools=tool_service.TOOL_SCHEMAS,
-                    tool_choice="auto",
-                    extra_body=extra_body,
-                )
-                choice = response.choices[0].message
-                if not choice.tool_calls:
-                    break
-
-                messages.append(
-                    {
-                        "role": "assistant",
-                        "content": choice.content or "",
-                        "tool_calls": [
-                            {
-                                "id": tc.id,
-                                "type": "function",
-                                "function": {
-                                    "name": tc.function.name,
-                                    "arguments": tc.function.arguments,
-                                },
-                            }
-                            for tc in choice.tool_calls
-                        ],
-                    }
-                )
-
-                for tool_call in choice.tool_calls:
-                    name = tool_call.function.name
-                    try:
-                        args = json.loads(tool_call.function.arguments or "{}")
-                    except json.JSONDecodeError:
-                        args = {}
-
-                    result = await tool_service.dispatch(
-                        name, args, session, business.id, now
-                    )
-                    yield _sse({"type": "tool_call", "name": name, "arguments": args, "result": result})
-
-                    if name == "search_knowledge_base":
-                        searched = True
-                        for item in result.get("results", []):
-                            sources.append(
-                                {
-                                    "title": item.get("title"),
-                                    "score": item.get("score"),
-                                    "snippet": item.get("content", "")[:200],
-                                }
-                            )
-
-                    messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "content": json.dumps(result, default=str),
-                        }
-                    )
-                    await conversation_repo.add_message(
-                        conversation.id,
-                        "tool",
-                        json.dumps(result, default=str),
-                        tool_name=name,
-                        meta={"arguments": args},
-                    )
-                await session.commit()
-
             if sources:
-                yield _sse({"type": "sources", "sources": sources})
+                yield {"type": "sources", "sources": sources}
 
             final_text = ""
             stream = await client.chat.completions.create(
@@ -180,20 +179,32 @@ async def stream_chat(
                 delta = chunk.choices[0].delta.content
                 if delta:
                     final_text += delta
-                    yield _sse({"type": "token", "content": delta})
+                    yield {"type": "token", "content": delta}
 
             await conversation_repo.add_message(
                 conversation.id,
                 "assistant",
                 final_text,
                 meta={
-                    "answered": bool(sources) or not searched,
-                    "searched": searched,
-                    "had_sources": bool(sources),
+                    "answered": had_sources,
+                    "searched": True,
+                    "had_sources": had_sources,
                     "question": message[:500],
                 },
             )
             await session.commit()
-            yield _sse({"type": "done", "conversation_id": conversation.id})
+            yield {"type": "done", "conversation_id": conversation.id}
         except Exception as exc:  # noqa: BLE001 - surface any failure to the client
-            yield _sse({"type": "error", "message": f"Assistant error: {exc}"})
+            yield {"type": "error", "message": f"Assistant error: {exc}"}
+
+
+async def stream_chat(
+    message: str,
+    conversation_id: int | None = None,
+    business_id: int | None = None,
+    site_key: str | None = None,
+    voice: bool = False,
+) -> AsyncGenerator[str, None]:
+    """SSE wrapper over ``run_turn`` for the HTTP chat endpoint."""
+    async for event in run_turn(message, conversation_id, business_id, site_key, voice):
+        yield _sse(event)

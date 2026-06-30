@@ -13,6 +13,9 @@ def _to_out(business) -> SettingsOut:
         business_name=business.name,
         assistant_name=business.assistant_name,
         custom_instructions=business.custom_instructions,
+        tts_voice=business.tts_voice,
+        tts_speed=business.tts_speed,
+        public_key=business.public_key,
     )
 
 
@@ -34,6 +37,8 @@ async def update_settings(
         name=body.business_name,
         assistant_name=body.assistant_name,
         custom_instructions=body.custom_instructions,
+        tts_voice=body.tts_voice,
+        tts_speed=body.tts_speed,
     )
     await session.commit()
     return _to_out(business)
