@@ -58,7 +58,7 @@ export function useChatStream(options?: Options) {
   }, []);
 
   const send = useCallback(
-    async (text: string) => {
+    async (text: string, opts?: { voice?: boolean }) => {
       const trimmed = text.trim();
       if (!trimmed || isStreaming) return;
 
@@ -123,7 +123,7 @@ export function useChatStream(options?: Options) {
 
       try {
         await streamChat(
-          { message: trimmed, conversationId: conversationRef.current },
+          { message: trimmed, conversationId: conversationRef.current, voice: opts?.voice },
           onEvent
         );
       } catch (err) {

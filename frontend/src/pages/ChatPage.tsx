@@ -123,7 +123,10 @@ export function ChatPage({
         </div>
       </header>
       <ChatWindow messages={messages} showDebug={showDebug} onSpeak={speak} />
-      <ChatInput onSend={send} disabled={isStreaming} />
+      <ChatInput
+        onSend={(text) => send(text, { voice: voiceOutput })}
+        disabled={isStreaming}
+      />
     </div>
   );
 }

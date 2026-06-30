@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     chunk_size: int = 1200
     chunk_overlap: int = 200
 
+    # Voice replies must come back fast, so they use a much leaner context:
+    # fewer chunks, a shorter slice of history, and a "speak concisely" directive.
+    voice_rag_top_k: int = 5
+    voice_history_messages: int = 6
+
     # Database
     database_url: str = (
         "postgresql+asyncpg://postgres:postgres@localhost:5432/support"

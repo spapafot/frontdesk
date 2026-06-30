@@ -13,6 +13,7 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
         message=request.message,
         conversation_id=request.conversation_id,
         business_id=request.business_id,
+        voice=request.voice,
     )
     return StreamingResponse(
         generator,

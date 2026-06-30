@@ -5,3 +5,4 @@ class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1)
     conversation_id: int | None = None
     business_id: int | None = None
+    voice: bool = False

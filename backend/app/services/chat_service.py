@@ -27,6 +27,11 @@ NO_CONTEXT_NOTE = (
     "cannot answer it from the earlier conversation, say you do not have that "
     "information."
 )
+# Added for voice turns so the reply is short enough to be read aloud quickly.
+VOICE_STYLE_NOTE = (
+    "This conversation is spoken aloud. Answer in at most 1-3 short sentences, in "
+    "plain words, with no lists, headings, or symbols."
+)
 
 
 @lru_cache
@@ -41,11 +46,16 @@ def _sse(payload: dict) -> str:
     return f"data: {json.dumps(payload, default=str)}\n\n"
 
 
-async def _load_history(repo: ConversationRepository, conversation_id: int) -> list[dict]:
+async def _load_history(
+    repo: ConversationRepository, conversation_id: int, limit: int | None = None
+) -> list[dict]:
     history: list[dict] = []
     for message in await repo.get_messages(conversation_id):
         if message.role in ("user", "assistant") and message.content:
             history.append({"role": message.role, "content": message.content})
+    # For voice, keep only the most recent turns so the prompt stays small.
+    if limit is not None and len(history) > limit:
+        history = history[-limit:]
     return history
 
 
@@ -53,6 +63,7 @@ async def stream_chat(
     message: str,
     conversation_id: int | None = None,
     business_id: int | None = None,
+    voice: bool = False,
 ) -> AsyncGenerator[str, None]:
     async with SessionLocal() as session:
         business_repo = BusinessRepository(session)
@@ -94,12 +105,18 @@ async def stream_chat(
             custom_instructions=business.custom_instructions,
         )
 
-        history = await _load_history(conversation_repo, conversation.id)
-        messages: list[dict] = [{"role": "system", "content": system_prompt}, *history]
+        history_limit = settings.voice_history_messages if voice else None
+        history = await _load_history(conversation_repo, conversation.id, history_limit)
+        messages: list[dict] = [{"role": "system", "content": system_prompt}]
+        if voice:
+            messages.append({"role": "system", "content": VOICE_STYLE_NOTE})
+        messages.extend(history)
 
         # RAG-always: retrieve the relevant knowledge up front so the model can answer
         # in a single streaming call instead of multiple blocking tool round-trips.
-        results = await search_knowledge(session, business.id, message)
+        # Voice turns retrieve fewer chunks to keep the prompt small and fast.
+        rag_limit = settings.voice_rag_top_k if voice else None
+        results = await search_knowledge(session, business.id, message, limit=rag_limit)
         had_sources = bool(results)
         sources = [
             {
