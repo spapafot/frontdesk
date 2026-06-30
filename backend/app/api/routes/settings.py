@@ -15,6 +15,7 @@ def _to_out(business) -> SettingsOut:
         custom_instructions=business.custom_instructions,
         tts_voice=business.tts_voice,
         tts_speed=business.tts_speed,
+        public_key=business.public_key,
     )
 
 

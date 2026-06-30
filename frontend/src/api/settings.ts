@@ -6,6 +6,7 @@ export interface Settings {
   custom_instructions: string | null;
   tts_voice: string;
   tts_speed: number;
+  public_key: string | null;
 }
 
 export interface VoiceOption {

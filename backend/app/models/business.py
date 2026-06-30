@@ -12,6 +12,8 @@ class Business(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(255))
     type: Mapped[str] = mapped_column(String(64))
+    # Public, non-secret key the embeddable widget sends to identify this tenant.
+    public_key: Mapped[str | None] = mapped_column(String(48), unique=True, nullable=True)
     assistant_name: Mapped[str] = mapped_column(String(120), default="Assistant")
     custom_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
     tts_voice: Mapped[str] = mapped_column(String(32), default="nova")

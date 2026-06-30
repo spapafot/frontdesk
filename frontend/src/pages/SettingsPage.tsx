@@ -8,6 +8,7 @@ import {
   settingsKey,
   updateSettings,
 } from "../api/settings";
+import { WidgetInstall } from "../components/WidgetInstall";
 
 export function SettingsPage() {
   const { data, error, isLoading, mutate } = useSWR<Settings>(settingsKey, getSettings);
@@ -157,6 +158,8 @@ export function SettingsPage() {
           </div>
         </form>
       )}
+
+      {data && <WidgetInstall siteKey={data.public_key} />}
     </div>
   );
 }

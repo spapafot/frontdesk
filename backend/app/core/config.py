@@ -16,8 +16,8 @@ class Settings(BaseSettings):
     # from the knowledge base (lower latency/cost, simpler streaming).
     deepseek_thinking: bool = False
 
-    # OpenAI (speech-to-text + text-to-speech). Uses the real OpenAI API,
-    # separate from the DeepSeek-compatible chat client above.
+    # OpenAI (speech + embeddings). Uses the real OpenAI API, separate from the
+    # DeepSeek-compatible chat client above.
     openai_api_key: str = ""
     # gpt-4o-mini-transcribe detects language far more reliably than whisper-1
     # (avoids transcribing accented English into the wrong script).
@@ -25,13 +25,12 @@ class Settings(BaseSettings):
     openai_tts_model: str = "gpt-4o-mini-tts"
     openai_tts_voice: str = "alloy"
 
-    # Embeddings. Retrieval-tuned multilingual model (384 dims, so no schema change)
-    # for reliable cross-lingual ranking — e.g. Greek queries over English docs.
-    # e5 models require "query:" / "passage:" prefixes. Changing this needs re-indexing.
-    embedding_model: str = "intfloat/multilingual-e5-small"
-    embedding_dim: int = 384
-    embedding_query_prefix: str = "query: "
-    embedding_passage_prefix: str = "passage: "
+    # Embeddings. API-based OpenAI model (no local PyTorch), so the backend stays
+    # small enough for serverless/Lambda. text-embedding-3-small is multilingual
+    # and returns 1536-dim vectors. Changing this requires a pgvector column
+    # migration + a full re-index of existing documents.
+    openai_embedding_model: str = "text-embedding-3-small"
+    embedding_dim: int = 1536
 
     # Retrieval / chunking. Kept modest so the injected context stays small and
     # the model's time-to-first-token stays low.
@@ -51,6 +50,18 @@ class Settings(BaseSettings):
 
     # CORS
     frontend_origin: str = "http://localhost:5173"
+    # Comma-separated list of customer domains allowed to embed the widget and
+    # call the public chat API cross-origin. Use "*" to allow any origin (the
+    # site key still authorizes the tenant). Example:
+    #   WIDGET_ALLOWED_ORIGINS=https://acme.com,https://shop.acme.com
+    widget_allowed_origins: str = ""
+
+    @property
+    def allowed_origins(self) -> list[str]:
+        origins = [self.frontend_origin]
+        extra = [o.strip() for o in self.widget_allowed_origins.split(",") if o.strip()]
+        origins.extend(extra)
+        return origins
 
     # Tool loop safety
     max_tool_iterations: int = 5

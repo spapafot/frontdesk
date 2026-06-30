@@ -17,7 +17,7 @@ from app.services.embeddings import embed_passage_sync
 
 async def main() -> None:
     print(
-        f"Re-indexing embeddings with: {settings.embedding_model} "
+        f"Re-indexing embeddings with: {settings.openai_embedding_model} "
         f"(dim={settings.embedding_dim})"
     )
     async with SessionLocal() as session:

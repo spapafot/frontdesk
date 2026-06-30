@@ -10,7 +10,7 @@ from starlette.concurrency import run_in_threadpool
 from app.core.config import settings
 from app.models.knowledge import KnowledgeDocument
 from app.repositories.knowledge_repository import KnowledgeRepository
-from app.services.embeddings import embed_passage_sync
+from app.services.embeddings import embed_passage
 
 SUPPORTED_EXTENSIONS = {".txt", ".pdf", ".doc", ".docx", ".xls", ".xlsx"}
 
@@ -193,7 +193,7 @@ async def ingest_document(
     )
 
     for chunk in chunks:
-        embedding = await run_in_threadpool(embed_passage_sync, chunk)
+        embedding = await embed_passage(chunk)
         await repo.add_chunk(
             business_id=business_id,
             document_id=document.id,

@@ -1,37 +1,51 @@
 from functools import lru_cache
 
-from starlette.concurrency import run_in_threadpool
+from openai import AsyncOpenAI, OpenAI
 
 from app.core.config import settings
 
+# OpenAI embeddings (text-embedding-3-*) need no query/passage prefixes, so
+# passage and query embedding are the same call. Kept as separate function names
+# for compatibility with existing call sites.
+
 
 @lru_cache
-def _get_model():
-    # Imported lazily so the (heavy) model only loads when first needed.
-    from sentence_transformers import SentenceTransformer
-
-    return SentenceTransformer(settings.embedding_model)
+def _sync_client() -> OpenAI:
+    return OpenAI(api_key=settings.openai_api_key)
 
 
-def _encode(text: str) -> list[float]:
-    model = _get_model()
-    vector = model.encode(text, normalize_embeddings=True)
-    return vector.tolist()
+@lru_cache
+def _async_client() -> AsyncOpenAI:
+    return AsyncOpenAI(api_key=settings.openai_api_key)
+
+
+def _embed_sync(text: str) -> list[float]:
+    response = _sync_client().embeddings.create(
+        model=settings.openai_embedding_model, input=text
+    )
+    return response.data[0].embedding
+
+
+async def _embed_async(text: str) -> list[float]:
+    response = await _async_client().embeddings.create(
+        model=settings.openai_embedding_model, input=text
+    )
+    return response.data[0].embedding
 
 
 def embed_passage_sync(text: str) -> list[float]:
-    """Embed a document/passage. Retrieval models (e.g. e5) expect a prefix."""
-    return _encode(f"{settings.embedding_passage_prefix}{text}")
+    """Embed a document/passage (synchronous; used by ingestion and scripts)."""
+    return _embed_sync(text)
 
 
 def embed_query_sync(text: str) -> list[float]:
-    """Embed a search query. Retrieval models (e.g. e5) expect a prefix."""
-    return _encode(f"{settings.embedding_query_prefix}{text}")
+    """Embed a search query (synchronous)."""
+    return _embed_sync(text)
 
 
 async def embed_query(text: str) -> list[float]:
-    return await run_in_threadpool(embed_query_sync, text)
+    return await _embed_async(text)
 
 
 async def embed_passage(text: str) -> list[float]:
-    return await run_in_threadpool(embed_passage_sync, text)
+    return await _embed_async(text)

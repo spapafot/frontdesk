@@ -21,6 +21,7 @@ class SettingsOut(BaseModel):
     custom_instructions: str | None = None
     tts_voice: str
     tts_speed: float
+    public_key: str | None = None
 
 
 class SettingsUpdate(BaseModel):

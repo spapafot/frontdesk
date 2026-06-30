@@ -63,6 +63,7 @@ async def run_turn(
     message: str,
     conversation_id: int | None = None,
     business_id: int | None = None,
+    site_key: str | None = None,
     voice: bool = False,
 ) -> AsyncGenerator[dict, None]:
     """Run one assistant turn, yielding structured events.
@@ -70,16 +71,23 @@ async def run_turn(
     Transport-agnostic core shared by the SSE chat route (``stream_chat``) and
     the voice WebSocket handler. Events are dicts of the form
     ``{"type": "conversation"|"sources"|"token"|"done"|"error", ...}``.
+
+    Tenant resolution order: explicit ``site_key`` (used by the embeddable
+    widget), then ``business_id``, then the single default business.
     """
     async with SessionLocal() as session:
         business_repo = BusinessRepository(session)
         conversation_repo = ConversationRepository(session)
 
-        business = (
-            await business_repo.get(business_id)
-            if business_id
-            else await business_repo.get_or_create_default()
-        )
+        if site_key:
+            business = await business_repo.get_by_public_key(site_key)
+            if business is None:
+                yield {"type": "error", "message": "Invalid site key."}
+                return
+        elif business_id:
+            business = await business_repo.get(business_id)
+        else:
+            business = await business_repo.get_or_create_default()
         if business is None:
             yield {"type": "error", "message": "No business configured."}
             return
@@ -194,8 +202,9 @@ async def stream_chat(
     message: str,
     conversation_id: int | None = None,
     business_id: int | None = None,
+    site_key: str | None = None,
     voice: bool = False,
 ) -> AsyncGenerator[str, None]:
     """SSE wrapper over ``run_turn`` for the HTTP chat endpoint."""
-    async for event in run_turn(message, conversation_id, business_id, voice):
+    async for event in run_turn(message, conversation_id, business_id, site_key, voice):
         yield _sse(event)

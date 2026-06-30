@@ -22,7 +22,7 @@ from app.services.ingestion_service import chunk_text
 
 async def main() -> None:
     print(
-        f"Re-ingesting documents with: {settings.embedding_model} "
+        f"Re-ingesting documents with: {settings.openai_embedding_model} "
         f"(dim={settings.embedding_dim})"
     )
     async with SessionLocal() as session:
