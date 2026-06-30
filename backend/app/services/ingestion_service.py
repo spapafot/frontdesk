@@ -10,7 +10,7 @@ from starlette.concurrency import run_in_threadpool
 from app.core.config import settings
 from app.models.knowledge import KnowledgeDocument
 from app.repositories.knowledge_repository import KnowledgeRepository
-from app.services.embeddings import embed_sync
+from app.services.embeddings import embed_passage_sync
 
 SUPPORTED_EXTENSIONS = {".txt", ".pdf", ".doc", ".docx", ".xls", ".xlsx"}
 
@@ -130,6 +130,20 @@ def extract_text(filename: str, data: bytes) -> str:
     return text
 
 
+def _is_useful_chunk(chunk: str) -> bool:
+    """Drop low-signal chunks that pollute retrieval: near-empty fragments and
+    lines dominated by punctuation/whitespace (e.g. PDF tables-of-contents with
+    dotted leaders and page numbers)."""
+    stripped = chunk.strip()
+    if len(stripped) < 15:
+        return False
+    # Fraction of "real" characters (letters/digits) vs. dots, dashes, spaces.
+    meaningful = sum(1 for c in stripped if c.isalnum())
+    if meaningful / len(stripped) < 0.45:
+        return False
+    return True
+
+
 def chunk_text(
     text: str, size: int | None = None, overlap: int | None = None
 ) -> list[str]:
@@ -158,7 +172,8 @@ def chunk_text(
         while start < len(chunk):
             final.append(chunk[start : start + size])
             start += size - overlap
-    return final
+
+    return [chunk for chunk in final if _is_useful_chunk(chunk)]
 
 
 async def ingest_document(
@@ -178,7 +193,7 @@ async def ingest_document(
     )
 
     for chunk in chunks:
-        embedding = await run_in_threadpool(embed_sync, chunk)
+        embedding = await run_in_threadpool(embed_passage_sync, chunk)
         await repo.add_chunk(
             business_id=business_id,
             document_id=document.id,

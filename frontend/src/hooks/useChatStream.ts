@@ -12,6 +12,9 @@ export interface ChatMessage {
 
 interface Options {
   onConversationCreated?: (id: number) => void;
+  onAssistantStart?: () => void;
+  onAssistantToken?: (delta: string) => void;
+  onAssistantDone?: (text: string) => void;
 }
 
 let counter = 0;
@@ -78,6 +81,9 @@ export function useChatStream(options?: Options) {
       };
       setMessages((prev) => [...prev, userMessage, assistantMessage]);
       setIsStreaming(true);
+      options?.onAssistantStart?.();
+
+      let finalText = "";
 
       const onEvent = (event: StreamEvent) => {
         switch (event.type) {
@@ -99,6 +105,8 @@ export function useChatStream(options?: Options) {
             updateAssistant(assistantId, (m) => ({ ...m, sources: event.sources }));
             break;
           case "token":
+            finalText += event.content;
+            options?.onAssistantToken?.(event.content);
             updateAssistant(assistantId, (m) => ({ ...m, content: m.content + event.content }));
             break;
           case "error":
@@ -108,6 +116,7 @@ export function useChatStream(options?: Options) {
             }));
             break;
           case "done":
+            if (finalText.trim()) options?.onAssistantDone?.(finalText.trim());
             break;
         }
       };

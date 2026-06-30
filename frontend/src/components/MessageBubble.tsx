@@ -3,9 +3,18 @@ import { ChatMessage } from "../hooks/useChatStream";
 interface Props {
   message: ChatMessage;
   showDebug: boolean;
+  onSpeak?: (text: string) => void;
 }
 
-export function MessageBubble({ message, showDebug }: Props) {
+function SpeakerIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="currentColor" aria-hidden="true">
+      <path d="M3 10v4h4l5 5V5L7 10H3zm13.5 2a4.5 4.5 0 0 0-2.5-4.03v8.06A4.5 4.5 0 0 0 16.5 12zM14 3.23v2.06a7 7 0 0 1 0 13.42v2.06a9 9 0 0 0 0-17.54z" />
+    </svg>
+  );
+}
+
+export function MessageBubble({ message, showDebug, onSpeak }: Props) {
   const isUser = message.role === "user";
 
   return (
@@ -26,6 +35,17 @@ export function MessageBubble({ message, showDebug }: Props) {
             </span>
           )}
         </div>
+
+        {!isUser && message.content && onSpeak && (
+          <button
+            type="button"
+            onClick={() => onSpeak(message.content)}
+            title="Play this reply"
+            className="mt-1 inline-flex items-center gap-1 text-xs text-slate-400 transition hover:text-slate-600"
+          >
+            <SpeakerIcon /> Play
+          </button>
+        )}
 
         {showDebug && !isUser && message.toolCalls.length > 0 && (
           <div className="mt-2 space-y-2">

@@ -13,11 +13,25 @@ def _get_model():
     return SentenceTransformer(settings.embedding_model)
 
 
-def embed_sync(text: str) -> list[float]:
+def _encode(text: str) -> list[float]:
     model = _get_model()
     vector = model.encode(text, normalize_embeddings=True)
     return vector.tolist()
 
 
-async def embed(text: str) -> list[float]:
-    return await run_in_threadpool(embed_sync, text)
+def embed_passage_sync(text: str) -> list[float]:
+    """Embed a document/passage. Retrieval models (e.g. e5) expect a prefix."""
+    return _encode(f"{settings.embedding_passage_prefix}{text}")
+
+
+def embed_query_sync(text: str) -> list[float]:
+    """Embed a search query. Retrieval models (e.g. e5) expect a prefix."""
+    return _encode(f"{settings.embedding_query_prefix}{text}")
+
+
+async def embed_query(text: str) -> list[float]:
+    return await run_in_threadpool(embed_query_sync, text)
+
+
+async def embed_passage(text: str) -> list[float]:
+    return await run_in_threadpool(embed_passage_sync, text)

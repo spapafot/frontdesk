@@ -11,7 +11,22 @@ from app.core.db import SessionLocal
 from app.prompts.system_prompt import build_system_prompt
 from app.repositories.business_repository import BusinessRepository
 from app.repositories.conversation_repository import ConversationRepository
-from app.services import tool_service
+from app.services.rag_service import search_knowledge
+
+# Injected just before the user's question so the model answers from retrieved
+# context in a single streaming call (no tool round-trips).
+KB_CONTEXT_TEMPLATE = (
+    "Here is the information available to answer the customer's current question. It may "
+    "come from several sources, be in any order, and include unrelated material - read "
+    "all of it and use the parts that are relevant. Rely ONLY on this information; if the "
+    "answer cannot be determined from it, say you do not have that information."
+    "\n---\n{context}\n---"
+)
+NO_CONTEXT_NOTE = (
+    "No relevant information was found for the customer's current question. If you "
+    "cannot answer it from the earlier conversation, say you do not have that "
+    "information."
+)
 
 
 @lru_cache
@@ -81,13 +96,35 @@ async def stream_chat(
 
         history = await _load_history(conversation_repo, conversation.id)
         messages: list[dict] = [{"role": "system", "content": system_prompt}, *history]
+
+        # RAG-always: retrieve the relevant knowledge up front so the model can answer
+        # in a single streaming call instead of multiple blocking tool round-trips.
+        results = await search_knowledge(session, business.id, message)
+        had_sources = bool(results)
+        sources = [
+            {
+                "title": r.get("title"),
+                "score": r.get("score"),
+                "snippet": (r.get("content") or "")[:200],
+            }
+            for r in results
+        ]
+        if results:
+            context_block = "\n\n".join(
+                f"[{r.get('title') or 'Document'}]\n{r.get('content') or ''}"
+                for r in results
+            )
+            messages.append(
+                {"role": "system", "content": KB_CONTEXT_TEMPLATE.format(context=context_block)}
+            )
+        else:
+            messages.append({"role": "system", "content": NO_CONTEXT_NOTE})
+
         messages.append({"role": "user", "content": message})
         await conversation_repo.add_message(conversation.id, "user", message)
         await session.commit()
 
         client = get_client()
-        sources: list[dict] = []
-        searched = False
 
         # DeepSeek V4 thinking-mode toggle (passed through the OpenAI-compatible API).
         extra_body = {
@@ -95,75 +132,6 @@ async def stream_chat(
         }
 
         try:
-            for _ in range(settings.max_tool_iterations):
-                response = await client.chat.completions.create(
-                    model=settings.deepseek_model,
-                    messages=messages,
-                    tools=tool_service.TOOL_SCHEMAS,
-                    tool_choice="auto",
-                    extra_body=extra_body,
-                )
-                choice = response.choices[0].message
-                if not choice.tool_calls:
-                    break
-
-                messages.append(
-                    {
-                        "role": "assistant",
-                        "content": choice.content or "",
-                        "tool_calls": [
-                            {
-                                "id": tc.id,
-                                "type": "function",
-                                "function": {
-                                    "name": tc.function.name,
-                                    "arguments": tc.function.arguments,
-                                },
-                            }
-                            for tc in choice.tool_calls
-                        ],
-                    }
-                )
-
-                for tool_call in choice.tool_calls:
-                    name = tool_call.function.name
-                    try:
-                        args = json.loads(tool_call.function.arguments or "{}")
-                    except json.JSONDecodeError:
-                        args = {}
-
-                    result = await tool_service.dispatch(
-                        name, args, session, business.id, now
-                    )
-                    yield _sse({"type": "tool_call", "name": name, "arguments": args, "result": result})
-
-                    if name == "search_knowledge_base":
-                        searched = True
-                        for item in result.get("results", []):
-                            sources.append(
-                                {
-                                    "title": item.get("title"),
-                                    "score": item.get("score"),
-                                    "snippet": item.get("content", "")[:200],
-                                }
-                            )
-
-                    messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "content": json.dumps(result, default=str),
-                        }
-                    )
-                    await conversation_repo.add_message(
-                        conversation.id,
-                        "tool",
-                        json.dumps(result, default=str),
-                        tool_name=name,
-                        meta={"arguments": args},
-                    )
-                await session.commit()
-
             if sources:
                 yield _sse({"type": "sources", "sources": sources})
 
@@ -187,9 +155,9 @@ async def stream_chat(
                 "assistant",
                 final_text,
                 meta={
-                    "answered": bool(sources) or not searched,
-                    "searched": searched,
-                    "had_sources": bool(sources),
+                    "answered": had_sources,
+                    "searched": True,
+                    "had_sources": had_sources,
                     "question": message[:500],
                 },
             )

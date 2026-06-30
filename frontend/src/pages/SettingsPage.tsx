@@ -1,6 +1,13 @@
 import { FormEvent, useEffect, useState } from "react";
 import useSWR from "swr";
-import { Settings, getSettings, settingsKey, updateSettings } from "../api/settings";
+import {
+  Settings,
+  SPEED_OPTIONS,
+  VOICE_OPTIONS,
+  getSettings,
+  settingsKey,
+  updateSettings,
+} from "../api/settings";
 
 export function SettingsPage() {
   const { data, error, isLoading, mutate } = useSWR<Settings>(settingsKey, getSettings);
@@ -8,6 +15,8 @@ export function SettingsPage() {
   const [businessName, setBusinessName] = useState("");
   const [assistantName, setAssistantName] = useState("");
   const [customInstructions, setCustomInstructions] = useState("");
+  const [ttsVoice, setTtsVoice] = useState("nova");
+  const [ttsSpeed, setTtsSpeed] = useState(1.1);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -17,6 +26,8 @@ export function SettingsPage() {
       setBusinessName(data.business_name);
       setAssistantName(data.assistant_name);
       setCustomInstructions(data.custom_instructions ?? "");
+      setTtsVoice(data.tts_voice);
+      setTtsSpeed(data.tts_speed);
     }
   }, [data]);
 
@@ -30,6 +41,8 @@ export function SettingsPage() {
         business_name: businessName.trim(),
         assistant_name: assistantName.trim(),
         custom_instructions: customInstructions,
+        tts_voice: ttsVoice,
+        tts_speed: ttsSpeed,
       });
       await mutate(updated, { revalidate: false });
       setSaved(true);
@@ -93,6 +106,42 @@ export function SettingsPage() {
             <p className="mt-1 text-right text-xs text-slate-400">
               {customInstructions.length}/4000
             </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700">Voice</label>
+            <p className="text-xs text-slate-400">
+              The voice used for spoken replies and the "Play" button.
+            </p>
+            <select
+              value={ttsVoice}
+              onChange={(e) => setTtsVoice(e.target.value)}
+              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+            >
+              {VOICE_OPTIONS.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700">
+              Speaking speed
+            </label>
+            <p className="text-xs text-slate-400">How fast spoken replies are played.</p>
+            <select
+              value={ttsSpeed}
+              onChange={(e) => setTtsSpeed(Number(e.target.value))}
+              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+            >
+              {SPEED_OPTIONS.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="flex items-center gap-3">
