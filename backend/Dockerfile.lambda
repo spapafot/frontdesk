@@ -1,0 +1,39 @@
+# FastAPI on AWS Lambda via the Lambda Web Adapter.
+#
+# The Web Adapter is a Lambda extension that speaks the Lambda Runtime API and
+# forwards each invocation to our uvicorn server as a normal HTTP request. This
+# lets the existing app run UNCHANGED and — crucially — supports SSE response
+# streaming (AWS_LWA_INVOKE_MODE=response_stream) when paired with a Function
+# URL whose InvokeMode is RESPONSE_STREAM. (Mangum cannot stream; hence this.)
+FROM public.ecr.aws/docker/library/python:3.12-slim
+
+# Copy the Web Adapter binary in as an external extension.
+COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:0.9.1 /lambda-adapter /opt/extensions/lambda-adapter
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    # Where the adapter forwards requests (must match the uvicorn port below).
+    AWS_LWA_PORT=8000 \
+    # Stream the response body back incrementally instead of buffering it.
+    AWS_LWA_INVOKE_MODE=response_stream \
+    # Wait for the app to be ready on this path before serving invocations.
+    AWS_LWA_READINESS_CHECK_PATH=/health
+
+WORKDIR /app
+
+# antiword extracts text from legacy binary .doc files. No build toolchain is
+# needed since embeddings are API-based (torch removed), keeping the image
+# small enough for Lambda's limits.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends antiword \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --upgrade pip && pip install -r requirements.txt
+
+COPY . .
+
+# One worker: Lambda gives each execution environment a single request at a
+# time, and concurrency scales by spinning up more environments.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
