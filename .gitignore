@@ -1,14 +1,47 @@
-# Python
+# --- Python ---
 __pycache__/
 *.pyc
 .venv/
-backend/.env
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
 
-# Node
+# --- Node / frontend ---
 node_modules/
 frontend/dist/
-frontend/.env
+frontend/dist-widget/
+frontend/coverage/
+*.tsbuildinfo
 
-# Misc
+# --- Cloudflare / Wrangler ---
+.wrangler/
+deploy/cloudflare/worker/.dev.vars
+
+# --- Secrets & local env ---
+# Ignore real env files, but keep the committed *.example / *.dev.vars.example
+# templates (they don't match these patterns).
+.env
+.env.local
+.env.*.local
+backend/.env
+frontend/.env
+deploy/aws/lambda.env
+
+# --- Misc ---
 .DS_Store
 *.log
+
+# llms
+AGENTS.md
+CLAUDE.md
+.codex
+.agents
+.claude
+
+docs/
+deploy/

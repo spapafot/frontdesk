@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import (
@@ -12,6 +12,7 @@ from app.api.routes import (
     voice,
     widget,
 )
+from app.core.auth import EdgeSecretMiddleware, require_admin
 from app.core.config import settings
 
 app = FastAPI(title="AI Assistant")
@@ -29,12 +30,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Added after CORS so it is the OUTER middleware and rejects non-edge traffic
+# before anything else runs (it exempts OPTIONS preflight and /health).
+app.add_middleware(EdgeSecretMiddleware)
+
+# Public routes: reachable by website visitors, authorized by site_key + CORS.
 app.include_router(health.router)
 app.include_router(chat.router)
-app.include_router(knowledge.router)
-app.include_router(settings_routes.router)
-app.include_router(conversations.router)
-app.include_router(analytics.router)
-app.include_router(speech.router)
-app.include_router(voice.router)
 app.include_router(widget.router)
+
+# Admin routes: require a valid Supabase JWT (no-op when auth is disabled in
+# local dev). See app.core.auth.require_admin.
+_admin = [Depends(require_admin)]
+app.include_router(knowledge.router, dependencies=_admin)
+app.include_router(settings_routes.router, dependencies=_admin)
+app.include_router(conversations.router, dependencies=_admin)
+app.include_router(analytics.router, dependencies=_admin)
+
+# Speech + voice power the mic/voice UI. Voice uses a WebSocket, unsupported on
+# Lambda Function URLs, so both are gated behind VOICE_ENABLED (off in the
+# serverless deployment, on in local dev / container hosts).
+if settings.voice_enabled:
+    app.include_router(speech.router)
+    app.include_router(voice.router)

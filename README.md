@@ -6,7 +6,7 @@ question time. The assistant refuses or escalates when the answer is not in your
 documents, and never reveals how it works.
 
 - **Backend:** FastAPI, PostgreSQL + pgvector, SQLAlchemy 2.0 (async), Alembic,
-  DeepSeek (tool calling + streaming), local `sentence-transformers` embeddings.
+  DeepSeek (streaming chat), OpenAI `text-embedding-3-small` embeddings (API-based).
 - **Frontend:** Vite + React + TypeScript + Tailwind. A Chat view and a Knowledge base
   admin view for uploading and managing documents.
 

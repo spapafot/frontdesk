@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     database_url: str = (
         "postgresql+asyncpg://postgres:postgres@localhost:5432/support"
     )
+    # Force pgBouncer-safe connection args (no prepared-statement caching,
+    # NullPool). Auto-enabled when the URL uses Supabase's 6543 pooler port.
+    db_pgbouncer: bool = False
 
     # CORS
     frontend_origin: str = "http://localhost:5173"
@@ -62,6 +65,29 @@ class Settings(BaseSettings):
         extra = [o.strip() for o in self.widget_allowed_origins.split(",") if o.strip()]
         origins.extend(extra)
         return origins
+
+    # --- Production auth (all optional; empty = disabled, so local dev is
+    # unchanged) --------------------------------------------------------------
+    # Shared secret injected by the edge proxy (Cloudflare Worker) on every
+    # request and verified by EdgeSecretMiddleware. Blocks direct hits to the
+    # raw Lambda Function URL. Empty string disables the check.
+    edge_shared_secret: str = ""
+    edge_secret_header: str = "x-edge-secret"
+
+    # Supabase Auth. When ``supabase_jwt_secret`` is set, admin routes require a
+    # valid Supabase-issued JWT (HS256). Empty disables admin auth (dev only).
+    supabase_url: str = ""
+    supabase_jwt_secret: str = ""
+    # Supabase signs user tokens with audience "authenticated".
+    supabase_jwt_audience: str = "authenticated"
+
+    @property
+    def admin_auth_enabled(self) -> bool:
+        return bool(self.supabase_jwt_secret)
+
+    # Feature flags. Voice uses a WebSocket, which AWS Lambda Function URLs do
+    # not support, so it is disabled in the serverless (chat-only) deployment.
+    voice_enabled: bool = True
 
     # Tool loop safety
     max_tool_iterations: int = 5
