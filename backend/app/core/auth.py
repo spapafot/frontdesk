@@ -3,12 +3,12 @@
 Two independent gates, both no-ops when their config is empty so local
 development keeps working unchanged:
 
-1. ``EdgeSecretMiddleware`` — verifies a shared secret that the Cloudflare
+1. ``EdgeSecretMiddleware`` - verifies a shared secret that the Cloudflare
    Worker injects on every request. This proves the request came through the
    edge proxy and blocks anyone hitting the raw Lambda Function URL directly.
    It runs on *all* routes (public and admin) except CORS preflight and health.
 
-2. ``require_admin`` — a FastAPI dependency that verifies a Supabase-issued
+2. ``require_admin`` - a FastAPI dependency that verifies a Supabase-issued
    JWT (HS256). Applied only to admin routers (knowledge, settings,
    conversations, analytics); public chat/widget routes never use it.
 """

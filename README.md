@@ -1,4 +1,4 @@
-# AI Customer Support — Document Knowledge Base
+# AI Customer Support - Document Knowledge Base
 
 A local chat assistant that answers customer questions using ONLY the documents you
 upload. Uploaded files are parsed, chunked, embedded (pgvector), and retrieved at
@@ -32,7 +32,7 @@ docker compose run --rm backend alembic upgrade head
 ```
 
 The API is available at http://localhost:8000 (health check: `/health`). A single
-default business is created automatically on first use — there is no seed data.
+default business is created automatically on first use - there is no seed data.
 
 > Note: embeddings are API-based (OpenAI `text-embedding-3-small`, 1536-dim)
 > all-MiniLM-L6-v2 is used oonly locally and is not downloaded in production
@@ -84,8 +84,8 @@ CI runs both suites on every pull request to `main` (`.github/workflows/ci.yml`)
 
 ## Knowledge base API
 
-- `POST /knowledge/documents` — multipart upload (`file`)
-- `GET /knowledge/documents` — list documents with chunk counts
-- `GET /knowledge/documents/{id}/chunks` — preview a document's chunks
-- `PATCH /knowledge/documents/{id}` — enable/disable (`{"is_active": false}`)
-- `DELETE /knowledge/documents/{id}` — delete a document and its chunks
+- `POST /knowledge/documents` - multipart upload (`file`)
+- `GET /knowledge/documents` - list documents with chunk counts
+- `GET /knowledge/documents/{id}/chunks` - preview a document's chunks
+- `PATCH /knowledge/documents/{id}` - enable/disable (`{"is_active": false}`)
+- `DELETE /knowledge/documents/{id}` - delete a document and its chunks
