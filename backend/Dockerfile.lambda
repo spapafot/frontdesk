@@ -2,7 +2,7 @@
 #
 # The Web Adapter is a Lambda extension that speaks the Lambda Runtime API and
 # forwards each invocation to our uvicorn server as a normal HTTP request. This
-# lets the existing app run UNCHANGED and — crucially — supports SSE response
+# lets the existing app run UNCHANGED and - crucially - supports SSE response
 # streaming (AWS_LWA_INVOKE_MODE=response_stream) when paired with a Function
 # URL whose InvokeMode is RESPONSE_STREAM. (Mangum cannot stream; hence this.)
 FROM public.ecr.aws/docker/library/python:3.12-slim
