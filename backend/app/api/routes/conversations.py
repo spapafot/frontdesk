@@ -2,7 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
-from app.repositories.business_repository import BusinessRepository
+from app.api.dependencies import get_current_profile
+from app.models.profile import AssistantProfile
 from app.repositories.conversation_repository import ConversationRepository
 from app.schemas.conversation import (
     ConversationOut,
@@ -25,11 +26,10 @@ def _to_out(conversation) -> ConversationOut:
     )
 
 
-async def _get_owned(conversation_id: int, session: AsyncSession):
-    business = await BusinessRepository(session).get_or_create_default()
+async def _get_owned(conversation_id: int, profile_id: int, session: AsyncSession):
     repo = ConversationRepository(session)
     conversation = await repo.get(conversation_id)
-    if conversation is None or conversation.business_id != business.id:
+    if conversation is None or conversation.profile_id != profile_id:
         raise HTTPException(status_code=404, detail="Conversation not found.")
     return repo, conversation
 
@@ -37,10 +37,9 @@ async def _get_owned(conversation_id: int, session: AsyncSession):
 @router.get("", response_model=list[ConversationOut])
 async def list_conversations(
     session: AsyncSession = Depends(get_session),
+    profile: AssistantProfile = Depends(get_current_profile),
 ) -> list[ConversationOut]:
-    business = await BusinessRepository(session).get_or_create_default()
-    await session.commit()
-    conversations = await ConversationRepository(session).list_conversations(business.id)
+    conversations = await ConversationRepository(session).list_conversations(profile.id)
     return [_to_out(c) for c in conversations]
 
 
@@ -49,8 +48,9 @@ async def rename_conversation(
     conversation_id: int,
     body: RenameRequest,
     session: AsyncSession = Depends(get_session),
+    profile: AssistantProfile = Depends(get_current_profile),
 ) -> ConversationOut:
-    repo, conversation = await _get_owned(conversation_id, session)
+    repo, conversation = await _get_owned(conversation_id, profile.id, session)
     await repo.rename(conversation, body.title.strip())
     await session.commit()
     return _to_out(conversation)
@@ -58,9 +58,11 @@ async def rename_conversation(
 
 @router.delete("/{conversation_id}", status_code=204)
 async def delete_conversation(
-    conversation_id: int, session: AsyncSession = Depends(get_session)
+    conversation_id: int,
+    session: AsyncSession = Depends(get_session),
+    profile: AssistantProfile = Depends(get_current_profile),
 ) -> None:
-    repo, conversation = await _get_owned(conversation_id, session)
+    repo, conversation = await _get_owned(conversation_id, profile.id, session)
     await repo.delete(conversation)
     await session.commit()
 
@@ -70,8 +72,9 @@ async def rate_conversation(
     conversation_id: int,
     body: RatingRequest,
     session: AsyncSession = Depends(get_session),
+    profile: AssistantProfile = Depends(get_current_profile),
 ) -> ConversationOut:
-    repo, conversation = await _get_owned(conversation_id, session)
+    repo, conversation = await _get_owned(conversation_id, profile.id, session)
     await repo.set_rating(conversation, body.rating)
     await session.commit()
     return _to_out(conversation)
@@ -79,9 +82,11 @@ async def rate_conversation(
 
 @router.get("/{conversation_id}", response_model=ConversationOut)
 async def get_conversation(
-    conversation_id: int, session: AsyncSession = Depends(get_session)
+    conversation_id: int,
+    session: AsyncSession = Depends(get_session),
+    profile: AssistantProfile = Depends(get_current_profile),
 ) -> ConversationOut:
-    repo, conversation = await _get_owned(conversation_id, session)
+    repo, conversation = await _get_owned(conversation_id, profile.id, session)
     if not conversation.summary:
         messages = await repo.get_messages(conversation_id)
         history = [
@@ -99,12 +104,13 @@ async def get_conversation(
 
 @router.get("/{conversation_id}/messages", response_model=list[MessageOut])
 async def get_conversation_messages(
-    conversation_id: int, session: AsyncSession = Depends(get_session)
+    conversation_id: int,
+    session: AsyncSession = Depends(get_session),
+    profile: AssistantProfile = Depends(get_current_profile),
 ) -> list[MessageOut]:
-    business = await BusinessRepository(session).get_or_create_default()
     repo = ConversationRepository(session)
     conversation = await repo.get(conversation_id)
-    if conversation is None or conversation.business_id != business.id:
+    if conversation is None or conversation.profile_id != profile.id:
         raise HTTPException(status_code=404, detail="Conversation not found.")
     messages = await repo.get_messages(conversation_id)
     return [

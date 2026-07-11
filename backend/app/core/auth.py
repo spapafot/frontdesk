@@ -91,6 +91,13 @@ async def require_admin(
             headers={"WWW-Authenticate": "Bearer"},
         ) from exc
 
+    if not claims.get("sub"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token: missing subject.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     return AdminUser(
         subject=claims.get("sub", ""),
         email=claims.get("email"),

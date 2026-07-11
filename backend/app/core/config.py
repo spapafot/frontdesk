@@ -16,14 +16,9 @@ class Settings(BaseSettings):
     # from the knowledge base (lower latency/cost, simpler streaming).
     deepseek_thinking: bool = False
 
-    # OpenAI (speech + embeddings). Uses the real OpenAI API, separate from the
+    # OpenAI embeddings. Uses the real OpenAI API, separate from the
     # DeepSeek-compatible chat client above.
     openai_api_key: str = ""
-    # gpt-4o-mini-transcribe detects language far more reliably than whisper-1
-    # (avoids transcribing accented English into the wrong script).
-    openai_stt_model: str = "gpt-4o-mini-transcribe"
-    openai_tts_model: str = "gpt-4o-mini-tts"
-    openai_tts_voice: str = "alloy"
 
     # Embeddings. API-based OpenAI model (no local PyTorch), so the backend stays
     # small enough for serverless/Lambda. text-embedding-3-small is multilingual
@@ -37,11 +32,6 @@ class Settings(BaseSettings):
     rag_top_k: int = 8
     chunk_size: int = 1200
     chunk_overlap: int = 200
-
-    # Voice replies must come back fast, so they use a much leaner context:
-    # fewer chunks, a shorter slice of history, and a "speak concisely" directive.
-    voice_rag_top_k: int = 5
-    voice_history_messages: int = 6
 
     # Database
     database_url: str = (
@@ -58,6 +48,9 @@ class Settings(BaseSettings):
     # site key still authorizes the tenant). Example:
     #   WIDGET_ALLOWED_ORIGINS=https://acme.com,https://shop.acme.com
     widget_allowed_origins: str = ""
+    widget_session_secret: str = ""
+    widget_session_ttl_seconds: int = 900
+    widget_monthly_limit: int = 5000
 
     @property
     def allowed_origins(self) -> list[str]:
@@ -84,10 +77,6 @@ class Settings(BaseSettings):
     @property
     def admin_auth_enabled(self) -> bool:
         return bool(self.supabase_jwt_secret)
-
-    # Feature flags. Voice uses a WebSocket, which AWS Lambda Function URLs do
-    # not support, so it is disabled in the serverless (chat-only) deployment.
-    voice_enabled: bool = True
 
     # Tool loop safety
     max_tool_iterations: int = 5

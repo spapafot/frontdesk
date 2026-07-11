@@ -8,8 +8,6 @@ from app.api.routes import (
     health,
     knowledge,
     settings as settings_routes,
-    speech,
-    voice,
     widget,
 )
 from app.core.auth import EdgeSecretMiddleware, require_admin
@@ -34,7 +32,7 @@ app.add_middleware(
 # before anything else runs (it exempts OPTIONS preflight and /health).
 app.add_middleware(EdgeSecretMiddleware)
 
-# Public routes: reachable by website visitors, authorized by site_key + CORS.
+# Public routes: widget bootstrap is origin-bound; chat uses signed sessions.
 app.include_router(health.router)
 app.include_router(chat.router)
 app.include_router(widget.router)
@@ -46,10 +44,3 @@ app.include_router(knowledge.router, dependencies=_admin)
 app.include_router(settings_routes.router, dependencies=_admin)
 app.include_router(conversations.router, dependencies=_admin)
 app.include_router(analytics.router, dependencies=_admin)
-
-# Speech + voice power the mic/voice UI. Voice uses a WebSocket, unsupported on
-# Lambda Function URLs, so both are gated behind VOICE_ENABLED (off in the
-# serverless deployment, on in local dev / container hosts).
-if settings.voice_enabled:
-    app.include_router(speech.router)
-    app.include_router(voice.router)

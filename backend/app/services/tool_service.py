@@ -41,13 +41,13 @@ async def dispatch(
     name: str,
     arguments: dict[str, Any],
     session: AsyncSession,
-    business_id: int,
+    profile_id: int,
     now: datetime,
 ) -> dict:
     fn = _REGISTRY.get(name)
     if fn is None:
         return {"error": "unknown_tool", "message": f"Tool '{name}' is not registered."}
     try:
-        return await fn(session, business_id, now, **arguments)
+        return await fn(session, profile_id, now, **arguments)
     except TypeError as exc:
         return {"error": "bad_arguments", "message": str(exc)}

@@ -177,7 +177,7 @@ def chunk_text(
 
 
 async def ingest_document(
-    session: AsyncSession, business_id: int, filename: str, data: bytes
+    session: AsyncSession, profile_id: int, filename: str, data: bytes
 ) -> tuple[KnowledgeDocument, int]:
     ext = _extension(filename)
     text = await run_in_threadpool(extract_text, filename, data)
@@ -185,7 +185,7 @@ async def ingest_document(
 
     repo = KnowledgeRepository(session)
     document = await repo.create_document(
-        business_id=business_id,
+        profile_id=profile_id,
         title=filename,
         type=ext.lstrip("."),
         content=text,
@@ -195,7 +195,7 @@ async def ingest_document(
     for chunk in chunks:
         embedding = await embed_passage(chunk)
         await repo.add_chunk(
-            business_id=business_id,
+            profile_id=profile_id,
             document_id=document.id,
             content=chunk,
             embedding=embedding,

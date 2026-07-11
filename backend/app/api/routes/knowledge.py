@@ -2,7 +2,8 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
-from app.repositories.business_repository import BusinessRepository
+from app.api.dependencies import get_current_profile
+from app.models.profile import AssistantProfile
 from app.repositories.knowledge_repository import KnowledgeRepository
 from app.schemas.knowledge import ChunkOut, DocumentOut, ToggleRequest
 from app.services.ingestion_service import (
@@ -29,10 +30,11 @@ def _to_out(document, chunk_count: int) -> DocumentOut:
 
 
 @router.get("/documents", response_model=list[DocumentOut])
-async def list_documents(session: AsyncSession = Depends(get_session)) -> list[DocumentOut]:
-    business = await BusinessRepository(session).get_or_create_default()
-    await session.commit()
-    rows = await KnowledgeRepository(session).list_documents(business.id)
+async def list_documents(
+    session: AsyncSession = Depends(get_session),
+    profile: AssistantProfile = Depends(get_current_profile),
+) -> list[DocumentOut]:
+    rows = await KnowledgeRepository(session).list_documents(profile.id)
     return [_to_out(doc, count) for doc, count in rows]
 
 
@@ -40,6 +42,7 @@ async def list_documents(session: AsyncSession = Depends(get_session)) -> list[D
 async def upload_document(
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_session),
+    profile: AssistantProfile = Depends(get_current_profile),
 ) -> DocumentOut:
     data = await file.read()
     if not data:
@@ -47,12 +50,9 @@ async def upload_document(
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="File exceeds the 10 MB limit.")
 
-    business = await BusinessRepository(session).get_or_create_default()
-    await session.commit()
-
     try:
         document, chunk_count = await ingest_document(
-            session, business.id, file.filename or "untitled", data
+            session, profile.id, file.filename or "untitled", data
         )
     except UnsupportedFileType as exc:
         raise HTTPException(
@@ -67,11 +67,12 @@ async def upload_document(
 
 @router.get("/documents/{document_id}/chunks", response_model=list[ChunkOut])
 async def preview_chunks(
-    document_id: int, session: AsyncSession = Depends(get_session)
+    document_id: int,
+    session: AsyncSession = Depends(get_session),
+    profile: AssistantProfile = Depends(get_current_profile),
 ) -> list[ChunkOut]:
-    business = await BusinessRepository(session).get_or_create_default()
     repo = KnowledgeRepository(session)
-    document = await repo.get_document(business.id, document_id)
+    document = await repo.get_document(profile.id, document_id)
     if document is None:
         raise HTTPException(status_code=404, detail="Document not found.")
     chunks = await repo.list_chunks(document.id)
@@ -83,25 +84,26 @@ async def toggle_document(
     document_id: int,
     body: ToggleRequest,
     session: AsyncSession = Depends(get_session),
+    profile: AssistantProfile = Depends(get_current_profile),
 ) -> DocumentOut:
-    business = await BusinessRepository(session).get_or_create_default()
     repo = KnowledgeRepository(session)
-    document = await repo.get_document(business.id, document_id)
+    document = await repo.get_document(profile.id, document_id)
     if document is None:
         raise HTTPException(status_code=404, detail="Document not found.")
     await repo.set_active(document, body.is_active)
     await session.commit()
-    rows = {doc.id: count for doc, count in await repo.list_documents(business.id)}
+    rows = {doc.id: count for doc, count in await repo.list_documents(profile.id)}
     return _to_out(document, rows.get(document.id, 0))
 
 
 @router.delete("/documents/{document_id}", status_code=204)
 async def delete_document(
-    document_id: int, session: AsyncSession = Depends(get_session)
+    document_id: int,
+    session: AsyncSession = Depends(get_session),
+    profile: AssistantProfile = Depends(get_current_profile),
 ) -> None:
-    business = await BusinessRepository(session).get_or_create_default()
     repo = KnowledgeRepository(session)
-    document = await repo.get_document(business.id, document_id)
+    document = await repo.get_document(profile.id, document_id)
     if document is None:
         raise HTTPException(status_code=404, detail="Document not found.")
     await repo.delete_document(document)

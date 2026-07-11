@@ -1,17 +1,25 @@
 // Dependency-free chat UI rendered inside the widget iframe. Chat-only over SSE
-// (no voice / WebSocket) to keep the bundle as small as possible.
+// Keep the embeddable widget bundle as small as possible.
 
 interface Params {
-  key: string;
+  token: string;
+  installation: string;
+  origin: string;
+  assistant: string;
+  business: string;
   api: string;
   accent: string;
   greeting: string;
 }
 
 function readParams(): Params {
-  const q = new URLSearchParams(location.search);
+  const q = new URLSearchParams(location.hash.slice(1));
   return {
-    key: q.get("key") || "",
+    token: q.get("token") || "",
+    installation: q.get("installation") || "",
+    origin: q.get("origin") || "",
+    assistant: q.get("assistant") || "Chat",
+    business: q.get("business") || "",
     api: (q.get("api") || "").replace(/\/$/, ""),
     accent: q.get("accent") || "#0284c7",
     greeting: q.get("greeting") || "Hi! How can I help you today?",
@@ -19,15 +27,42 @@ function readParams(): Params {
 }
 
 const params = readParams();
+history.replaceState(null, "", `${location.pathname}${location.search}`);
 document.documentElement.style.setProperty("--accent", params.accent);
 
 const app = document.getElementById("app") as HTMLDivElement;
 let conversationId: number | null = null;
-const convStorageKey = `wx_conv_${params.key}`;
+const convStorageKey = `wx_conv_${params.installation}_${encodeURIComponent(params.origin)}`;
 const stored = Number(localStorage.getItem(convStorageKey));
 if (Number.isFinite(stored) && stored > 0) conversationId = stored;
 
 let streaming = false;
+let widgetToken = params.token;
+let refreshResolver: ((token: string | null) => void) | null = null;
+
+window.addEventListener("message", (event) => {
+  if (
+    event.origin === params.origin &&
+    event.source === parent &&
+    event.data?.type === "wx-session"
+  ) {
+    refreshResolver?.(event.data.token || null);
+    refreshResolver = null;
+  }
+});
+
+function refreshToken(): Promise<string | null> {
+  return new Promise((resolve) => {
+    refreshResolver = resolve;
+    parent.postMessage({ type: "wx-refresh" }, params.origin);
+    setTimeout(() => {
+      if (refreshResolver === resolve) {
+        refreshResolver = null;
+        resolve(null);
+      }
+    }, 10000);
+  });
+}
 
 app.innerHTML = `
   <header class="wx-header">
@@ -52,7 +87,7 @@ const inputEl = document.getElementById("wx-input") as HTMLInputElement;
 const sendEl = document.getElementById("wx-send") as HTMLButtonElement;
 
 document.getElementById("wx-close")?.addEventListener("click", () => {
-  parent.postMessage({ type: "wx-close" }, "*");
+  parent.postMessage({ type: "wx-close" }, params.origin);
 });
 
 function scrollToBottom() {
@@ -69,28 +104,13 @@ function addBubble(role: "user" | "assistant", text: string): HTMLDivElement {
 }
 
 async function loadConfig() {
-  if (!params.key) {
+  if (!params.token) {
     titleEl.textContent = "Configuration error";
     subtitleEl.textContent = "Missing site key";
     return;
   }
-  try {
-    const res = await fetch(
-      `${params.api}/widget/config?key=${encodeURIComponent(params.key)}`
-    );
-    if (res.ok) {
-      const cfg = (await res.json()) as {
-        assistant_name: string;
-        business_name: string;
-      };
-      titleEl.textContent = cfg.assistant_name || "Chat";
-      subtitleEl.textContent = cfg.business_name || "";
-    } else {
-      titleEl.textContent = "Chat";
-    }
-  } catch {
-    titleEl.textContent = "Chat";
-  }
+  titleEl.textContent = params.assistant;
+  subtitleEl.textContent = params.business;
 }
 
 function setStreaming(value: boolean) {
@@ -111,15 +131,23 @@ async function send(text: string) {
   let answer = "";
 
   try {
-    const res = await fetch(`${params.api}/chat/stream`, {
+    const request = () => fetch(`${params.api}/chat/stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         message: trimmed,
         conversation_id: conversationId,
-        site_key: params.key,
+        widget_token: widgetToken,
       }),
     });
+    let res = await request();
+    if (res.status === 401) {
+      const refreshed = await refreshToken();
+      if (refreshed) {
+        widgetToken = refreshed;
+        res = await request();
+      }
+    }
     if (!res.ok || !res.body) throw new Error(`Request failed (${res.status})`);
 
     const reader = res.body.getReader();

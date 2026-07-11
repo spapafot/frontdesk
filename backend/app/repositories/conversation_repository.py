@@ -13,17 +13,17 @@ class ConversationRepository:
     async def get(self, conversation_id: int) -> Conversation | None:
         return await self.session.get(Conversation, conversation_id)
 
-    async def list_conversations(self, business_id: int) -> list[Conversation]:
+    async def list_conversations(self, profile_id: int) -> list[Conversation]:
         stmt = (
             select(Conversation)
-            .where(Conversation.business_id == business_id)
+            .where(Conversation.profile_id == profile_id)
             .order_by(Conversation.id.desc())
         )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
-    async def create(self, business_id: int, channel: str = "chat") -> Conversation:
-        conversation = Conversation(business_id=business_id, channel=channel)
+    async def create(self, profile_id: int, channel: str = "chat") -> Conversation:
+        conversation = Conversation(profile_id=profile_id, channel=channel)
         self.session.add(conversation)
         await self.session.flush()
         return conversation

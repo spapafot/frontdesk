@@ -14,14 +14,14 @@ def _distance_to_score(distance: float) -> float:
 
 
 async def search_knowledge(
-    session: AsyncSession, business_id: int, query: str, limit: int | None = None
+    session: AsyncSession, profile_id: int, query: str, limit: int | None = None
 ) -> list[dict]:
     """Embed the query and return the most relevant knowledge chunks."""
     if limit is None:
         limit = settings.rag_top_k
     query_embedding = await embed_query(query)
     repo = KnowledgeRepository(session)
-    rows = await repo.search(business_id, query_embedding, limit=limit)
+    rows = await repo.search(profile_id, query_embedding, limit=limit)
 
     results: list[dict] = []
     for chunk, title, distance in rows:

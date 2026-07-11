@@ -7,6 +7,7 @@ tests of ``require_admin``.
 """
 
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import jwt
 import pytest
@@ -29,6 +30,18 @@ def settings(monkeypatch):
     """The live settings singleton. Tests mutate it via ``monkeypatch.setattr``
     so changes are reverted automatically after each test."""
     return app_settings
+
+
+@pytest.fixture(autouse=True)
+def no_database_profile(monkeypatch):
+    """HTTP/auth tests should not require a migrated local Postgres database."""
+    async def _profile(self, owner_user_id, email=None):
+        return SimpleNamespace(id=7, owner_user_id=owner_user_id)
+
+    monkeypatch.setattr(
+        "app.repositories.profile_repository.ProfileRepository.get_or_create_for_owner",
+        _profile,
+    )
 
 
 def make_jwt(

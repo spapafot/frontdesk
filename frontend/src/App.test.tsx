@@ -1,14 +1,13 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { SWRConfig } from "swr";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
 import App from "./App";
 
 const SETTINGS = {
   business_name: "Acme Support",
   assistant_name: "Aria",
   custom_instructions: null,
-  tts_voice: "alloy",
-  tts_speed: 1.0,
   public_key: "pk_live_test",
 };
 
@@ -60,5 +59,12 @@ describe("App shell", () => {
     renderApp();
     expect(await screen.findByText(/knowledge/i)).toBeInTheDocument();
     expect(screen.getByText(/settings/i)).toBeInTheDocument();
+    expect(screen.queryByText(/^voice$/i)).not.toBeInTheDocument();
+  });
+
+  it("renders settings when optional widget usage values are missing", async () => {
+    renderApp();
+    await userEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    expect(await screen.findByText("0 of 0 messages used this month")).toBeInTheDocument();
   });
 });

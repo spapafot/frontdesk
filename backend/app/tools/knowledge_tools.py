@@ -6,10 +6,10 @@ from app.services.rag_service import search_knowledge
 
 
 async def search_knowledge_base(
-    session: AsyncSession, business_id: int, now: datetime, query: str
+    session: AsyncSession, profile_id: int, now: datetime, query: str
 ) -> dict:
     """Semantic search over the business knowledge base (policies, FAQs)."""
-    results = await search_knowledge(session, business_id, query)
+    results = await search_knowledge(session, profile_id, query)
     if not results:
         return {"results": [], "note": "No knowledge base entries found."}
     return {"results": results}

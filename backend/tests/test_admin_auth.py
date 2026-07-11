@@ -82,3 +82,11 @@ async def test_missing_token_rejected_when_enabled(settings, monkeypatch):
     with pytest.raises(HTTPException) as exc:
         await require_admin(credentials=None)
     assert exc.value.status_code == 401
+
+
+async def test_token_without_subject_is_rejected(settings, monkeypatch):
+    monkeypatch.setattr(settings, "supabase_jwt_secret", JWT_SECRET)
+    token = make_jwt(JWT_SECRET, sub="")
+    with pytest.raises(HTTPException) as exc:
+        await require_admin(credentials=_creds(token))
+    assert exc.value.status_code == 401
