@@ -1,13 +1,11 @@
-# Embedded AI Customer Support
+# Frontdesk
 
-A production-oriented customer support assistant that answers from a company's own
+Frontdesk is a customer support assistant that answers from a company's own
 documents and can be embedded on an authorized website with a script tag.
 
 The application combines a React administration workspace, multilingual streaming
 chat, document ingestion, retrieval-augmented generation, an isolated iframe widget,
-and a serverless deployment architecture. Answers are grounded in uploaded material;
-when the knowledge base does not contain the answer, the assistant says so instead of
-inventing one.
+and a serverless deployment architecture.
 
 ## Product
 
