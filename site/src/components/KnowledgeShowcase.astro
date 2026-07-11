@@ -1,0 +1,53 @@
+---
+import DeviceFrame from "./DeviceFrame.astro";
+
+const documents = [
+  { title: "Shipping & Delivery.pdf", chunks: 42, active: true },
+  { title: "Billing FAQ.docx", chunks: 28, active: true },
+  { title: "Return policy.txt", chunks: 11, active: true },
+  { title: "Price list 2023.xlsx", chunks: 63, active: false },
+];
+---
+
+<DeviceFrame label="Knowledge base">
+  <div class="space-y-4 p-5">
+    <div
+      class="rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 p-5 text-center"
+    >
+      <span class="inline-flex rounded-full bg-sky-600 px-4 py-2 text-sm font-medium text-white">
+        Choose files to upload
+      </span>
+      <p class="mt-2 text-xs text-slate-400">PDF, DOC, DOCX, TXT, XLS, XLSX · up to 10 MB</p>
+    </div>
+    <table class="w-full border-collapse text-sm">
+      <thead>
+        <tr class="border-b border-slate-200 text-left text-xs uppercase text-slate-400">
+          <th class="py-2">Title</th>
+          <th class="py-2">Chunks</th>
+          <th class="py-2 text-right">Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {
+          documents.map((doc) => (
+            <tr class="border-b border-slate-100">
+              <td class="py-2 pr-2 font-medium text-slate-800">{doc.title}</td>
+              <td class="py-2 pr-2 text-slate-500">{doc.chunks}</td>
+              <td class="py-2 text-right">
+                <span
+                  class={`rounded-full px-2 py-0.5 text-xs ${
+                    doc.active
+                      ? "bg-emerald-100 text-emerald-700"
+                      : "bg-slate-100 text-slate-500"
+                  }`}
+                >
+                  {doc.active ? "Active" : "Inactive"}
+                </span>
+              </td>
+            </tr>
+          ))
+        }
+      </tbody>
+    </table>
+  </div>
+</DeviceFrame>

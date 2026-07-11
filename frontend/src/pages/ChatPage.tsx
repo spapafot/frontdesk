@@ -40,7 +40,7 @@ export function ChatPage({
         <div className="mx-auto flex w-full max-w-2xl items-center justify-between px-4 py-3">
         <div>
           <h1 className="text-sm font-semibold text-slate-800">
-            {settings?.assistant_name ?? "Frontdesk"}
+            {settings?.assistant_name ?? "Plug & Play"}
           </h1>
           <p className="text-xs text-slate-500">
             {settings ? settings.business_name : "Ask about anything in our knowledge base"}

@@ -21,10 +21,12 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
 
     # Embeddings. API-based OpenAI model (no local PyTorch), so the backend stays
-    # small enough for serverless/Lambda. text-embedding-3-small is multilingual
-    # and returns 1536-dim vectors. Changing this requires a pgvector column
-    # migration + a full re-index of existing documents.
-    openai_embedding_model: str = "text-embedding-3-small"
+    # small enough for serverless/Lambda. text-embedding-3-large is multilingual
+    # and defaults to 3072-dim vectors, but we request 1536 dims explicitly (via
+    # the `dimensions` API param) to keep the pgvector column size unchanged.
+    # Changing embedding_dim requires a pgvector column migration + a full
+    # re-index of existing documents.
+    openai_embedding_model: str = "text-embedding-3-large"
     embedding_dim: int = 1536
 
     # Retrieval / chunking. Kept modest so the injected context stays small and

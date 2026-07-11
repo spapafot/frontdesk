@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <rect width="1200" height="630" fill="#ffffff" />
+  <rect width="1200" height="630" fill="url(#g)" />
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f0f9ff" />
+      <stop offset="1" stop-color="#ffffff" />
+    </linearGradient>
+  </defs>
+  <g transform="translate(96 150)">
+    <rect width="88" height="88" rx="20" fill="#0284c7" />
+    <path d="M25 55a14 14 0 0 0 14 14h3v-9h-3a5 5 0 0 1 0-10h3v-9h-3a14 14 0 0 0-14 14z" fill="#fff" />
+    <path d="M63 33a14 14 0 0 0-14-14h-3v9h3a5 5 0 0 1 0 10h-3v9h3a14 14 0 0 0 14-14z" fill="#fff" />
+    <rect x="38" y="40" width="12" height="8" rx="3" fill="#fff" />
+  </g>
+  <text x="200" y="212" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="52" font-weight="700" fill="#0f172a">Plug &amp; Play</text>
+  <text x="96" y="360" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="64" font-weight="700" fill="#020617">Answers your customers</text>
+  <text x="96" y="436" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="64" font-weight="700" fill="#020617">can trust, right on your site.</text>
+  <text x="96" y="512" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="32" fill="#475569">Customer support, grounded in your own documents.</text>
+</svg>

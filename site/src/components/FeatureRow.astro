@@ -1,0 +1,40 @@
+---
+interface Props {
+  eyebrow: string;
+  title: string;
+  body: string;
+  bullets?: string[];
+  reverse?: boolean;
+  tone: "light" | "muted";
+}
+const { eyebrow, title, body, bullets = [], reverse = false, tone } = Astro.props;
+---
+
+<section class={tone === "muted" ? "bg-slate-50" : "bg-white"}>
+  <div class="mx-auto grid max-w-6xl items-center gap-12 px-6 py-20 md:grid-cols-2 lg:gap-16">
+    <div class={reverse ? "md:order-2" : "md:order-1"}>
+      <p class="text-sm font-semibold uppercase tracking-widest text-sky-700">{eyebrow}</p>
+      <h2 class="mt-4 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
+        {title}
+      </h2>
+      <p class="mt-5 text-lg leading-8 text-slate-600">{body}</p>
+      {
+        bullets.length > 0 && (
+          <ul class="mt-6 space-y-3">
+            {bullets.map((item) => (
+              <li class="flex items-start gap-3 text-slate-700">
+                <span class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-sky-100 text-xs font-bold text-sky-700">
+                  ✓
+                </span>
+                <span class="leading-7">{item}</span>
+              </li>
+            ))}
+          </ul>
+        )
+      }
+    </div>
+    <div class={reverse ? "md:order-1" : "md:order-2"}>
+      <slot />
+    </div>
+  </div>
+</section>

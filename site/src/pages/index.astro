@@ -1,0 +1,183 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import FeatureRow from "../components/FeatureRow.astro";
+import ChatShowcase from "../components/ChatShowcase.astro";
+import KnowledgeShowcase from "../components/KnowledgeShowcase.astro";
+import InstallShowcase from "../components/InstallShowcase.astro";
+import AnalyticsShowcase from "../components/AnalyticsShowcase.astro";
+import { SITE, NAV } from "../config";
+
+// Full schema markup for the home page: the responsible organisation, the
+// website, and the product itself.
+const schema = [
+  {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    name: SITE.name,
+    url: SITE.url,
+    logo: new URL("/favicon.svg", SITE.url).href,
+    description: SITE.description,
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: SITE.name,
+    url: SITE.url,
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    name: SITE.name,
+    applicationCategory: "BusinessApplication",
+    operatingSystem: "Web",
+    description: SITE.description,
+    url: SITE.url,
+  },
+];
+---
+
+<BaseLayout title={SITE.name} description={SITE.description} path="/" schema={schema}>
+  <!-- Hero- the main selling point, shown as much as told. -->
+  <section class="relative overflow-hidden border-b border-slate-200 bg-white">
+    <div
+      aria-hidden="true"
+      class="pointer-events-none absolute inset-x-0 -top-32 h-72 bg-gradient-to-b from-sky-50 to-transparent"
+    >
+    </div>
+    <div
+      class="relative mx-auto grid max-w-6xl items-center gap-14 px-6 py-20 sm:py-28 lg:grid-cols-2"
+    >
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-widest text-sky-700">
+          Customer support, grounded in your own documents
+        </p>
+        <h1 class="mt-5 text-4xl font-semibold tracking-tight text-slate-950 sm:text-6xl">
+          Answers your customers can trust, right on your website.
+        </h1>
+        <p class="mt-6 max-w-xl text-lg leading-8 text-slate-600">
+          {SITE.name} turns the documents you already have into a support assistant that
+          replies in your customer's language- and only from what you've approved. Drop in
+          one line of code and it's live.
+        </p>
+        <div class="mt-9 flex flex-wrap items-center gap-4">
+          <a
+            href={NAV.register}
+            class="inline-flex rounded-lg bg-sky-600 px-5 py-3 text-sm font-medium text-white transition hover:bg-sky-700"
+          >
+            Go to your workspace
+          </a>
+          <a
+            href="#features"
+            class="inline-flex rounded-lg border border-slate-300 bg-white px-5 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+          >
+            See how it works
+          </a>
+        </div>
+      </div>
+      <div class="lg:pl-6">
+        <ChatShowcase
+          label="assistant.yoursite.com"
+          question="Do you ship to Canada, and how long does it take?"
+          answer="Yes- we ship to Canada. Standard delivery is 5–7 business days, and express is 2–3 business days."
+          source={{
+            title: "Shipping & Delivery.pdf",
+            score: 0.94,
+            snippet: "International orders to Canada arrive within 5–7 business days...",
+          }}
+        />
+      </div>
+    </div>
+  </section>
+
+  <div id="features">
+    <!-- 1 · text left, content right -->
+    <FeatureRow
+      tone="light"
+      eyebrow="Grounded, multilingual chat"
+      title="It answers from your knowledge- not guesswork."
+      body="Every reply is retrieved from the documents you uploaded and streamed back in the visitor's own language. When the answer isn't in your knowledge base, the assistant says so instead of inventing one."
+      bullets={[
+        "Replies in the language the customer writes in",
+        "Shows the exact source passage behind each answer",
+        "Streams responses in real time",
+      ]}
+    >
+      <ChatShowcase
+        label="assistant.yoursite.com"
+        question="¿Puedo cambiar mi plan a mitad de mes?"
+        answer="Sí. Puedes cambiar de plan en cualquier momento y solo pagarás la diferencia prorrateada del mes en curso."
+        source={{
+          title: "Billing FAQ.docx",
+          score: 0.91,
+          snippet:
+            "Plan changes take effect immediately and are prorated for the current billing period.",
+        }}
+      />
+    </FeatureRow>
+
+    <!-- 2 · text right, content left -->
+    <FeatureRow
+      tone="muted"
+      reverse
+      eyebrow="Document knowledge base"
+      title="Upload what you know. That's the setup."
+      body="Add PDFs, Word files, spreadsheets, or plain text. Plug & Play extracts and indexes them into searchable chunks. Disable a document to take it out of answers, or remove it entirely- no re-uploading to update."
+      bullets={[
+        "PDF, DOC, DOCX, TXT, XLS, and XLSX",
+        "See how many chunks each file produced",
+        "Turn sources on or off without deleting them",
+      ]}
+    >
+      <KnowledgeShowcase />
+    </FeatureRow>
+
+    <!-- 3 · text left, content right -->
+    <FeatureRow
+      tone="light"
+      eyebrow="Secure website installation"
+      title="One line of code, on the site you authorize."
+      body="Paste a single script tag before your closing body tag and the assistant appears in an isolated widget. It runs only on the exact origin you approve, with signed sessions and a site key you can rotate at any time."
+      bullets={[
+        "Isolated widget that won't touch your page styles",
+        "Locked to the one origin you authorize",
+        "Rotate the site key whenever you need to",
+      ]}
+    >
+      <InstallShowcase />
+    </FeatureRow>
+
+    <!-- 4 · text right, content left -->
+    <FeatureRow
+      tone="muted"
+      reverse
+      eyebrow="Analytics & feedback"
+      title="See what customers ask- and what you're missing."
+      body="Review every conversation, track helpful and unhelpful ratings, and surface the questions your knowledge base couldn't answer. Each gap is a clear signal for the next document to add."
+      bullets={[
+        "Volume, ratings, and 7-day trends at a glance",
+        "A running list of unanswered questions",
+        "Open any conversation to read the full transcript",
+      ]}
+    >
+      <AnalyticsShowcase />
+    </FeatureRow>
+  </div>
+
+  <!-- Closing call to action -->
+  <section class="border-t border-slate-200 bg-white">
+    <div class="mx-auto max-w-6xl px-6 py-20 text-center">
+      <h2 class="text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
+        Your documents already have the answers.
+      </h2>
+      <p class="mx-auto mt-4 max-w-2xl text-lg leading-8 text-slate-600">
+        Give your customers a faster way to reach them.
+      </p>
+      <a
+        href={NAV.register}
+        class="mt-8 inline-flex rounded-lg bg-sky-600 px-6 py-3 text-sm font-medium text-white transition hover:bg-sky-700"
+      >
+        Go to your workspace
+      </a>
+    </div>
+  </section>
+</BaseLayout>
