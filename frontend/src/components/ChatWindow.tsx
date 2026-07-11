@@ -5,10 +5,9 @@ import { MessageBubble } from "./MessageBubble";
 interface Props {
   messages: ChatMessage[];
   showDebug: boolean;
-  onSpeak?: (text: string) => void;
 }
 
-export function ChatWindow({ messages, showDebug, onSpeak }: Props) {
+export function ChatWindow({ messages, showDebug }: Props) {
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -31,7 +30,6 @@ export function ChatWindow({ messages, showDebug, onSpeak }: Props) {
             key={message.id}
             message={message}
             showDebug={showDebug}
-            onSpeak={onSpeak}
           />
         ))}
         <div ref={endRef} />

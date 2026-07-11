@@ -12,9 +12,6 @@ export interface ChatMessage {
 
 interface Options {
   onConversationCreated?: (id: number) => void;
-  onAssistantStart?: () => void;
-  onAssistantToken?: (delta: string) => void;
-  onAssistantDone?: (text: string) => void;
 }
 
 let counter = 0;
@@ -23,7 +20,6 @@ const nextId = () => `${Date.now()}-${counter++}`;
 export function useChatStream(options?: Options) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
-  const [conversationId, setConversationId] = useState<number | null>(null);
   const conversationRef = useRef<number | null>(null);
 
   const updateAssistant = useCallback(
@@ -36,7 +32,6 @@ export function useChatStream(options?: Options) {
   const setConversation = useCallback(async (id: number | null) => {
     if (id === conversationRef.current) return;
     conversationRef.current = id;
-    setConversationId(id);
     if (id === null) {
       setMessages([]);
       return;
@@ -58,7 +53,7 @@ export function useChatStream(options?: Options) {
   }, []);
 
   const send = useCallback(
-    async (text: string, opts?: { voice?: boolean }) => {
+    async (text: string) => {
       const trimmed = text.trim();
       if (!trimmed || isStreaming) return;
 
@@ -81,15 +76,11 @@ export function useChatStream(options?: Options) {
       };
       setMessages((prev) => [...prev, userMessage, assistantMessage]);
       setIsStreaming(true);
-      options?.onAssistantStart?.();
-
-      let finalText = "";
 
       const onEvent = (event: StreamEvent) => {
         switch (event.type) {
           case "conversation":
             conversationRef.current = event.conversation_id;
-            setConversationId(event.conversation_id);
             if (wasNew) options?.onConversationCreated?.(event.conversation_id);
             break;
           case "tool_call":
@@ -105,8 +96,6 @@ export function useChatStream(options?: Options) {
             updateAssistant(assistantId, (m) => ({ ...m, sources: event.sources }));
             break;
           case "token":
-            finalText += event.content;
-            options?.onAssistantToken?.(event.content);
             updateAssistant(assistantId, (m) => ({ ...m, content: m.content + event.content }));
             break;
           case "error":
@@ -116,14 +105,13 @@ export function useChatStream(options?: Options) {
             }));
             break;
           case "done":
-            if (finalText.trim()) options?.onAssistantDone?.(finalText.trim());
             break;
         }
       };
 
       try {
         await streamChat(
-          { message: trimmed, conversationId: conversationRef.current, voice: opts?.voice },
+          { message: trimmed, conversationId: conversationRef.current },
           onEvent
         );
       } catch (err) {
@@ -138,5 +126,5 @@ export function useChatStream(options?: Options) {
     [isStreaming, options, updateAssistant]
   );
 
-  return { messages, isStreaming, send, conversationId, setConversation };
+  return { messages, isStreaming, send, setConversation };
 }

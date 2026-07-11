@@ -40,7 +40,7 @@ async def main() -> None:
             chunks = chunk_text(document.content)
             for chunk in chunks:
                 await repo.add_chunk(
-                    business_id=document.business_id,
+                    profile_id=document.profile_id,
                     document_id=document.id,
                     content=chunk,
                     embedding=embed_passage_sync(chunk),

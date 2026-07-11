@@ -21,20 +21,20 @@ class KnowledgeRepository:
         return chunk
 
     async def get_document(
-        self, business_id: int, document_id: int
+        self, profile_id: int, document_id: int
     ) -> KnowledgeDocument | None:
         document = await self.session.get(KnowledgeDocument, document_id)
-        if document is None or document.business_id != business_id:
+        if document is None or document.profile_id != profile_id:
             return None
         return document
 
-    async def list_documents(self, business_id: int) -> list[tuple[KnowledgeDocument, int]]:
+    async def list_documents(self, profile_id: int) -> list[tuple[KnowledgeDocument, int]]:
         """Return (document, chunk_count) tuples for the business, newest first."""
         chunk_count = func.count(KnowledgeChunk.id)
         stmt = (
             select(KnowledgeDocument, chunk_count)
             .outerjoin(KnowledgeChunk, KnowledgeChunk.document_id == KnowledgeDocument.id)
-            .where(KnowledgeDocument.business_id == business_id)
+            .where(KnowledgeDocument.profile_id == profile_id)
             .group_by(KnowledgeDocument.id)
             .order_by(KnowledgeDocument.id.desc())
         )
@@ -62,7 +62,7 @@ class KnowledgeRepository:
         await self.session.flush()
 
     async def search(
-        self, business_id: int, embedding: list[float], limit: int = 4
+        self, profile_id: int, embedding: list[float], limit: int = 4
     ) -> list[tuple[KnowledgeChunk, str, float]]:
         """Return (chunk, document_title, distance) ordered by cosine distance."""
         distance = KnowledgeChunk.embedding.cosine_distance(embedding)
@@ -70,7 +70,7 @@ class KnowledgeRepository:
             select(KnowledgeChunk, KnowledgeDocument.title, distance.label("distance"))
             .join(KnowledgeDocument, KnowledgeChunk.document_id == KnowledgeDocument.id)
             .where(
-                KnowledgeChunk.business_id == business_id,
+                KnowledgeChunk.profile_id == profile_id,
                 KnowledgeDocument.is_active.is_(True),
             )
             .order_by(distance)

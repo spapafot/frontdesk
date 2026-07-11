@@ -23,12 +23,10 @@ export type StreamEvent =
 export interface ChatRequest {
   message: string;
   conversationId: number | null;
-  businessId?: number | null;
-  voice?: boolean;
 }
 
 export async function streamChat(
-  { message, conversationId, businessId, voice }: ChatRequest,
+  { message, conversationId }: ChatRequest,
   onEvent: (event: StreamEvent) => void,
   signal?: AbortSignal
 ): Promise<void> {
@@ -38,8 +36,6 @@ export async function streamChat(
     body: JSON.stringify({
       message,
       conversation_id: conversationId,
-      business_id: businessId ?? null,
-      voice: voice ?? false,
     }),
     signal,
   });

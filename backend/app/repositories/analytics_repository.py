@@ -10,24 +10,24 @@ class AnalyticsRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def overview(self, business_id: int) -> dict:
+    async def overview(self, profile_id: int) -> dict:
         total = await self.session.scalar(
             select(func.count(Conversation.id)).where(
-                Conversation.business_id == business_id
+                Conversation.profile_id == profile_id
             )
         )
 
         week_ago = datetime.now(timezone.utc) - timedelta(days=7)
         last_7_days = await self.session.scalar(
             select(func.count(Conversation.id)).where(
-                Conversation.business_id == business_id,
+                Conversation.profile_id == profile_id,
                 Conversation.started_at >= week_ago,
             )
         )
 
         rating_rows = await self.session.execute(
             select(Conversation.rating, func.count(Conversation.id))
-            .where(Conversation.business_id == business_id)
+            .where(Conversation.profile_id == profile_id)
             .group_by(Conversation.rating)
         )
         ratings = {"up": 0, "down": 0, "none": 0}
@@ -45,7 +45,7 @@ class AnalyticsRepository:
             "ratings": ratings,
         }
 
-    async def unanswered(self, business_id: int, limit: int = 100) -> list[dict]:
+    async def unanswered(self, profile_id: int, limit: int = 100) -> list[dict]:
         """Assistant turns that searched the knowledge base but found nothing."""
         stmt = (
             select(
@@ -55,7 +55,7 @@ class AnalyticsRepository:
             )
             .join(Conversation, Conversation.id == ConversationMessage.conversation_id)
             .where(
-                Conversation.business_id == business_id,
+                Conversation.profile_id == profile_id,
                 ConversationMessage.role == "assistant",
                 ConversationMessage.meta["searched"].astext == "true",
                 ConversationMessage.meta["had_sources"].astext == "false",

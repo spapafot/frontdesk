@@ -16,14 +16,9 @@ class Settings(BaseSettings):
     # from the knowledge base (lower latency/cost, simpler streaming).
     deepseek_thinking: bool = False
 
-    # OpenAI (speech + embeddings). Uses the real OpenAI API, separate from the
+    # OpenAI embeddings. Uses the real OpenAI API, separate from the
     # DeepSeek-compatible chat client above.
     openai_api_key: str = ""
-    # gpt-4o-mini-transcribe detects language far more reliably than whisper-1
-    # (avoids transcribing accented English into the wrong script).
-    openai_stt_model: str = "gpt-4o-mini-transcribe"
-    openai_tts_model: str = "gpt-4o-mini-tts"
-    openai_tts_voice: str = "alloy"
 
     # Embeddings. API-based OpenAI model (no local PyTorch), so the backend stays
     # small enough for serverless/Lambda. text-embedding-3-small is multilingual
@@ -38,15 +33,13 @@ class Settings(BaseSettings):
     chunk_size: int = 1200
     chunk_overlap: int = 200
 
-    # Voice replies must come back fast, so they use a much leaner context:
-    # fewer chunks, a shorter slice of history, and a "speak concisely" directive.
-    voice_rag_top_k: int = 5
-    voice_history_messages: int = 6
-
     # Database
     database_url: str = (
         "postgresql+asyncpg://postgres:postgres@localhost:5432/support"
     )
+    # Force pgBouncer-safe connection args (no prepared-statement caching,
+    # NullPool). Auto-enabled when the URL uses Supabase's 6543 pooler port.
+    db_pgbouncer: bool = False
 
     # CORS
     frontend_origin: str = "http://localhost:5173"
@@ -55,6 +48,9 @@ class Settings(BaseSettings):
     # site key still authorizes the tenant). Example:
     #   WIDGET_ALLOWED_ORIGINS=https://acme.com,https://shop.acme.com
     widget_allowed_origins: str = ""
+    widget_session_secret: str = ""
+    widget_session_ttl_seconds: int = 900
+    widget_monthly_limit: int = 5000
 
     @property
     def allowed_origins(self) -> list[str]:
@@ -62,6 +58,25 @@ class Settings(BaseSettings):
         extra = [o.strip() for o in self.widget_allowed_origins.split(",") if o.strip()]
         origins.extend(extra)
         return origins
+
+    # --- Production auth (all optional; empty = disabled, so local dev is
+    # unchanged) --------------------------------------------------------------
+    # Shared secret injected by the edge proxy (Cloudflare Worker) on every
+    # request and verified by EdgeSecretMiddleware. Blocks direct hits to the
+    # raw Lambda Function URL. Empty string disables the check.
+    edge_shared_secret: str = ""
+    edge_secret_header: str = "x-edge-secret"
+
+    # Supabase Auth. When ``supabase_jwt_secret`` is set, admin routes require a
+    # valid Supabase-issued JWT (HS256). Empty disables admin auth (dev only).
+    supabase_url: str = ""
+    supabase_jwt_secret: str = ""
+    # Supabase signs user tokens with audience "authenticated".
+    supabase_jwt_audience: str = "authenticated"
+
+    @property
+    def admin_auth_enabled(self) -> bool:
+        return bool(self.supabase_jwt_secret)
 
     # Tool loop safety
     max_tool_iterations: int = 5

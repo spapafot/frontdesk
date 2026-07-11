@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ConversationSummary } from "../api/conversations";
 import { ConfirmDialog } from "./ConfirmDialog";
 
-export type View = "chat" | "voice" | "admin" | "settings" | "analytics";
+export type View = "chat" | "admin" | "settings" | "analytics";
 
 interface Props {
   conversations: ConversationSummary[] | undefined;
@@ -152,17 +152,6 @@ export function Sidebar({
       </div>
 
       <div className="border-t border-slate-200 p-2">
-        <button
-          type="button"
-          onClick={() => onNavigate("voice")}
-          className={`mb-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition ${
-            view === "voice"
-              ? "bg-sky-100 text-sky-800"
-              : "text-slate-600 hover:bg-slate-200"
-          }`}
-        >
-          Voice
-        </button>
         <button
           type="button"
           onClick={() => onNavigate("analytics")}

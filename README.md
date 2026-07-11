@@ -1,65 +1,199 @@
-# AI Customer Support — Document Knowledge Base
+# Embedded AI Customer Support
 
-A local chat assistant that answers customer questions using ONLY the documents you
-upload. Uploaded files are parsed, chunked, embedded (pgvector), and retrieved at
-question time. The assistant refuses or escalates when the answer is not in your
-documents, and never reveals how it works.
+A production-oriented customer support assistant that answers from a company's own
+documents and can be embedded on an authorized website with a script tag.
 
-- **Backend:** FastAPI, PostgreSQL + pgvector, SQLAlchemy 2.0 (async), Alembic,
-  DeepSeek (tool calling + streaming), local `sentence-transformers` embeddings.
-- **Frontend:** Vite + React + TypeScript + Tailwind. A Chat view and a Knowledge base
-  admin view for uploading and managing documents.
+The application combines a React administration workspace, multilingual streaming
+chat, document ingestion, retrieval-augmented generation, an isolated iframe widget,
+and a serverless deployment architecture. Answers are grounded in uploaded material;
+when the knowledge base does not contain the answer, the assistant says so instead of
+inventing one.
 
-Supported upload formats: TXT, PDF, DOC, DOCX, XLS, XLSX (max 10 MB each).
+## Product
 
-## Prerequisites
+### Multilingual, grounded support
 
-- Docker (for Postgres + the backend)
-- Node 18+ (for the frontend)
+The assistant retrieves relevant passages from the user's knowledge base and streams
+a contextual response. Conversations are retained for follow-up questions, review,
+ratings, and analytics.
+
+![Multilingual customer support conversation](assets/readme/multilingual-support-chat.png)
+
+### Document knowledge base
+
+Administrators can upload PDF, DOC, DOCX, TXT, XLS, and XLSX files, inspect the number
+of generated chunks, temporarily disable documents, and remove outdated material.
+
+![Knowledge base document administration](assets/readme/knowledge-base-admin.png)
+
+### Secure website installation
+
+Each authenticated user owns one assistant profile and one website installation. The
+settings workspace controls the exact authorized origin, installation status, public
+key rotation, custom assistant behavior, and monthly usage.
+
+![Widget installation and security settings](assets/readme/widget-installation-settings.png)
+
+## Highlights
+
+- **Retrieval-augmented generation:** OpenAI `text-embedding-3-small` embeddings,
+  PostgreSQL with pgvector, cosine search, and an HNSW index.
+- **Multilingual streaming chat:** DeepSeek's OpenAI-compatible API streams grounded
+  answers over SSE.
+- **Document pipeline:** extraction, normalization, junk-fragment filtering,
+  overlapping chunking, embedding, and re-ingestion without re-uploading files.
+- **Embeddable widget:** a small dependency-free loader, Shadow DOM launcher, and
+  isolated iframe chat application.
+- **Per-user isolation:** Supabase JWT subjects map to separate assistant profiles,
+  documents, conversations, analytics, and widget installations.
+- **Public endpoint protection:** exact-origin widget bootstrap, short-lived signed
+  sessions, key rotation, installation disablement, message-size validation, and
+  atomic monthly quotas.
+- **Edge controls:** Cloudflare rate limits public chat by client IP and installation,
+  while a shared edge secret blocks direct access to the Lambda origin.
+- **Operational visibility:** conversation history, customer ratings, unanswered
+  question reporting, and retrieved-source debugging.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    Admin[React admin app] -->|Supabase JWT| Edge[Cloudflare Worker]
+    Site[Authorized customer website] --> Loader[Widget loader]
+    Loader -->|Origin + public key| Edge
+    Loader --> Iframe[Isolated chat iframe]
+    Iframe -->|Signed widget session + SSE| Edge
+    Edge -->|X-Edge-Secret| API[FastAPI on AWS Lambda]
+    API --> DB[(Supabase PostgreSQL + pgvector)]
+    API --> Embed[OpenAI embeddings]
+    API --> Chat[DeepSeek chat model]
+```
+
+### Request security
+
+1. The widget loader runs on the customer website and exchanges its public key from
+   the configured browser origin.
+2. The backend compares that exact origin with the user's active installation and
+   returns a short-lived signed widget session.
+3. The iframe uses the signed session for chat; it never uses a profile ID or public
+   key as authorization.
+4. Conversation IDs are accepted only when they belong to the session's profile.
+   Missing, stale, or foreign IDs start a new conversation.
+5. PostgreSQL atomically enforces the monthly installation quota before model work.
+
+## Technology
+
+| Area           | Stack                                                          |
+| -------------- | -------------------------------------------------------------- |
+| Frontend       | React 18, TypeScript, Vite, Tailwind CSS, SWR                  |
+| Widget         | TypeScript, Shadow DOM, iframe isolation, Server-Sent Events   |
+| Backend        | FastAPI, SQLAlchemy 2.0 async, Pydantic, Alembic               |
+| Retrieval      | OpenAI embeddings, PostgreSQL, pgvector, HNSW cosine index     |
+| Generation     | DeepSeek OpenAI-compatible streaming API                       |
+| Authentication | Supabase Auth with JWT validation                              |
+| Production     | AWS Lambda, ECR, Cloudflare Worker, Cloudflare Pages, Supabase |
+| Testing        | pytest, Vitest, Testing Library, TypeScript production builds  |
+
+## Run Locally
+
+### Requirements
+
+- Docker
+- Node.js 18+
 - A DeepSeek API key
+- An OpenAI API key
 
-## 1. Backend
+### Backend
 
 ```bash
 cd backend
-cp .env.example .env          # then set DEEPSEEK_API_KEY in .env
+cp .env.example .env
+```
 
-# start Postgres + the API
+Set at least:
+
+```env
+DEEPSEEK_API_KEY=your-deepseek-key
+OPENAI_API_KEY=your-openai-key
+WIDGET_SESSION_SECRET=generate-a-long-random-secret
+```
+
+Start PostgreSQL and the API, then apply the schema:
+
+```bash
 docker compose up -d --build
-
-# create the schema
 docker compose run --rm backend alembic upgrade head
 ```
 
-The API is available at http://localhost:8000 (health check: `/health`). A single
-default business is created automatically on first use — there is no seed data.
+The API is available at `http://localhost:8000`; `GET /health` is the health check.
+Authentication is optional in local development and required when the Supabase JWT
+secret is configured.
 
-> Note: DeepSeek has no embeddings endpoint, so retrieval uses a local
-> `all-MiniLM-L6-v2` model (384-dim). The first run downloads the model into the
-> `models` Docker volume.
-
-## 2. Frontend
+### Frontend
 
 ```bash
 cd frontend
-cp .env.example .env          # VITE_API_BASE defaults to http://localhost:8000
+cp .env.example .env
 npm install
 npm run dev
 ```
 
-Open http://localhost:5173.
+Open `http://localhost:5173`, upload documents under **Knowledge base**, then start a
+conversation. To test the embedded widget, configure its exact website origin under
+**Settings** and use the generated snippet.
 
-## How to use
+## Widget Build
 
-1. Open the **Knowledge base** tab and upload one or more documents.
-2. Switch to the **Chat** tab and ask questions. The assistant answers only from the
-   uploaded content and says it doesn't have the information otherwise.
-3. Toggle **Debug** in the chat header to see the retrieved chunks behind each answer.
+```bash
+cd frontend
+npm run build:widget
+```
 
-## Knowledge base API
+The build creates:
 
-- `POST /knowledge/documents` — multipart upload (`file`)
-- `GET /knowledge/documents` — list documents with chunk counts
-- `GET /knowledge/documents/{id}/chunks` — preview a document's chunks
-- `PATCH /knowledge/documents/{id}` — enable/disable (`{"is_active": false}`)
-- `DELETE /knowledge/documents/{id}` — delete a document and its chunks
+```text
+frontend/dist-widget/
+|-- widget.js
+`-- app/
+    |-- index.html
+    `-- assets/
+```
+
+Host that directory on a stable HTTPS origin and set `VITE_WIDGET_SRC` when building
+the admin frontend so its generated installation snippet points to the deployed
+loader.
+
+## Tests
+
+```bash
+cd backend
+pytest
+
+cd ../frontend
+npm test
+npm run build
+npm run build:widget
+```
+
+The backend suite covers authentication rejection, edge-secret enforcement, profile
+isolation, foreign conversation IDs, message limits, signed widget sessions, and the
+absence of retired voice endpoints. Frontend tests cover authentication and the main
+application shell.
+
+## Maintenance Scripts
+
+- `backend/reingest_documents.py` rebuilds chunks and embeddings from each stored
+  document after chunking, filtering, or embedding changes.
+- `backend/reindex_embeddings.py` regenerates vectors for existing chunks without
+  changing chunk boundaries.
+
+## Deployment Notes
+
+The production design uses Cloudflare Pages for the admin application and widget
+assets, a Cloudflare Worker for edge authentication and rate limiting, an AWS Lambda
+container with response streaming, and Supabase for authentication and pgvector data.
+
+Production requires separate random values for `EDGE_SHARED_SECRET` and
+`WIDGET_SESSION_SECRET`. The widget CDN must be present in `WIDGET_ALLOWED_ORIGINS`;
+customer websites are authorized individually through each installation's exact
+origin rather than a global wildcard.

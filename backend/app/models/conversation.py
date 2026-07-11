@@ -12,8 +12,8 @@ class Conversation(Base):
     __tablename__ = "conversations"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    business_id: Mapped[int] = mapped_column(
-        ForeignKey("businesses.id", ondelete="CASCADE"), index=True
+    profile_id: Mapped[int] = mapped_column(
+        ForeignKey("assistant_profiles.id", ondelete="CASCADE"), index=True
     )
     channel: Mapped[str] = mapped_column(String(16), default="chat")
     title: Mapped[str | None] = mapped_column(String(160), nullable=True)

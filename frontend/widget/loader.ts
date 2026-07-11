@@ -74,10 +74,6 @@
   iframe.title = "Chat";
   iframe.allow = "clipboard-write";
   const src = new URL(appUrl);
-  src.searchParams.set("key", siteKey);
-  src.searchParams.set("api", apiBase);
-  src.searchParams.set("accent", accent);
-  src.searchParams.set("greeting", greeting);
   // Defer setting iframe.src until first open to avoid loading until needed.
 
   const launcher = document.createElement("button");
@@ -91,20 +87,75 @@
 
   let open = false;
   let loaded = false;
-  function setOpen(next: boolean) {
+  async function createSession() {
+    const body = new URLSearchParams({ key: siteKey });
+    const response = await fetch(`${apiBase}/widget/session`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+    });
+    if (!response.ok) throw new Error(`Widget authorization failed (${response.status})`);
+    return await response.json();
+  }
+
+  async function loadFrame() {
+    const session = await createSession();
+    src.hash = new URLSearchParams({
+      token: session.token,
+      installation: String(session.installation_id),
+      origin: session.origin,
+      assistant: session.assistant_name,
+      business: session.business_name,
+      api: apiBase,
+      accent,
+      greeting,
+    }).toString();
+    iframe.src = src.href;
+  }
+
+  async function setOpen(next: boolean) {
     open = next;
     wrap.classList.toggle("open", open);
     launcher.innerHTML = open ? closeIcon : chatIcon;
     launcher.setAttribute("aria-label", open ? "Close chat" : "Open chat");
     if (open && !loaded) {
-      iframe.src = src.href;
       loaded = true;
+      try {
+        await loadFrame();
+      } catch (error) {
+        loaded = false;
+        console.error("[chat-widget]", error);
+        setOpen(false);
+      }
     }
   }
 
   launcher.addEventListener("click", () => setOpen(!open));
-  window.addEventListener("message", (e) => {
-    if (e.data && e.data.type === "wx-close") setOpen(false);
+  window.addEventListener("message", async (e) => {
+    if (
+      e.origin === src.origin &&
+      e.source === iframe.contentWindow &&
+      e.data?.type === "wx-close"
+    ) {
+      setOpen(false);
+    } else if (
+      e.origin === src.origin &&
+      e.source === iframe.contentWindow &&
+      e.data?.type === "wx-refresh"
+    ) {
+      try {
+        const session = await createSession();
+        iframe.contentWindow?.postMessage(
+          { type: "wx-session", token: session.token },
+          src.origin
+        );
+      } catch {
+        iframe.contentWindow?.postMessage(
+          { type: "wx-session", token: null },
+          src.origin
+        );
+      }
+    }
   });
 
   wrap.appendChild(iframe);

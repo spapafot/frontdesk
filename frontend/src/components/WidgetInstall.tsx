@@ -2,6 +2,7 @@ import { useState } from "react";
 
 interface Props {
   siteKey: string | null;
+  onRotate: () => Promise<void>;
 }
 
 // Where the built widget loader is hosted in production. Overridable at build
@@ -10,8 +11,9 @@ const WIDGET_SRC =
   (import.meta.env.VITE_WIDGET_SRC as string | undefined) ??
   "https://cdn.yourdomain.com/widget.js";
 
-export function WidgetInstall({ siteKey }: Props) {
+export function WidgetInstall({ siteKey, onRotate }: Props) {
   const [copied, setCopied] = useState(false);
+  const [rotating, setRotating] = useState(false);
 
   if (!siteKey) return null;
 
@@ -35,21 +37,27 @@ export function WidgetInstall({ siteKey }: Props) {
 
   return (
     <div className="mt-8 border-t border-slate-200 pt-6">
-      <h3 className="text-sm font-semibold text-slate-800">Install on your website</h3>
+      <h3 className="text-sm font-semibold text-slate-800">
+        Install on your website
+      </h3>
       <p className="mt-1 text-xs text-slate-500">
-        Paste this snippet just before the closing &lt;/body&gt; tag on your site. The
-        site key is public and only identifies your assistant.
+        Paste this snippet just before the closing &lt;/body&gt; tag on your
+        site.
       </p>
 
       <div className="mt-3">
-        <label className="block text-xs font-medium text-slate-600">Site key</label>
+        <label className="block text-xs font-medium text-slate-600">
+          Site key
+        </label>
         <code className="mt-1 block w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
           {siteKey}
         </code>
       </div>
 
       <div className="mt-3">
-        <label className="block text-xs font-medium text-slate-600">Embed snippet</label>
+        <label className="block text-xs font-medium text-slate-600">
+          Embed snippet
+        </label>
         <pre className="mt-1 overflow-x-auto rounded-lg border border-slate-200 bg-slate-900 px-3 py-3 text-xs leading-relaxed text-slate-100">
           {snippet}
         </pre>
@@ -59,6 +67,27 @@ export function WidgetInstall({ siteKey }: Props) {
           className="mt-2 rounded-full bg-slate-800 px-4 py-1.5 text-xs font-medium text-white transition hover:bg-slate-700"
         >
           {copied ? "Copied" : "Copy snippet"}
+        </button>
+        <button
+          type="button"
+          disabled={rotating}
+          onClick={async () => {
+            if (
+              !window.confirm(
+                "Rotate this key? Existing widget sessions will stop working.",
+              )
+            )
+              return;
+            setRotating(true);
+            try {
+              await onRotate();
+            } finally {
+              setRotating(false);
+            }
+          }}
+          className="ml-2 rounded-full border border-red-300 px-4 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-50 disabled:opacity-50"
+        >
+          {rotating ? "Rotating..." : "Rotate key"}
         </button>
       </div>
     </div>
