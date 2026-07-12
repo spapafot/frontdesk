@@ -26,9 +26,8 @@ export function useAuth() {
 }
 
 /**
- * Gates the admin app behind Supabase email/password auth. When auth is
- * disabled (no VITE_SUPABASE_* env), it renders children directly so local dev
- * is unchanged.
+ * Gates the admin app behind Supabase email/password auth. Missing Supabase
+ * configuration fails closed in every environment, including local dev.
  */
 export function AuthGate({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
@@ -52,11 +51,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   };
 
   if (!authEnabled) {
-    return (
-      <AuthContext.Provider value={{ canSignOut: false, signOut }}>
-        {children}
-      </AuthContext.Provider>
-    );
+    return <AuthConfigurationError />;
   }
   if (!ready) return null;
   if (!session) return <LoginForm />;
@@ -65,6 +60,19 @@ export function AuthGate({ children }: { children: ReactNode }) {
     <AuthContext.Provider value={{ canSignOut: true, signOut }}>
       {children}
     </AuthContext.Provider>
+  );
+}
+
+function AuthConfigurationError() {
+  return (
+    <div className="flex h-full items-center justify-center bg-slate-50 p-4">
+      <div role="alert" aria-labelledby="auth-config-title" className="max-w-md rounded-xl border border-red-200 bg-white p-6 text-center shadow-sm">
+        <h1 id="auth-config-title" className="text-lg font-semibold text-slate-900">Authentication is not configured</h1>
+        <p className="mt-2 text-sm text-slate-600">
+          Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY before starting the admin app.
+        </p>
+      </div>
+    </div>
   );
 }
 

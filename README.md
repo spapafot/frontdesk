@@ -81,17 +81,17 @@ flowchart LR
 
 ## Technology
 
-| Area           | Stack                                                          |
-| -------------- | -------------------------------------------------------------- |
-| Frontend       | React 18, TypeScript, Vite, Tailwind CSS, SWR                  |
-| Marketing site | Astro static SSG, Tailwind CSS, JSON-LD schema, per-page SEO   |
-| Widget         | TypeScript, Shadow DOM, iframe isolation, Server-Sent Events   |
-| Backend        | FastAPI, SQLAlchemy 2.0 async, Pydantic, Alembic               |
-| Retrieval      | OpenAI embeddings, PostgreSQL, pgvector, HNSW cosine index     |
-| Generation     | DeepSeek OpenAI-compatible streaming API                       |
-| Authentication | Supabase Auth with JWT validation                              |
-| Production     | AWS Lambda, ECR, Cloudflare Worker, Cloudflare Pages, Supabase |
-| Testing        | pytest, Vitest, Testing Library, TypeScript production builds  |
+| Area           | Stack                                                            |
+| -------------- | ---------------------------------------------------------------- |
+| Frontend       | React 18, TypeScript, Vite, Tailwind CSS, SWR                    |
+| Marketing site | Astro static SSG, Tailwind CSS, JSON-LD schema, per-page SEO     |
+| Widget         | TypeScript, Shadow DOM, iframe isolation, Server-Sent Events     |
+| Backend        | FastAPI, SQLAlchemy 2.0 async, Pydantic, Alembic                 |
+| Retrieval      | OpenAI embeddings, PostgreSQL, pgvector, HNSW cosine index       |
+| Generation     | DeepSeek OpenAI-compatible streaming API                         |
+| Authentication | Supabase Auth with JWT validation                                |
+| Production     | Two AWS Lambdas, ECR, S3, SQS, Cloudflare Worker/Pages, Supabase |
+| Testing        | pytest, Vitest, Testing Library, TypeScript production builds    |
 
 ## Run Locally
 

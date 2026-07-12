@@ -12,6 +12,9 @@ export const SITE = {
   appUrl: import.meta.env.PUBLIC_APP_URL ?? "https://app.plugandplay.gr",
   locale: "en",
   ogImage: "/og.svg",
+  // Google Analytics 4 measurement ID. Analytics only load after the visitor
+  // grants consent (Consent Mode v2 defaults to denied — see Analytics.astro).
+  gaMeasurementId: "G-6E65S82JQN",
 } as const;
 
 export const NAV = {

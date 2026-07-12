@@ -10,6 +10,7 @@ _REDACTED_SETTINGS = frozenset(
         "widget_session_secret",
         "edge_shared_secret",
         "supabase_jwt_secret",
+        "ingestion_queue_url",
     }
 )
 
@@ -53,6 +54,11 @@ class Settings(BaseSettings):
     # Force pgBouncer-safe connection args (no prepared-statement caching,
     # NullPool). Auto-enabled when the URL uses Supabase's 6543 pooler port.
     db_pgbouncer: bool = False
+
+    # Asynchronous document ingestion (AWS S3 + SQS).
+    aws_region: str = "eu-central-1"
+    ingestion_bucket: str = ""
+    ingestion_queue_url: str = ""
 
     # CORS
     frontend_origin: str = "http://localhost:5173"

@@ -49,8 +49,13 @@ CLAUDE.md
 .claude
 
 # Keep generated/local documentation ignored
-docs/*
-deploy/*
+docs/
+deploy/
+
+# Deployment sources and the cold-start/deployment runbooks are product code.
+!docs/DEPLOY.md
+!docs/COLD_START_OPTIMIZATIONS.md
+!deploy/aws/
 
 # --- Cloudflare Worker (folded in from deploy/cloudflare/worker/.gitignore) ---
 lambda.env

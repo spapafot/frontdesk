@@ -22,15 +22,8 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# antiword extracts text from legacy binary .doc files. No build toolchain is
-# needed since embeddings are API-based (torch removed), keeping the image
-# small enough for Lambda's limits.
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends antiword \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY requirements.txt .
-RUN pip install --upgrade pip && pip install -r requirements.txt
+COPY requirements-api.txt .
+RUN pip install --upgrade pip && pip install -r requirements-api.txt
 
 COPY . .
 

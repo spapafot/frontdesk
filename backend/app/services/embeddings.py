@@ -1,6 +1,8 @@
 from functools import lru_cache
+from typing import TYPE_CHECKING
 
-from openai import AsyncOpenAI, OpenAI
+if TYPE_CHECKING:
+    from openai import AsyncOpenAI, OpenAI
 
 from app.core.config import settings
 
@@ -10,12 +12,16 @@ from app.core.config import settings
 
 
 @lru_cache
-def _sync_client() -> OpenAI:
+def _sync_client() -> "OpenAI":
+    from openai import OpenAI
+
     return OpenAI(api_key=settings.openai_api_key)
 
 
 @lru_cache
-def _async_client() -> AsyncOpenAI:
+def _async_client() -> "AsyncOpenAI":
+    from openai import AsyncOpenAI
+
     return AsyncOpenAI(api_key=settings.openai_api_key)
 
 

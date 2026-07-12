@@ -31,7 +31,7 @@ export const LEGAL_PAGES: Record<string, LegalPage> = {
         heading: "AI and service providers",
         body: [
           "The current application sends uploaded document text to OpenAI to create search embeddings. It sends chat content, relevant knowledge-base context, and conversation content used for summaries to DeepSeek to generate responses and summaries.",
-          "The application architecture also uses Supabase for authentication and database services. Production hosting and edge services must be confirmed before a final policy identifies all providers and applicable data locations.",
+          "The application architecture also uses Supabase for authentication and database services, and the marketing website uses Google Analytics to measure site usage after a visitor consents (see the Cookie Policy). Production hosting and edge services must be confirmed before a final policy identifies all providers and applicable data locations.",
         ],
       },
       {
@@ -87,10 +87,17 @@ export const LEGAL_PAGES: Record<string, LegalPage> = {
   "cookie-policy": {
     title: "Cookie Policy",
     summary:
-      "This draft describes browser storage visible in the current application. It is not a completed cookie inventory.",
+      "This draft describes the cookies and browser storage used across the Plug & Play website and application. It is not yet a completed cookie inventory.",
     sections: [
       {
-        heading: "Browser storage currently used",
+        heading: "Analytics cookies on this website",
+        body: [
+          "This marketing website uses Google Analytics 4 to understand how visitors find and use the site. Analytics are governed by consent: no analytics cookies are set until you accept them through the cookie banner. Until then, Google Consent Mode keeps analytics storage disabled.",
+          "When you accept, Google Analytics sets cookies (for example “_ga” and “_ga_<id>”) used to distinguish visitors and measure usage, and IP addresses are anonymised. Your accept-or-decline choice is remembered in your browser's local storage so the banner does not reappear on every visit.",
+        ],
+      },
+      {
+        heading: "Browser storage used by the application",
         body: [
           "The embedded chat widget uses browser local storage to remember a conversation identifier for the widget's configured website origin. This lets a visitor continue a conversation after reopening the widget in the same browser.",
           "The admin application also uses browser storage to remember the selected conversation. Its authentication provider may use browser storage to maintain an authenticated session.",
@@ -99,14 +106,15 @@ export const LEGAL_PAGES: Record<string, LegalPage> = {
       {
         heading: "Cookies and third parties",
         body: [
-          "No first-party cookie implementation is visible in this codebase. Hosting, authentication, analytics, and other production services may set cookies or use additional storage; this must be verified in the deployed product before publication.",
-          "Do not state that the product is cookie-free unless production testing confirms that statement.",
+          "Google Analytics is the analytics provider used on this website; Google acts as a third party that may process usage data on its own infrastructure. Hosting, authentication, and other production services may set additional cookies or use other storage; this must be verified in the deployed product before publication.",
+          "Do not describe additional analytics or advertising technologies here unless they are actually in use and have been verified.",
         ],
       },
       {
         heading: "Your controls",
         body: [
-          "Visitors can clear browser storage through their browser settings. A final policy should explain any available in-product controls and any consent choices required for non-essential technologies.",
+          "You can accept or decline analytics cookies from the cookie banner. To change your choice later, clear this site's browser storage and reload the page to bring the banner back, then choose again.",
+          "You can also clear or block cookies and other browser storage through your browser settings. A final policy should list the specific cookies, providers, and retention periods, and explain any additional in-product controls, once confirmed.",
         ],
       },
     ],
