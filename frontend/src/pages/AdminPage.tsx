@@ -85,7 +85,8 @@ export function AdminPage() {
           </p>
         )}
         {documents && documents.length > 0 && (
-          <table className="w-full border-collapse text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[32rem] border-collapse text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs uppercase text-slate-400">
                 <th className="py-2">Title</th>
@@ -132,6 +133,7 @@ export function AdminPage() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </div>

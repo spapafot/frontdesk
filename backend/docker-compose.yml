@@ -19,8 +19,6 @@ services:
     build: .
     env_file:
       - .env
-    environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-support}
     depends_on:
       postgres:
         condition: service_healthy

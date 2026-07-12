@@ -18,6 +18,10 @@ frontend/dist-widget/
 frontend/coverage/
 *.tsbuildinfo
 
+# --- Astro marketing site ---
+site/dist/
+.astro/
+
 # --- Cloudflare / Wrangler ---
 .wrangler/
 deploy/cloudflare/worker/.dev.vars
@@ -27,6 +31,7 @@ deploy/cloudflare/worker/.dev.vars
 # templates (they don't match these patterns).
 .env
 .env.local
+.env.production
 .env.*.local
 backend/.env
 frontend/.env
@@ -43,5 +48,10 @@ CLAUDE.md
 .agents
 .claude
 
-docs/
-deploy/
+# Keep generated/local documentation ignored
+docs/*
+deploy/*
+
+# --- Cloudflare Worker (folded in from deploy/cloudflare/worker/.gitignore) ---
+lambda.env
+.dev.vars

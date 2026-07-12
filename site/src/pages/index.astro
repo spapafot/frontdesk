@@ -79,26 +79,22 @@ const schema = [
           label="assistant.yoursite.com"
           question="Do you ship to Canada, and how long does it take?"
           answer="Yes- we ship to Canada. Standard delivery is 5–7 business days, and express is 2–3 business days."
-          source={{
-            title: "Shipping & Delivery.pdf",
-            score: 0.94,
-            snippet: "International orders to Canada arrive within 5–7 business days...",
-          }}
         />
       </div>
     </div>
   </section>
 
   <div id="features">
-    <!-- 1 · text left, content right -->
+    <!-- 1 · text right, content left (alternates from the hero) -->
     <FeatureRow
-      tone="light"
+      tone="muted"
+      reverse
       eyebrow="Grounded, multilingual chat"
       title="It answers from your knowledge- not guesswork."
       body="Every reply is retrieved from the documents you uploaded and streamed back in the visitor's own language. When the answer isn't in your knowledge base, the assistant says so instead of inventing one."
       bullets={[
         "Replies in the language the customer writes in",
-        "Shows the exact source passage behind each answer",
+        "Grounded in your documents- no invented answers",
         "Streams responses in real time",
       ]}
     >
@@ -106,19 +102,12 @@ const schema = [
         label="assistant.yoursite.com"
         question="¿Puedo cambiar mi plan a mitad de mes?"
         answer="Sí. Puedes cambiar de plan en cualquier momento y solo pagarás la diferencia prorrateada del mes en curso."
-        source={{
-          title: "Billing FAQ.docx",
-          score: 0.91,
-          snippet:
-            "Plan changes take effect immediately and are prorated for the current billing period.",
-        }}
       />
     </FeatureRow>
 
-    <!-- 2 · text right, content left -->
+    <!-- 2 · text left, content right -->
     <FeatureRow
-      tone="muted"
-      reverse
+      tone="light"
       eyebrow="Document knowledge base"
       title="Upload what you know. That's the setup."
       body="Add PDFs, Word files, spreadsheets, or plain text. Plug & Play extracts and indexes them into searchable chunks. Disable a document to take it out of answers, or remove it entirely- no re-uploading to update."
@@ -131,9 +120,10 @@ const schema = [
       <KnowledgeShowcase />
     </FeatureRow>
 
-    <!-- 3 · text left, content right -->
+    <!-- 3 · text right, content left -->
     <FeatureRow
-      tone="light"
+      tone="muted"
+      reverse
       eyebrow="Secure website installation"
       title="One line of code, on the site you authorize."
       body="Paste a single script tag before your closing body tag and the assistant appears in an isolated widget. It runs only on the exact origin you approve, with signed sessions and a site key you can rotate at any time."
@@ -146,10 +136,9 @@ const schema = [
       <InstallShowcase />
     </FeatureRow>
 
-    <!-- 4 · text right, content left -->
+    <!-- 4 · text left, content right -->
     <FeatureRow
-      tone="muted"
-      reverse
+      tone="light"
       eyebrow="Analytics & feedback"
       title="See what customers ask- and what you're missing."
       body="Review every conversation, track helpful and unhelpful ratings, and surface the questions your knowledge base couldn't answer. Each gap is a clear signal for the next document to add."
@@ -164,7 +153,7 @@ const schema = [
   </div>
 
   <!-- Closing call to action -->
-  <section class="border-t border-slate-200 bg-white">
+  <section class="border-t border-slate-200 bg-slate-50">
     <div class="mx-auto max-w-6xl px-6 py-20 text-center">
       <h2 class="text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
         Your documents already have the answers.

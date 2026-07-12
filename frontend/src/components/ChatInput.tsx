@@ -16,8 +16,8 @@ export function ChatInput({ onSend, disabled }: Props) {
   };
 
   return (
-    <div className="border-t border-slate-200 bg-white">
-      <div className="mx-auto w-full max-w-2xl">
+    <div className="px-4 pb-4">
+      <div className="mx-auto w-full max-w-2xl rounded-xl border border-slate-200 bg-white">
         <form onSubmit={submit} className="flex gap-2 px-4 py-3">
         <input
           type="text"

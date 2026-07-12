@@ -46,8 +46,8 @@ npm run build    # static output to dist/
 
 ## Deploy
 
-Deployed to Cloudflare Pages (project `plugandplay-site`) by
-`deploy/cloudflare/pages-deploy.sh`. See [../docs/DEPLOY.md](../docs/DEPLOY.md).
+Deploy to Cloudflare Pages (project `plugandplay-site`) with
+`deploy/cloudflare/deploy-site.sh`.
 
 ## Notes
 

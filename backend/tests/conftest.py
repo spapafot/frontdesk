@@ -6,8 +6,24 @@ route's service call is monkeypatched, and admin routes are tested for their
 tests of ``require_admin``.
 """
 
+import os
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+
+# Tests must never inherit credentials from backend/.env or the launching shell.
+# These overrides are set before importing app settings, so pydantic-settings
+# cannot load real provider, database, or signing secrets into the test process.
+os.environ.update(
+    {
+        "DEEPSEEK_API_KEY": "",
+        "OPENAI_API_KEY": "",
+        "DATABASE_URL": "postgresql+asyncpg://postgres:postgres@localhost:5432/support",
+        "WIDGET_SESSION_SECRET": "",
+        "EDGE_SHARED_SECRET": "",
+        "SUPABASE_URL": "",
+        "SUPABASE_JWT_SECRET": "",
+    }
+)
 
 import jwt
 import pytest
@@ -60,6 +76,38 @@ def make_jwt(
     if email is not None:
         payload["email"] = email
     return jwt.encode(payload, secret, algorithm="HS256")
+
+
+def make_es256_keypair(kid: str = "test-kid"):
+    """Return (private_key, jwks_dict) for signing/verifying ES256 tokens the
+    way Supabase's asymmetric signing keys work."""
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    private_key = ec.generate_private_key(ec.SECP256R1())
+    jwk = jwt.algorithms.ECAlgorithm(jwt.algorithms.ECAlgorithm.SHA256).to_jwk(
+        private_key.public_key(), as_dict=True
+    )
+    jwk.update({"kid": kid, "alg": "ES256", "use": "sig"})
+    return private_key, {"keys": [jwk]}
+
+
+def make_es256_jwt(
+    private_key,
+    *,
+    kid: str = "test-kid",
+    aud: str = "authenticated",
+    sub: str = "user-1",
+    email: str | None = "admin@example.com",
+    exp_delta: timedelta = timedelta(hours=1),
+) -> str:
+    payload = {
+        "sub": sub,
+        "aud": aud,
+        "exp": datetime.now(timezone.utc) + exp_delta,
+    }
+    if email is not None:
+        payload["email"] = email
+    return jwt.encode(payload, private_key, algorithm="ES256", headers={"kid": kid})
 
 
 def make_fake_stream(record: dict):

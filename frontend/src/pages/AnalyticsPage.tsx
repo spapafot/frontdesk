@@ -125,8 +125,8 @@ export function AnalyticsPage({ onOpenConversation }: Props) {
 
           <section className="mt-8">
             <h3 className="text-sm font-semibold text-slate-700">Recent conversations</h3>
-            <div className="mt-3 overflow-hidden rounded-lg border border-slate-200">
-              <table className="w-full border-collapse text-sm">
+            <div className="mt-3 overflow-x-auto rounded-lg border border-slate-200">
+              <table className="w-full min-w-[32rem] border-collapse text-sm">
                 <thead>
                   <tr className="bg-slate-50 text-left text-xs uppercase text-slate-400">
                     <th className="px-3 py-2">Conversation</th>

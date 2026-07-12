@@ -1,6 +1,29 @@
-import { FormEvent, ReactNode, useEffect, useState } from "react";
+import {
+  createContext,
+  FormEvent,
+  ReactNode,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
 import type { Session } from "@supabase/supabase-js";
 import { authEnabled, supabase } from "../lib/supabase";
+
+interface AuthContextValue {
+  /** True only when a real session exists and can be signed out. */
+  canSignOut: boolean;
+  signOut: () => void;
+}
+
+const AuthContext = createContext<AuthContextValue>({
+  canSignOut: false,
+  signOut: () => {},
+});
+
+/** Lets any descendant (e.g. the sidebar) trigger sign-out. */
+export function useAuth() {
+  return useContext(AuthContext);
+}
 
 /**
  * Gates the admin app behind Supabase email/password auth. When auth is
@@ -24,20 +47,24 @@ export function AuthGate({ children }: { children: ReactNode }) {
     return () => sub.subscription.unsubscribe();
   }, []);
 
-  if (!authEnabled) return <>{children}</>;
+  const signOut = () => {
+    void supabase?.auth.signOut();
+  };
+
+  if (!authEnabled) {
+    return (
+      <AuthContext.Provider value={{ canSignOut: false, signOut }}>
+        {children}
+      </AuthContext.Provider>
+    );
+  }
   if (!ready) return null;
   if (!session) return <LoginForm />;
 
   return (
-    <div className="relative h-full">
+    <AuthContext.Provider value={{ canSignOut: true, signOut }}>
       {children}
-      <button
-        onClick={() => supabase?.auth.signOut()}
-        className="fixed bottom-3 right-3 z-50 rounded-md bg-slate-800/80 px-3 py-1.5 text-xs font-medium text-white shadow hover:bg-slate-700"
-      >
-        Sign out
-      </button>
-    </div>
+    </AuthContext.Provider>
   );
 }
 
@@ -52,19 +79,25 @@ function LoginForm() {
     if (!supabase) return;
     setBusy(true);
     setError(null);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
     if (error) setError(error.message);
     setBusy(false);
   };
 
   return (
-    <div className="flex h-full items-center justify-center bg-slate-50">
+    <div className="flex h-full items-center justify-center bg-slate-50 p-4">
       <form
         onSubmit={onSubmit}
-        className="w-full max-w-sm space-y-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm"
+        className="w-full max-w-sm space-y-5 rounded-xl border border-slate-200 bg-white p-8 shadow-sm"
       >
-        <div>
-          <h1 className="text-lg font-semibold text-slate-900">Admin sign in</h1>
+        <div className="flex flex-col items-center text-center">
+          <img src="/logo.png" alt="Plug & Play" className="mb-4 h-28 w-auto" />
+          <h1 className="text-lg font-semibold text-slate-900">
+            Admin sign in
+          </h1>
           <p className="mt-1 text-sm text-slate-500">
             Sign in to manage the knowledge base and settings.
           </p>
@@ -78,7 +111,7 @@ function LoginForm() {
             autoComplete="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
           />
         </label>
 
@@ -90,7 +123,7 @@ function LoginForm() {
             autoComplete="current-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
           />
         </label>
 
@@ -99,7 +132,7 @@ function LoginForm() {
         <button
           type="submit"
           disabled={busy}
-          className="w-full rounded-md bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700 disabled:opacity-60"
+          className="w-full rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-sky-700 disabled:opacity-60"
         >
           {busy ? "Signing in…" : "Sign in"}
         </button>

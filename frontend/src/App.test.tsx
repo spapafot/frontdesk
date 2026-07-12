@@ -1,4 +1,5 @@
 import { cleanup, render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { SWRConfig } from "swr";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
@@ -42,7 +43,9 @@ function renderApp() {
   // Isolate SWR cache per test so state doesn't leak between renders.
   return render(
     <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
-      <App />
+      <MemoryRouter>
+        <App />
+      </MemoryRouter>
     </SWRConfig>
   );
 }
@@ -59,7 +62,17 @@ describe("App shell", () => {
     renderApp();
     expect(await screen.findByText(/knowledge/i)).toBeInTheDocument();
     expect(screen.getByText(/settings/i)).toBeInTheDocument();
+    expect(screen.getByText(/widget guide/i)).toBeInTheDocument();
     expect(screen.queryByText(/^voice$/i)).not.toBeInTheDocument();
+  });
+
+  it("shows widget installation documentation and supported attributes", async () => {
+    renderApp();
+    await userEvent.click(await screen.findByRole("button", { name: "Widget guide" }));
+    expect(await screen.findByRole("heading", { name: /add the chat widget/i })).toBeInTheDocument();
+    expect(screen.getByText("data-site-key")).toBeInTheDocument();
+    expect(screen.getByText("data-greeting")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /install on wordpress/i })).toBeInTheDocument();
   });
 
   it("renders settings when optional widget usage values are missing", async () => {

@@ -2,6 +2,17 @@ from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+_REDACTED_SETTINGS = frozenset(
+    {
+        "deepseek_api_key",
+        "openai_api_key",
+        "database_url",
+        "widget_session_secret",
+        "edge_shared_secret",
+        "supabase_jwt_secret",
+    }
+)
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -68,20 +79,40 @@ class Settings(BaseSettings):
     # raw Lambda Function URL. Empty string disables the check.
     edge_shared_secret: str = ""
     edge_secret_header: str = "x-edge-secret"
+    # Require the edge proxy to attest that Turnstile passed before issuing a
+    # public widget session. Enable only after the validating Worker is live.
+    turnstile_required: bool = False
+    turnstile_verified_header: str = "x-turnstile-verified"
 
-    # Supabase Auth. When ``supabase_jwt_secret`` is set, admin routes require a
-    # valid Supabase-issued JWT (HS256). Empty disables admin auth (dev only).
+    # Supabase Auth. Admin routes require a valid Supabase-issued JWT. Two
+    # signing schemes are supported (auto-selected per token, see auth.py):
+    #   * Legacy shared HS256 secret -> set ``supabase_jwt_secret``.
+    #   * New asymmetric signing keys (ES256/RS256) -> set ``supabase_url``;
+    #     the backend fetches the project's public JWKS to verify.
+    # Newer Supabase projects have migrated to asymmetric keys, so setting
+    # ``supabase_url`` is the current path; the secret is a fallback for
+    # legacy/local setups. Leaving both empty disables admin auth (dev only).
     supabase_url: str = ""
     supabase_jwt_secret: str = ""
     # Supabase signs user tokens with audience "authenticated".
     supabase_jwt_audience: str = "authenticated"
+    # Cache lifetime for the fetched JWKS (seconds). Signing keys rotate rarely.
+    supabase_jwks_cache_seconds: int = 600
 
     @property
-    def admin_auth_enabled(self) -> bool:
-        return bool(self.supabase_jwt_secret)
+    def supabase_jwks_url(self) -> str:
+        """Public JWKS endpoint for the project's asymmetric signing keys."""
+        if not self.supabase_url:
+            return ""
+        return f"{self.supabase_url.rstrip('/')}/auth/v1/.well-known/jwks.json"
 
     # Tool loop safety
     max_tool_iterations: int = 5
+
+    def __repr_args__(self):
+        """Keep credentials out of tracebacks, pytest fixture dumps, and logs."""
+        for name, value in super().__repr_args__():
+            yield name, "**********" if name in _REDACTED_SETTINGS and value else value
 
 
 @lru_cache

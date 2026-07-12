@@ -18,6 +18,8 @@
   const accent = ds.accent || "#0284c7";
   const position = ds.position === "bottom-left" ? "bottom-left" : "bottom-right";
   const greeting = ds.greeting || "Hi! How can I help you today?";
+  const turnstileSiteKey =
+    ds.turnstileSiteKey || import.meta.env.VITE_TURNSTILE_SITE_KEY || "";
 
   // Derive default URLs from where this script is served, unless overridden.
   const scriptUrl = new URL(current.src, location.href);
@@ -87,8 +89,11 @@
 
   let open = false;
   let loaded = false;
-  async function createSession() {
-    const body = new URLSearchParams({ key: siteKey });
+  async function createSession(turnstileToken: string) {
+    const body = new URLSearchParams({
+      key: siteKey,
+      turnstile_token: turnstileToken,
+    });
     const response = await fetch(`${apiBase}/widget/session`, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -99,16 +104,12 @@
   }
 
   async function loadFrame() {
-    const session = await createSession();
     src.hash = new URLSearchParams({
-      token: session.token,
-      installation: String(session.installation_id),
-      origin: session.origin,
-      assistant: session.assistant_name,
-      business: session.business_name,
+      origin: location.origin,
       api: apiBase,
       accent,
       greeting,
+      turnstileSiteKey,
     }).toString();
     iframe.src = src.href;
   }
@@ -141,20 +142,28 @@
     } else if (
       e.origin === src.origin &&
       e.source === iframe.contentWindow &&
-      e.data?.type === "wx-refresh"
+      e.data?.type === "wx-turnstile" &&
+      typeof e.data.token === "string"
     ) {
       try {
-        const session = await createSession();
+        const session = await createSession(e.data.token);
         iframe.contentWindow?.postMessage(
-          { type: "wx-session", token: session.token },
+          { type: "wx-session", session },
           src.origin
         );
-      } catch {
+      } catch (error) {
         iframe.contentWindow?.postMessage(
-          { type: "wx-session", token: null },
+          { type: "wx-verification-error" },
           src.origin
         );
+        console.error("[chat-widget]", error);
       }
+    } else if (
+      e.origin === src.origin &&
+      e.source === iframe.contentWindow &&
+      e.data?.type === "wx-refresh"
+    ) {
+      iframe.contentWindow?.postMessage({ type: "wx-verify" }, src.origin);
     }
   });
 
