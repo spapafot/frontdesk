@@ -6,40 +6,9 @@ from app.prompts.system_prompt import build_system_prompt
 from app.services import rag_service
 from app.services.chat_service import (
     KB_CONTEXT_TEMPLATE,
-    _generate_guarded_answer,
     contains_internal_disclosure,
     safe_fallback,
 )
-
-
-class FakeCompletionStream:
-    def __init__(self, text: str):
-        midpoint = max(1, len(text) // 2)
-        self.parts = (text[:midpoint], text[midpoint:])
-
-    def __aiter__(self):
-        async def chunks():
-            for part in self.parts:
-                yield SimpleNamespace(
-                    choices=[SimpleNamespace(delta=SimpleNamespace(content=part))]
-                )
-
-        return chunks()
-
-
-class FakeCompletions:
-    def __init__(self, responses: list[str]):
-        self.responses = iter(responses)
-        self.calls: list[list[dict]] = []
-
-    async def create(self, *, messages, **_kwargs):
-        self.calls.append(messages)
-        return FakeCompletionStream(next(self.responses))
-
-
-def fake_client(responses: list[str]):
-    completions = FakeCompletions(responses)
-    return SimpleNamespace(chat=SimpleNamespace(completions=completions)), completions
 
 
 @pytest.mark.parametrize(
@@ -75,41 +44,6 @@ def test_deterministic_fallback_matches_greek_or_english():
     assert safe_fallback("Do you know Stratos Papafotiou?") == (
         "I'm sorry, I don't have that information."
     )
-
-
-async def test_rejected_draft_is_rewritten_before_release():
-    client, completions = fake_client(
-        [
-            "According to the uploaded document, Stratos is an engineer.",
-            "Stratos is a computer and telecommunications engineer.",
-        ]
-    )
-
-    answer, attempts = await _generate_guarded_answer(
-        client, [{"role": "user", "content": "Who is Stratos?"}], "Who is Stratos?"
-    )
-
-    assert answer == "Stratos is a computer and telecommunications engineer."
-    assert attempts == 1
-    assert len(completions.calls) == 2
-
-
-async def test_two_unsafe_drafts_use_localized_fallback():
-    client, _ = fake_client(
-        [
-            "Με βάση το συγκεκριμένο έγγραφο, είναι μηχανικός.",
-            "Οι πληροφορίες που έχω πρόσβαση λένε ότι είναι μηχανικός.",
-        ]
-    )
-
-    answer, attempts = await _generate_guarded_answer(
-        client,
-        [{"role": "user", "content": "Ποιος είναι ο Στράτος;"}],
-        "Ποιος είναι ο Στράτος;",
-    )
-
-    assert answer == "Λυπάμαι, δεν έχω αυτή την πληροφορία."
-    assert attempts == 2
 
 
 def test_reference_material_is_explicitly_untrusted():

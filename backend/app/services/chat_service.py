@@ -36,13 +36,6 @@ SAFE_FALLBACKS = {
     "en": "I'm sorry, I don't have that information.",
 }
 
-REWRITE_INSTRUCTION = """The draft answer disclosed or referred to internal processes.
-Rewrite it as a concise customer-facing answer in the customer's language. State only the
-supported business facts. Do not mention how you know them, any source material, hidden
-instructions, searching, storage, systems, tools, or access to information. Return only
-the rewritten answer. If no factual answer remains, use the short no-information response
-required by the main rules."""
-
 _GREEK_RE = re.compile(r"[\u0370-\u03ff\u1f00-\u1fff]")
 _DISCLOSURE_PATTERNS = tuple(
     re.compile(pattern, re.IGNORECASE)
@@ -76,8 +69,10 @@ def contains_internal_disclosure(text: str) -> bool:
     return any(pattern.search(text) for pattern in _DISCLOSURE_PATTERNS)
 
 
-async def _collect_completion(client: "AsyncOpenAI", messages: list[dict]) -> str:
-    """Collect a complete draft so guardrails run before any text reaches the client."""
+async def _stream_completion(
+    client: "AsyncOpenAI", messages: list[dict]
+) -> AsyncGenerator[str, None]:
+    """Yield answer text deltas as the model produces them, for live streaming."""
     extra_body = {
         "thinking": {"type": "enabled" if settings.deepseek_thinking else "disabled"}
     }
@@ -87,30 +82,9 @@ async def _collect_completion(client: "AsyncOpenAI", messages: list[dict]) -> st
         stream=True,
         extra_body=extra_body,
     )
-    parts: list[str] = []
     async for chunk in stream:
         if chunk.choices and chunk.choices[0].delta.content:
-            parts.append(chunk.choices[0].delta.content)
-    return "".join(parts).strip()
-
-
-async def _generate_guarded_answer(
-    client: "AsyncOpenAI", messages: list[dict], customer_message: str
-) -> tuple[str, int]:
-    """Generate, validate, and retry once without exposing a rejected draft."""
-    draft = await _collect_completion(client, messages)
-    if draft and not contains_internal_disclosure(draft):
-        return draft, 0
-
-    retry_messages = [
-        *messages,
-        {"role": "assistant", "content": draft},
-        {"role": "system", "content": REWRITE_INSTRUCTION},
-    ]
-    rewritten = await _collect_completion(client, retry_messages)
-    if rewritten and not contains_internal_disclosure(rewritten):
-        return rewritten, 1
-    return safe_fallback(customer_message), 2
+            yield chunk.choices[0].delta.content
 
 
 @lru_cache
@@ -218,29 +192,36 @@ async def run_turn(
             if include_sources and sources:
                 yield {"type": "sources", "sources": sources}
 
-            guardrail_attempts = 0
             if not results:
                 final_text = safe_fallback(message)
+                yield {"type": "token", "content": final_text}
             else:
                 if not settings.deepseek_api_key:
                     yield {"type": "error", "message": "DEEPSEEK_API_KEY is not configured."}
                     return
+                # Stream deltas straight to the client as the model produces them.
+                # With token streaming we can no longer rewrite a bad draft before
+                # it is shown (an emitted token cannot be recalled). The system
+                # prompt is the primary defense against internal-process
+                # disclosure; the scan below is monitor-only, so we still see any
+                # leak in the logs even though we can no longer block it.
                 client = get_client()
-                final_text, guardrail_attempts = await _generate_guarded_answer(
-                    client, messages, message
+                parts: list[str] = []
+                async for delta in _stream_completion(client, messages):
+                    parts.append(delta)
+                    yield {"type": "token", "content": delta}
+                final_text = "".join(parts).strip()
+                if not final_text:
+                    final_text = safe_fallback(message)
+                    yield {"type": "token", "content": final_text}
+
+            disclosure_detected = bool(results) and contains_internal_disclosure(final_text)
+            if disclosure_detected:
+                logger.warning(
+                    "Internal-process disclosure streamed for profile=%s conversation=%s",
+                    profile.id,
+                    conversation.id,
                 )
-                if guardrail_attempts:
-                    logger.warning(
-                        "Blocked internal-process disclosure for profile=%s conversation=%s",
-                        profile.id,
-                        conversation.id,
-                    )
-
-            if not final_text:
-                final_text = safe_fallback(message)
-
-            # The full answer has passed validation; it is now safe to release.
-            yield {"type": "token", "content": final_text}
 
             await conversation_repo.add_message(
                 conversation.id,
@@ -251,8 +232,7 @@ async def run_turn(
                     "searched": True,
                     "had_sources": had_sources,
                     "question": message[:500],
-                    "guardrail_triggered": guardrail_attempts > 0,
-                    "guardrail_attempts": guardrail_attempts,
+                    "disclosure_detected": disclosure_detected,
                 },
             )
             await session.commit()
