@@ -94,9 +94,14 @@ async def test_search_combines_multilingual_semantic_and_lexical_matches(monkeyp
         SimpleNamespace(), 7, "Ξέρεις τον Στράτο Παπαφωτίου?", limit=8
     )
 
-    assert embedded_queries == [
-        "Ξέρεις τον Στράτο Παπαφωτίου?",
-        "xereis ton strato papafotiou?",
-    ]
+    # Variants are embedded concurrently now, so assert on the set, not order.
+    # Expansion is gated on a chat key, which the test suite leaves empty, so only
+    # the literal query and its transliteration are searched here.
+    assert sorted(embedded_queries) == sorted(
+        [
+            "Ξέρεις τον Στράτο Παπαφωτίου?",
+            "xereis ton strato papafotiou?",
+        ]
+    )
     assert repository.terms == ["strato", "papafotiou"]
     assert {result["match"] for result in results} == {"semantic", "lexical"}

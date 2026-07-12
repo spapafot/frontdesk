@@ -43,9 +43,18 @@ class Settings(BaseSettings):
 
     # Retrieval / chunking. Kept modest so the injected context stays small and
     # the model's time-to-first-token stays low.
-    rag_top_k: int = 8
+    rag_top_k: int = 12
     chunk_size: int = 1200
     chunk_overlap: int = 200
+
+    # Query expansion: before retrieval, ask the chat model for a few alternative
+    # phrasings of the question (synonyms, formal/domain wording) and retrieve on
+    # each, so a paraphrase like "προθεσμία υποβολής" still reaches a passage worded
+    # "καταληκτική ημερομηνία παραλαβής". Best-effort — skipped when no chat key is
+    # configured or the call fails/times out, so retrieval never blocks on it.
+    rag_query_expansion: bool = True
+    rag_query_expansion_count: int = 4
+    rag_query_expansion_timeout: float = 6.0
 
     # Database
     database_url: str = (

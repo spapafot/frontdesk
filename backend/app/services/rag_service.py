@@ -1,3 +1,5 @@
+import asyncio
+import logging
 import re
 import unicodedata
 
@@ -6,6 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.repositories.knowledge_repository import KnowledgeRepository
 from app.services.embeddings import embed_query
+from app.services.query_expansion import expand_query
+
+logger = logging.getLogger(__name__)
 
 # cosine distance ranges 0 (identical) .. 2 (opposite). Convert to a 0..1 score.
 # Anything below this score is treated as not confidently relevant.
@@ -78,19 +83,48 @@ def _distance_to_score(distance: float) -> float:
     return max(0.0, 1.0 - distance / 2.0)
 
 
+async def _expanded_variants(query: str, variants: list[str]) -> list[str]:
+    """Append model-suggested paraphrases of the query, de-duplicated.
+
+    Widens recall across vocabulary gaps: a question worded "προθεσμία υποβολής"
+    can then reach a passage worded "καταληκτική ημερομηνία παραλαβής". Best-effort
+    — ``expand_query`` yields nothing when disabled or unavailable, leaving the
+    literal query variants untouched.
+    """
+    seen = {variant.casefold() for variant in variants}
+    for phrasing in await expand_query(query):
+        key = phrasing.casefold()
+        if key and key not in seen:
+            seen.add(key)
+            variants.append(phrasing)
+    return variants
+
+
 async def search_knowledge(
     session: AsyncSession, profile_id: int, query: str, limit: int | None = None
 ) -> list[dict]:
-    """Embed the query and return the most relevant knowledge chunks."""
+    """Embed the query (plus alternative phrasings) and return the most relevant
+    knowledge chunks, blended with a lexical fallback."""
     if limit is None:
         limit = settings.rag_top_k
     repo = KnowledgeRepository(session)
-    variants = _query_variants(query)
+    variants = await _expanded_variants(query, _query_variants(query))
     by_chunk: dict[int, dict] = {}
 
-    for variant in variants:
-        query_embedding = await embed_query(variant)
-        rows = await repo.search(profile_id, query_embedding, limit=limit)
+    async def _semantic(variant: str):
+        embedding = await embed_query(variant)
+        return await repo.search(profile_id, embedding, limit=limit)
+
+    # Each variant is an independent embed+search round-trip; expansion can add
+    # several, so run them concurrently rather than serially on the chat's
+    # critical path. One variant failing must not sink the rest of the search.
+    variant_rows = await asyncio.gather(
+        *(_semantic(variant) for variant in variants), return_exceptions=True
+    )
+    for variant, rows in zip(variants, variant_rows):
+        if isinstance(rows, BaseException):
+            logger.warning("semantic search failed for variant %r", variant, exc_info=rows)
+            continue
         for chunk, title, distance in rows:
             score = _distance_to_score(distance)
             if score < RELEVANCE_THRESHOLD:
