@@ -1,0 +1,86 @@
+---
+// Cookie consent banner. Hidden until the visitor makes a choice; on Accept it
+// updates Google Consent Mode (see Analytics.astro) and remembers the decision.
+// Rendered display:none by default and revealed by the inline script only when
+// no prior choice is stored, so it never flashes for returning visitors.
+---
+
+<div
+  id="consent-banner"
+  role="dialog"
+  aria-live="polite"
+  aria-label="Cookie consent"
+  class="fixed inset-x-0 bottom-0 z-50 hidden border-t border-slate-200 bg-white/95 shadow-lg backdrop-blur"
+>
+  <div
+    class="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-4 text-sm text-slate-600 sm:flex-row sm:items-center sm:justify-between"
+  >
+    <p class="max-w-2xl">
+      We use cookies to analyse site traffic and improve your experience. You
+      can accept or decline analytics cookies. See our{" "}
+      <a href="/cookie-policy" class="font-medium text-slate-900 underline">
+        Cookie Policy
+      </a>.
+    </p>
+    <div class="flex shrink-0 gap-3">
+      <button
+        type="button"
+        id="consent-decline"
+        class="rounded-lg border border-slate-300 px-4 py-2 font-medium text-slate-700 transition hover:bg-slate-100"
+      >
+        Decline
+      </button>
+      <button
+        type="button"
+        id="consent-accept"
+        class="rounded-lg bg-slate-900 px-4 py-2 font-medium text-white transition hover:bg-slate-700"
+      >
+        Accept
+      </button>
+    </div>
+  </div>
+</div>
+
+<script is:inline>
+  (function () {
+    var KEY = "cookie-consent";
+    var banner = document.getElementById("consent-banner");
+    if (!banner) return;
+
+    function stored() {
+      try {
+        return localStorage.getItem(KEY);
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function save(value) {
+      try {
+        localStorage.setItem(KEY, value);
+      } catch (e) {
+        /* ignore */
+      }
+    }
+
+    function decide(value) {
+      save(value);
+      if (typeof window.gtag === "function") {
+        window.gtag("consent", "update", {
+          analytics_storage: value === "granted" ? "granted" : "denied",
+        });
+      }
+      banner.classList.add("hidden");
+    }
+
+    // Only show the banner if the visitor has not chosen yet.
+    if (!stored()) {
+      banner.classList.remove("hidden");
+    }
+
+    var accept = document.getElementById("consent-accept");
+    var decline = document.getElementById("consent-decline");
+    if (accept) accept.addEventListener("click", function () { decide("granted"); });
+    if (decline) decline.addEventListener("click", function () { decide("denied"); });
+  })();
+</script>

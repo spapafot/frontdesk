@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
+import { API_BASE } from "../api/client";
 
 interface Props {
   siteKey: string | null;
@@ -7,7 +9,7 @@ interface Props {
 
 // Where the built widget loader is hosted in production. Overridable at build
 // time via VITE_WIDGET_SRC; falls back to a sensible placeholder.
-const WIDGET_SRC =
+export const WIDGET_SRC =
   (import.meta.env.VITE_WIDGET_SRC as string | undefined) ??
   "https://cdn.yourdomain.com/widget.js";
 
@@ -17,9 +19,13 @@ export function WidgetInstall({ siteKey, onRotate }: Props) {
 
   if (!siteKey) return null;
 
+  // The loader defaults its API base to wherever widget.js is served. In this
+  // deployment the widget assets live on the CDN/Pages host, which does not
+  // serve the API, so we pin data-api to the API origin explicitly.
   const snippet = `<script
   src="${WIDGET_SRC}"
   data-site-key="${siteKey}"
+  data-api="${API_BASE}"
   data-accent="#0284c7"
   data-position="bottom-right"
   async
@@ -44,12 +50,18 @@ export function WidgetInstall({ siteKey, onRotate }: Props) {
         Paste this snippet just before the closing &lt;/body&gt; tag on your
         site.
       </p>
+      <Link
+        to="/widget-guide"
+        className="mt-2 inline-block text-xs font-medium text-sky-700 hover:text-sky-800 hover:underline"
+      >
+        View the full installation and WordPress guide
+      </Link>
 
       <div className="mt-3">
         <label className="block text-xs font-medium text-slate-600">
           Site key
         </label>
-        <code className="mt-1 block w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+        <code className="mt-1 block w-full break-all rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
           {siteKey}
         </code>
       </div>

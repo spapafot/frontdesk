@@ -1,13 +1,11 @@
-# Embedded AI Customer Support
+# Plug & Play
 
-A production-oriented customer support assistant that answers from a company's own
+Plug & Play is a customer support assistant that answers from a company's own
 documents and can be embedded on an authorized website with a script tag.
 
 The application combines a React administration workspace, multilingual streaming
 chat, document ingestion, retrieval-augmented generation, an isolated iframe widget,
-and a serverless deployment architecture. Answers are grounded in uploaded material;
-when the knowledge base does not contain the answer, the assistant says so instead of
-inventing one.
+a static marketing site, and a serverless deployment architecture.
 
 ## Product
 
@@ -36,7 +34,7 @@ key rotation, custom assistant behavior, and monthly usage.
 
 ## Highlights
 
-- **Retrieval-augmented generation:** OpenAI `text-embedding-3-small` embeddings,
+- **Retrieval-augmented generation:** OpenAI `text-embedding-3-large` embeddings (1536 dims),
   PostgreSQL with pgvector, cosine search, and an HNSW index.
 - **Multilingual streaming chat:** DeepSeek's OpenAI-compatible API streams grounded
   answers over SSE.
@@ -83,16 +81,17 @@ flowchart LR
 
 ## Technology
 
-| Area           | Stack                                                          |
-| -------------- | -------------------------------------------------------------- |
-| Frontend       | React 18, TypeScript, Vite, Tailwind CSS, SWR                  |
-| Widget         | TypeScript, Shadow DOM, iframe isolation, Server-Sent Events   |
-| Backend        | FastAPI, SQLAlchemy 2.0 async, Pydantic, Alembic               |
-| Retrieval      | OpenAI embeddings, PostgreSQL, pgvector, HNSW cosine index     |
-| Generation     | DeepSeek OpenAI-compatible streaming API                       |
-| Authentication | Supabase Auth with JWT validation                              |
-| Production     | AWS Lambda, ECR, Cloudflare Worker, Cloudflare Pages, Supabase |
-| Testing        | pytest, Vitest, Testing Library, TypeScript production builds  |
+| Area           | Stack                                                            |
+| -------------- | ---------------------------------------------------------------- |
+| Frontend       | React 18, TypeScript, Vite, Tailwind CSS, SWR                    |
+| Marketing site | Astro static SSG, Tailwind CSS, JSON-LD schema, per-page SEO     |
+| Widget         | TypeScript, Shadow DOM, iframe isolation, Server-Sent Events     |
+| Backend        | FastAPI, SQLAlchemy 2.0 async, Pydantic, Alembic                 |
+| Retrieval      | OpenAI embeddings, PostgreSQL, pgvector, HNSW cosine index       |
+| Generation     | DeepSeek OpenAI-compatible streaming API                         |
+| Authentication | Supabase Auth with JWT validation                                |
+| Production     | Two AWS Lambdas, ECR, S3, SQS, Cloudflare Worker/Pages, Supabase |
+| Testing        | pytest, Vitest, Testing Library, TypeScript production builds    |
 
 ## Run Locally
 
@@ -141,6 +140,18 @@ npm run dev
 Open `http://localhost:5173`, upload documents under **Knowledge base**, then start a
 conversation. To test the embedded widget, configure its exact website origin under
 **Settings** and use the generated snippet.
+
+### Marketing site
+
+The public landing and legal pages are a separate static Astro project in `site/`:
+
+```bash
+cd site
+npm install
+npm run dev
+```
+
+Open `http://localhost:4321`. See [site/README.md](site/README.md) for details.
 
 ## Widget Build
 

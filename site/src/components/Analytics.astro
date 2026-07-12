@@ -1,0 +1,50 @@
+---
+// Google Analytics 4 with Consent Mode v2. Storage defaults to "denied" so no
+// analytics/ad cookies are set until the visitor accepts via <ConsentBanner>.
+// The stored choice (localStorage) is re-applied on every load before gtag runs.
+import { SITE } from "../config";
+
+const gaId = SITE.gaMeasurementId;
+---
+
+{
+  gaId && (
+    <>
+      <script is:inline define:vars={{ gaId }}>
+        window.dataLayer = window.dataLayer || [];
+        function gtag() {
+          dataLayer.push(arguments);
+        }
+        window.gtag = gtag;
+
+        // Deny everything by default (GDPR-safe until the visitor opts in).
+        gtag("consent", "default", {
+          ad_storage: "denied",
+          ad_user_data: "denied",
+          ad_personalization: "denied",
+          analytics_storage: "denied",
+          functionality_storage: "granted",
+          security_storage: "granted",
+          wait_for_update: 500,
+        });
+
+        // Re-apply a previously granted choice before the first pageview.
+        try {
+          if (localStorage.getItem("cookie-consent") === "granted") {
+            gtag("consent", "update", { analytics_storage: "granted" });
+          }
+        } catch (e) {
+          /* localStorage unavailable (e.g. blocked cookies) — stay denied */
+        }
+
+        gtag("js", new Date());
+        gtag("config", gaId, { anonymize_ip: true });
+      </script>
+      <script
+        is:inline
+        async
+        src={`https://www.googletagmanager.com/gtag/js?id=${gaId}`}
+      />
+    </>
+  )
+}

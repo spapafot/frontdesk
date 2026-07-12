@@ -36,11 +36,11 @@ export function ChatPage({
 
   return (
     <div className="flex h-full flex-col">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex w-full max-w-2xl items-center justify-between px-4 py-3">
+      <header className="px-4 pt-4">
+        <div className="mx-auto flex w-full max-w-2xl items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3">
         <div>
           <h1 className="text-sm font-semibold text-slate-800">
-            {settings?.assistant_name ?? "AI Assistant"}
+            {settings?.assistant_name ?? "Plug & Play"}
           </h1>
           <p className="text-xs text-slate-500">
             {settings ? settings.business_name : "Ask about anything in our knowledge base"}

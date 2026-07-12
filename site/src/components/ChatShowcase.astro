@@ -1,0 +1,54 @@
+---
+import DeviceFrame from "./DeviceFrame.astro";
+
+// Static reimplementation of the app's MessageBubble + ChatInput, used purely
+// to illustrate the product. Two variants show grounding and multilingual replies.
+interface Props {
+  label: string;
+  question: string;
+  answer: string;
+}
+const { label, question, answer } = Astro.props;
+---
+
+<DeviceFrame label={label}>
+  <div class="space-y-4 bg-slate-50 p-4">
+    <!-- user message -->
+    <div class="flex justify-end">
+      <div class="max-w-[80%]">
+        <div
+          class="whitespace-pre-wrap rounded-2xl bg-sky-600 px-4 py-2 text-sm text-white shadow-sm"
+        >
+          {question}
+        </div>
+      </div>
+    </div>
+
+    <!-- assistant message -->
+    <div class="flex justify-start">
+      <div class="max-w-[80%]">
+        <div
+          class="whitespace-pre-wrap rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-800 shadow-sm"
+        >
+          {answer}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- input row -->
+  <div class="border-t border-slate-200 bg-white">
+    <div class="mx-auto w-full max-w-2xl">
+      <div class="flex gap-2 px-4 py-3">
+        <div
+          class="flex-1 rounded-full border border-slate-300 px-4 py-2 text-sm text-slate-400"
+        >
+          Ask a question…
+        </div>
+        <div class="rounded-full bg-sky-600 px-5 py-2 text-sm font-medium text-white">
+          Send
+        </div>
+      </div>
+    </div>
+  </div>
+</DeviceFrame>

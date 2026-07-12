@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.api.routes.widget import _origin_allowed
 from app.services.chat_service import _resolve_conversation
 from app.services.widget_auth import create_widget_token, decode_widget_token
 
@@ -51,3 +52,30 @@ def test_invalid_widget_token_is_rejected(settings, monkeypatch):
     with pytest.raises(Exception) as exc:
         decode_widget_token("not-a-token")
     assert getattr(exc.value, "status_code", None) == 401
+
+
+@pytest.mark.parametrize(
+    "allowed, origin",
+    [
+        ("https://angelsfashion.gr", "https://angelsfashion.gr"),
+        ("https://angelsfashion.gr", "https://www.angelsfashion.gr"),
+        ("https://www.angelsfashion.gr", "https://angelsfashion.gr"),
+        ("https://www.angelsfashion.gr", "https://www.angelsfashion.gr"),
+    ],
+)
+def test_origin_allowed_treats_apex_and_www_as_same_site(allowed, origin):
+    assert _origin_allowed(allowed, origin) is True
+
+
+@pytest.mark.parametrize(
+    "allowed, origin",
+    [
+        (None, "https://angelsfashion.gr"),
+        ("https://angelsfashion.gr", "https://evil.gr"),
+        ("https://angelsfashion.gr", "http://angelsfashion.gr"),  # scheme must match
+        ("https://angelsfashion.gr", "https://shop.angelsfashion.gr"),  # other subdomain
+        ("https://angelsfashion.gr", "https://wwwangelsfashion.gr"),
+    ],
+)
+def test_origin_allowed_rejects_foreign_origins(allowed, origin):
+    assert _origin_allowed(allowed, origin) is False

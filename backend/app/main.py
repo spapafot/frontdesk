@@ -13,7 +13,7 @@ from app.api.routes import (
 from app.core.auth import EdgeSecretMiddleware, require_admin
 from app.core.config import settings
 
-app = FastAPI(title="AI Assistant")
+app = FastAPI(title="Plug & Play")
 
 # Allow the admin app plus any customer domains that embed the widget. When the
 # allow-list contains "*", reflect all origins (the site key authorizes the

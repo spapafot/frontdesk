@@ -1,0 +1,66 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import { SITE } from "../config";
+import { LEGAL_ORDER, LEGAL_PAGES, type LegalPage } from "../data/legal";
+
+export function getStaticPaths() {
+  return LEGAL_ORDER.map((slug) => ({
+    params: { slug },
+    props: { page: LEGAL_PAGES[slug], slug },
+  }));
+}
+
+interface Props {
+  page: LegalPage;
+  slug: string;
+}
+const { page, slug } = Astro.props as Props;
+
+const path = `/${slug}`;
+const description = page.summary;
+const schema = [
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      { "@type": "ListItem", position: 1, name: "Home", item: SITE.url },
+      {
+        "@type": "ListItem",
+        position: 2,
+        name: page.title,
+        item: new URL(path, SITE.url).href,
+      },
+    ],
+  },
+];
+---
+
+<BaseLayout title={page.title} description={description} path={path} schema={schema}>
+  <section class="mx-auto max-w-3xl px-6 py-20">
+    <p class="text-sm font-semibold uppercase tracking-widest text-sky-700">Legal</p>
+    <h1 class="mt-4 text-4xl font-semibold tracking-tight">{page.title}</h1>
+    <div
+      class="mt-8 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950"
+    >
+      This is a product-specific draft. It needs legal and operational review before it is
+      published as a binding policy.
+    </div>
+    <p class="mt-6 text-lg leading-8 text-slate-600">{page.summary}</p>
+    <div class="mt-10 space-y-9">
+      {
+        page.sections.map((section) => (
+          <section>
+            <h2 class="text-xl font-semibold tracking-tight text-slate-900">
+              {section.heading}
+            </h2>
+            <div class="mt-3 space-y-3 leading-7 text-slate-600">
+              {section.body.map((paragraph) => (
+                <p>{paragraph}</p>
+              ))}
+            </div>
+          </section>
+        ))
+      }
+    </div>
+  </section>
+</BaseLayout>

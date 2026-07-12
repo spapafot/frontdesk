@@ -1,6 +1,8 @@
 from functools import lru_cache
+from typing import TYPE_CHECKING
 
-from openai import AsyncOpenAI, OpenAI
+if TYPE_CHECKING:
+    from openai import AsyncOpenAI, OpenAI
 
 from app.core.config import settings
 
@@ -10,25 +12,33 @@ from app.core.config import settings
 
 
 @lru_cache
-def _sync_client() -> OpenAI:
+def _sync_client() -> "OpenAI":
+    from openai import OpenAI
+
     return OpenAI(api_key=settings.openai_api_key)
 
 
 @lru_cache
-def _async_client() -> AsyncOpenAI:
+def _async_client() -> "AsyncOpenAI":
+    from openai import AsyncOpenAI
+
     return AsyncOpenAI(api_key=settings.openai_api_key)
 
 
 def _embed_sync(text: str) -> list[float]:
     response = _sync_client().embeddings.create(
-        model=settings.openai_embedding_model, input=text
+        model=settings.openai_embedding_model,
+        input=text,
+        dimensions=settings.embedding_dim,
     )
     return response.data[0].embedding
 
 
 async def _embed_async(text: str) -> list[float]:
     response = await _async_client().embeddings.create(
-        model=settings.openai_embedding_model, input=text
+        model=settings.openai_embedding_model,
+        input=text,
+        dimensions=settings.embedding_dim,
     )
     return response.data[0].embedding
 

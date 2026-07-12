@@ -5,8 +5,10 @@ export interface KnowledgeDocument {
   title: string;
   type: string;
   is_active: boolean;
+  processing_status: "queued" | "processing" | "ready" | "failed";
   chunk_count: number;
   created_at: string;
+  processed_at: string | null;
 }
 
 export interface KnowledgeChunk {

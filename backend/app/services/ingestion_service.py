@@ -1,11 +1,12 @@
+import asyncio
 import io
 import os
 import re
 import subprocess
 import tempfile
+from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette.concurrency import run_in_threadpool
 
 from app.core.config import settings
 from app.models.knowledge import KnowledgeDocument
@@ -180,7 +181,7 @@ async def ingest_document(
     session: AsyncSession, profile_id: int, filename: str, data: bytes
 ) -> tuple[KnowledgeDocument, int]:
     ext = _extension(filename)
-    text = await run_in_threadpool(extract_text, filename, data)
+    text = await asyncio.to_thread(extract_text, filename, data)
     chunks = chunk_text(text)
 
     repo = KnowledgeRepository(session)
@@ -204,3 +205,35 @@ async def ingest_document(
 
     await session.commit()
     return document, len(chunks)
+
+
+async def process_existing_document(
+    session: AsyncSession,
+    document: KnowledgeDocument,
+    filename: str,
+    data: bytes,
+) -> int:
+    """Extract and replace a queued document's content and chunks idempotently."""
+    text = await asyncio.to_thread(extract_text, filename, data)
+    chunks = chunk_text(text)
+    if not chunks:
+        raise ExtractionError("No useful text could be extracted from this file.")
+
+    repo = KnowledgeRepository(session)
+    await repo.delete_chunks(document.id)
+    document.content = text
+    for chunk in chunks:
+        embedding = await embed_passage(chunk)
+        await repo.add_chunk(
+            profile_id=document.profile_id,
+            document_id=document.id,
+            content=chunk,
+            embedding=embedding,
+            meta={"title": filename},
+        )
+    document.processing_status = "ready"
+    document.processing_error = None
+    document.is_active = True
+    document.processed_at = datetime.now(timezone.utc)
+    await session.flush()
+    return len(chunks)

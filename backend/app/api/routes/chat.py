@@ -27,6 +27,7 @@ async def chat_stream(
     request: Request,
     session: AsyncSession = Depends(get_session),
 ) -> StreamingResponse:
+    is_widget = bool(body.widget_token)
     if body.widget_token:
         profile_id, installation_id, public_key = decode_widget_token(body.widget_token)
         installation = await WidgetRepository(session).get_for_profile(profile_id)
@@ -58,6 +59,7 @@ async def chat_stream(
             message=body.message,
             profile_id=profile_id,
             conversation_id=body.conversation_id,
+            include_sources=not is_widget,
         ),
         media_type="text/event-stream",
         headers={

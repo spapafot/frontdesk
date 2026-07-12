@@ -1,9 +1,10 @@
 """EdgeSecretMiddleware: only requests carrying the shared secret (injected by
 the Cloudflare Worker) reach the app; /health and CORS preflight are exempt."""
 
-from tests.conftest import make_fake_stream
+from tests.conftest import make_fake_stream, make_jwt
 
 SECRET = "s3cr3t-edge-value"
+JWT_SECRET = "edge-test-jwt-secret"
 
 
 async def test_health_is_exempt_even_when_secret_enabled(client, settings, monkeypatch):
@@ -28,17 +29,28 @@ async def test_wrong_secret_is_rejected(client, settings, monkeypatch):
 
 async def test_correct_secret_passes_through(client, settings, monkeypatch):
     monkeypatch.setattr(settings, "edge_shared_secret", SECRET)
+    monkeypatch.setattr(settings, "supabase_jwt_secret", JWT_SECRET)
     monkeypatch.setattr("app.api.routes.chat.stream_chat", make_fake_stream({}))
     r = await client.post(
-        "/chat/stream", json={"message": "hi"}, headers={"x-edge-secret": SECRET}
+        "/chat/stream",
+        json={"message": "hi"},
+        headers={
+            "x-edge-secret": SECRET,
+            "Authorization": f"Bearer {make_jwt(JWT_SECRET)}",
+        },
     )
     assert r.status_code == 200
 
 
 async def test_check_disabled_when_secret_empty(client, settings, monkeypatch):
     monkeypatch.setattr(settings, "edge_shared_secret", "")
+    monkeypatch.setattr(settings, "supabase_jwt_secret", JWT_SECRET)
     monkeypatch.setattr("app.api.routes.chat.stream_chat", make_fake_stream({}))
-    r = await client.post("/chat/stream", json={"message": "hi"})
+    r = await client.post(
+        "/chat/stream",
+        json={"message": "hi"},
+        headers={"Authorization": f"Bearer {make_jwt(JWT_SECRET)}"},
+    )
     assert r.status_code == 200
 
 

@@ -1,17 +1,70 @@
 """Admin chat derives its profile from the authenticated user and validates input."""
 
-from tests.conftest import make_fake_stream
+from types import SimpleNamespace
+
+from tests.conftest import make_fake_stream, make_jwt
+
+JWT_SECRET = "chat-route-jwt-secret"
 
 
 async def test_admin_chat_uses_authenticated_profile(client, settings, monkeypatch):
     monkeypatch.setattr(settings, "edge_shared_secret", "")
+    monkeypatch.setattr(settings, "supabase_jwt_secret", JWT_SECRET)
     record: dict = {}
     monkeypatch.setattr("app.api.routes.chat.stream_chat", make_fake_stream(record))
 
-    response = await client.post("/chat/stream", json={"message": "hello"})
+    response = await client.post(
+        "/chat/stream",
+        json={"message": "hello"},
+        headers={"Authorization": f"Bearer {make_jwt(JWT_SECRET)}"},
+    )
     assert response.status_code == 200
     _ = response.text
     assert record["profile_id"] == 7
+    assert record["include_sources"] is True
+
+
+async def test_widget_chat_never_requests_source_metadata(
+    client, settings, monkeypatch
+):
+    monkeypatch.setattr(settings, "edge_shared_secret", "")
+    installation = SimpleNamespace(
+        id=17,
+        profile_id=11,
+        public_key="pk_live_test",
+        is_enabled=True,
+    )
+    record: dict = {}
+
+    async def get_installation(_self, profile_id):
+        return installation if profile_id == 11 else None
+
+    async def reserve_message(_self, _installation, _period):
+        return True
+
+    monkeypatch.setattr(
+        "app.api.routes.chat.decode_widget_token",
+        lambda _token: (11, 17, "pk_live_test"),
+    )
+    monkeypatch.setattr(
+        "app.repositories.widget_repository.WidgetRepository.get_for_profile",
+        get_installation,
+    )
+    monkeypatch.setattr(
+        "app.repositories.widget_repository.WidgetRepository.reserve_message",
+        reserve_message,
+    )
+    monkeypatch.setattr("app.api.routes.chat.stream_chat", make_fake_stream(record))
+
+    response = await client.post(
+        "/chat/stream",
+        json={"message": "hello", "widget_token": "signed-widget-token"},
+    )
+
+    assert response.status_code == 200
+    _ = response.text
+    assert record["profile_id"] == 11
+    assert record["include_sources"] is False
 
 
 async def test_chat_message_has_hard_limit(client, settings, monkeypatch):

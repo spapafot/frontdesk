@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { ConversationSummary } from "../api/conversations";
+import { useAuth } from "./AuthGate";
 import { ConfirmDialog } from "./ConfirmDialog";
 
-export type View = "chat" | "admin" | "settings" | "analytics";
+export type View = "chat" | "admin" | "settings" | "analytics" | "widgetDocs";
 
 interface Props {
   conversations: ConversationSummary[] | undefined;
@@ -10,6 +11,9 @@ interface Props {
   view: View;
   businessName?: string;
   assistantName?: string;
+  /** Drawer open state on mobile (ignored at md+ where the sidebar is static). */
+  open: boolean;
+  onClose: () => void;
   onNewChat: () => void;
   onSelectConversation: (id: number) => void;
   onNavigate: (view: View) => void;
@@ -34,12 +38,15 @@ export function Sidebar({
   view,
   businessName,
   assistantName,
+  open,
+  onClose,
   onNewChat,
   onSelectConversation,
   onNavigate,
   onRenameConversation,
   onDeleteConversation,
 }: Props) {
+  const { canSignOut, signOut } = useAuth();
   const [editingId, setEditingId] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
   const [pendingDelete, setPendingDelete] = useState<ConversationSummary | null>(null);
@@ -57,7 +64,29 @@ export function Sidebar({
   };
 
   return (
-    <aside className="flex h-full w-64 flex-col border-r border-slate-200 bg-slate-50">
+    <aside
+      className={`fixed inset-y-0 left-0 z-40 flex h-full w-64 flex-col border-r border-slate-200 bg-slate-50 transition-transform duration-200 md:static md:z-auto md:translate-x-0 ${
+        open ? "translate-x-0" : "-translate-x-full"
+      }`}
+    >
+      <div className="flex items-center justify-between border-b border-slate-200 px-3 py-3">
+        <img src="/logo.png" alt="Plug &amp; Play" className="h-11 w-auto" />
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close menu"
+          className="rounded-md p-1.5 text-slate-500 hover:bg-slate-200 md:hidden"
+        >
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <path
+              d="M5 5l10 10M15 5L5 15"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+            />
+          </svg>
+        </button>
+      </div>
       <div className="p-3">
         <button
           type="button"
@@ -174,6 +203,17 @@ export function Sidebar({
         </button>
         <button
           type="button"
+          onClick={() => onNavigate("widgetDocs")}
+          className={`mb-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition ${
+            view === "widgetDocs"
+              ? "bg-sky-100 text-sky-800"
+              : "text-slate-600 hover:bg-slate-200"
+          }`}
+        >
+          Widget guide
+        </button>
+        <button
+          type="button"
           onClick={() => onNavigate("settings")}
           className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition ${
             view === "settings" ? "bg-sky-100 text-sky-800" : "text-slate-600 hover:bg-slate-200"
@@ -181,11 +221,11 @@ export function Sidebar({
         >
           Settings
         </button>
-        <div className="mt-2 flex items-center gap-2 rounded-lg px-3 py-2">
+        <div className="mt-2 flex items-center gap-2 px-3 py-2">
           <div className="flex h-7 w-7 items-center justify-center rounded-full bg-sky-600 text-xs font-semibold text-white">
             {(businessName ?? "?").charAt(0).toUpperCase()}
           </div>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <p className="truncate text-xs font-medium text-slate-700">
               {businessName ?? "Account"}
             </p>
@@ -193,6 +233,25 @@ export function Sidebar({
               {assistantName ?? "Assistant"}
             </p>
           </div>
+          {canSignOut && (
+            <button
+              type="button"
+              onClick={signOut}
+              title="Sign out"
+              aria-label="Sign out"
+              className="shrink-0 rounded-md p-1.5 text-slate-400 transition hover:bg-slate-200 hover:text-slate-600"
+            >
+              <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                <path
+                  d="M13 14v1.5A1.5 1.5 0 0 1 11.5 17h-6A1.5 1.5 0 0 1 4 15.5v-11A1.5 1.5 0 0 1 5.5 3h6A1.5 1.5 0 0 1 13 4.5V6M9 10h8m0 0-2.5-2.5M17 10l-2.5 2.5"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+          )}
         </div>
       </div>
 

@@ -14,24 +14,43 @@ const ACCEPT = ".txt,.pdf,.doc,.docx,.xls,.xlsx";
 export function AdminPage() {
   const { data: documents, error, isLoading, mutate } = useSWR<KnowledgeDocument[]>(
     documentsKey,
-    fetchDocuments
+    fetchDocuments,
+    {
+      refreshInterval: (latest) =>
+        latest?.some(
+          (doc) =>
+            doc.processing_status === "queued" ||
+            doc.processing_status === "processing"
+        )
+          ? 5000
+          : 0,
+    }
   );
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadNotice, setUploadNotice] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const onFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     setUploadError(null);
+    setUploadNotice(null);
     setUploading(true);
+    let queuedAny = false;
     try {
       for (const file of Array.from(files)) {
         await uploadDocument(file);
+        queuedAny = true;
       }
-      await mutate();
     } catch (err) {
       setUploadError((err as Error).message);
     } finally {
+      if (queuedAny) {
+        await mutate().catch(() => undefined);
+        setUploadNotice(
+          "Your document will be ready soon, after that you can start using our widget, check again in a minute or two!"
+        );
+      }
       setUploading(false);
       if (fileInput.current) fileInput.current.value = "";
     }
@@ -74,6 +93,11 @@ export function AdminPage() {
         </button>
         <p className="mt-2 text-xs text-slate-400">Max 10 MB per file.</p>
         {uploadError && <p className="mt-3 text-sm text-red-600">{uploadError}</p>}
+        {uploadNotice && (
+          <p className="mt-3 text-sm text-sky-700" role="status">
+            {uploadNotice}
+          </p>
+        )}
       </div>
 
       <div className="mt-6 flex-1 overflow-y-auto">
@@ -85,7 +109,8 @@ export function AdminPage() {
           </p>
         )}
         {documents && documents.length > 0 && (
-          <table className="w-full border-collapse text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[32rem] border-collapse text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs uppercase text-slate-400">
                 <th className="py-2">Title</th>
@@ -100,23 +125,37 @@ export function AdminPage() {
                 <tr key={doc.id} className="border-b border-slate-100">
                   <td className="py-2 pr-2 font-medium text-slate-800">{doc.title}</td>
                   <td className="py-2 pr-2 uppercase text-slate-500">{doc.type}</td>
-                  <td className="py-2 pr-2 text-slate-500">{doc.chunk_count}</td>
+                  <td className="py-2 pr-2 text-slate-500">
+                    {doc.processing_status === "ready" ? doc.chunk_count : "—"}
+                  </td>
                   <td className="py-2 pr-2">
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-xs ${
-                        doc.is_active
-                          ? "bg-emerald-100 text-emerald-700"
-                          : "bg-slate-100 text-slate-500"
-                      }`}
-                    >
-                      {doc.is_active ? "Active" : "Inactive"}
-                    </span>
+                    {doc.processing_status === "queued" && (
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700">Queued</span>
+                    )}
+                    {doc.processing_status === "processing" && (
+                      <span className="rounded-full bg-sky-100 px-2 py-0.5 text-xs text-sky-700">Processing</span>
+                    )}
+                    {doc.processing_status === "ready" && (
+                      <span className={`rounded-full px-2 py-0.5 text-xs ${doc.is_active ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+                        {doc.is_active ? "Ready / Active" : "Ready / Inactive"}
+                      </span>
+                    )}
+                    {doc.processing_status === "failed" && (
+                      <div>
+                        <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs text-red-700">Failed</span>
+                        <p className="mt-1 max-w-56 text-xs text-red-600">
+                          Your document failed to process. Please{" "}
+                          <a className="font-medium underline" href="mailto:support@plugandplay.gr">contact support</a>.
+                        </p>
+                      </div>
+                    )}
                   </td>
                   <td className="py-2 text-right">
                     <button
                       type="button"
                       onClick={() => onToggle(doc)}
-                      className="mr-3 text-xs font-medium text-sky-600 hover:underline"
+                      disabled={doc.processing_status !== "ready"}
+                      className="mr-3 text-xs font-medium text-sky-600 hover:underline disabled:cursor-not-allowed disabled:text-slate-300 disabled:no-underline"
                     >
                       {doc.is_active ? "Disable" : "Enable"}
                     </button>
@@ -132,6 +171,7 @@ export function AdminPage() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </div>

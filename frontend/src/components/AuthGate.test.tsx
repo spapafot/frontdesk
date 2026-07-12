@@ -20,9 +20,15 @@ async function renderAuthGate() {
 }
 
 describe("AuthGate", () => {
-  it("renders children directly when auth is disabled (no Supabase env)", async () => {
+  it("fails closed when Supabase configuration is missing", async () => {
+    vi.stubEnv("VITE_SUPABASE_URL", "");
+    vi.stubEnv("VITE_SUPABASE_ANON_KEY", "");
+
     await renderAuthGate();
-    expect(screen.getByText("PROTECTED CONTENT")).toBeInTheDocument();
+    expect(
+      screen.getByRole("alert", { name: /authentication is not configured/i })
+    ).toBeInTheDocument();
+    expect(screen.queryByText("PROTECTED CONTENT")).not.toBeInTheDocument();
   });
 
   it("shows the login form (not the app) when auth is enabled and unauthenticated", async () => {
