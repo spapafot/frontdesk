@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.repositories.knowledge_repository import KnowledgeRepository
 from app.services.embeddings import embed_query
 from app.services.query_expansion import expand_query
+from app.services.reranker import rerank
 
 logger = logging.getLogger(__name__)
 
@@ -100,20 +101,47 @@ async def _expanded_variants(query: str, variants: list[str]) -> list[str]:
     return variants
 
 
+async def _rerank_candidates(query: str, candidates: list[dict], limit: int) -> list[dict]:
+    """Reorder candidates with the cross-encoder and return the best ``limit``.
+
+    Falls back to retrieval (cosine-score) order when reranking is unavailable, and
+    backfills any slots the reranker didn't return so the caller always gets up to
+    ``limit`` results.
+    """
+    pool = candidates[: settings.rag_rerank_candidates]
+    order = await rerank(query, [candidate["content"] or "" for candidate in pool], limit)
+    if order is None:
+        return candidates[:limit]
+    reranked = [pool[index] for index in order]
+    chosen = {candidate["chunk_id"] for candidate in reranked}
+    for candidate in candidates:
+        if len(reranked) >= limit:
+            break
+        if candidate["chunk_id"] not in chosen:
+            reranked.append(candidate)
+            chosen.add(candidate["chunk_id"])
+    return reranked[:limit]
+
+
 async def search_knowledge(
     session: AsyncSession, profile_id: int, query: str, limit: int | None = None
 ) -> list[dict]:
     """Embed the query (plus alternative phrasings) and return the most relevant
-    knowledge chunks, blended with a lexical fallback."""
+    knowledge chunks, blended with a lexical fallback and reordered by a reranker."""
     if limit is None:
         limit = settings.rag_top_k
+    # With reranking on, cast a wider net so the cross-encoder has real choices;
+    # the pool is trimmed back to `limit` after reranking.
+    candidate_limit = (
+        max(limit, settings.rag_rerank_candidates) if settings.rag_reranker else limit
+    )
     repo = KnowledgeRepository(session)
     variants = await _expanded_variants(query, _query_variants(query))
     by_chunk: dict[int, dict] = {}
 
     async def _semantic(variant: str):
         embedding = await embed_query(variant)
-        return await repo.search(profile_id, embedding, limit=limit)
+        return await repo.search(profile_id, embedding, limit=candidate_limit)
 
     # Each variant is an independent embed+search round-trip; expansion can add
     # several, so run them concurrently rather than serially on the chat's
@@ -142,7 +170,7 @@ async def search_knowledge(
                 }
 
     terms = _lexical_terms(variants)
-    for chunk, title in await repo.search_text(profile_id, terms, limit=limit):
+    for chunk, title in await repo.search_text(profile_id, terms, limit=candidate_limit):
         existing = by_chunk.get(chunk.id)
         if existing is None:
             by_chunk[chunk.id] = {
@@ -158,4 +186,5 @@ async def search_knowledge(
             existing["match"] = "semantic+lexical"
             existing["score"] = max(existing["score"], 1.0)
 
-    return sorted(by_chunk.values(), key=lambda item: item["score"], reverse=True)[:limit]
+    candidates = sorted(by_chunk.values(), key=lambda item: item["score"], reverse=True)
+    return await _rerank_candidates(query, candidates, limit)

@@ -6,6 +6,7 @@ _REDACTED_SETTINGS = frozenset(
     {
         "deepseek_api_key",
         "openai_api_key",
+        "jina_api_key",
         "database_url",
         "widget_session_secret",
         "edge_shared_secret",
@@ -55,6 +56,19 @@ class Settings(BaseSettings):
     rag_query_expansion: bool = True
     rag_query_expansion_count: int = 4
     rag_query_expansion_timeout: float = 6.0
+
+    # Reranking (Jina): retrieve a wider candidate set, then have a cross-encoder
+    # reorder it against the *original* question and keep the best `rag_top_k`.
+    # Best-effort — skipped without `jina_api_key`, and any error/timeout falls
+    # back to retrieval (cosine-score) order, so it never blocks an answer.
+    # Candidates are truncated to `rag_rerank_snippet_chars` before sending, which
+    # is enough signal to rank on and keeps Jina's per-token cost/latency low.
+    rag_reranker: bool = True
+    jina_api_key: str = ""
+    jina_reranker_model: str = "jina-reranker-v2-base-multilingual"
+    rag_rerank_candidates: int = 24
+    rag_rerank_snippet_chars: int = 400
+    rag_rerank_timeout: float = 6.0
 
     # Database
     database_url: str = (
