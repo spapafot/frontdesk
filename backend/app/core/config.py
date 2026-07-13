@@ -48,17 +48,16 @@ class Settings(BaseSettings):
     chunk_size: int = 1200
     chunk_overlap: int = 200
 
-    # Query expansion: before retrieval, ask the chat model for a few alternative
-    # phrasings of the question (synonyms, formal/domain wording) and retrieve on
-    # each, so a paraphrase like "προθεσμία υποβολής" still reaches a passage worded
-    # "καταληκτική ημερομηνία παραλαβής". Best-effort — skipped when no chat key is
-    # configured or the call fails/times out, so retrieval never blocks on it.
-    rag_query_expansion: bool = True
-    rag_query_expansion_count: int = 4
-    rag_query_expansion_timeout: float = 6.0
+    # Follow-up query contextualization: rewrite an ambiguous latest message into
+    # one standalone retrieval query using bounded recent conversation history.
+    # The literal message is searched too, and any rewrite failure falls back to it.
+    rag_query_contextualization: bool = True
+    rag_query_context_messages: int = 6
+    rag_query_context_chars: int = 6000
+    rag_query_context_timeout: float = 6.0
 
     # Reranking (Jina): retrieve a wider candidate set, then have a cross-encoder
-    # reorder it against the *original* question and keep the best `rag_top_k`.
+    # reorder it against the standalone question and keep the best `rag_top_k`.
     # Best-effort — skipped without `jina_api_key`, and any error/timeout falls
     # back to retrieval (cosine-score) order, so it never blocks an answer.
     # Candidates are truncated to `rag_rerank_snippet_chars` before sending, which

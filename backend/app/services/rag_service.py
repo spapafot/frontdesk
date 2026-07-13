@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.repositories.knowledge_repository import KnowledgeRepository
 from app.services.embeddings import embed_query
-from app.services.query_expansion import expand_query
+from app.services.query_contextualization import contextualize_query
 from app.services.reranker import rerank
 
 logger = logging.getLogger(__name__)
@@ -84,20 +84,18 @@ def _distance_to_score(distance: float) -> float:
     return max(0.0, 1.0 - distance / 2.0)
 
 
-async def _expanded_variants(query: str, variants: list[str]) -> list[str]:
-    """Append model-suggested paraphrases of the query, de-duplicated.
-
-    Widens recall across vocabulary gaps: a question worded "προθεσμία υποβολής"
-    can then reach a passage worded "καταληκτική ημερομηνία παραλαβής". Best-effort
-    — ``expand_query`` yields nothing when disabled or unavailable, leaving the
-    literal query variants untouched.
-    """
-    seen = {variant.casefold() for variant in variants}
-    for phrasing in await expand_query(query):
-        key = phrasing.casefold()
-        if key and key not in seen:
-            seen.add(key)
-            variants.append(phrasing)
+def _retrieval_variants(query: str, standalone_query: str) -> list[str]:
+    """Build de-duplicated literal and contextualized query variants."""
+    variants: list[str] = []
+    seen: set[str] = set()
+    # Prefer the standalone query so it wins ties, but retain the literal query
+    # as protection against an unhelpful rewrite.
+    for phrasing in (standalone_query, query):
+        for variant in _query_variants(phrasing):
+            key = variant.casefold()
+            if key and key not in seen:
+                seen.add(key)
+                variants.append(variant)
     return variants
 
 
@@ -124,10 +122,13 @@ async def _rerank_candidates(query: str, candidates: list[dict], limit: int) -> 
 
 
 async def search_knowledge(
-    session: AsyncSession, profile_id: int, query: str, limit: int | None = None
+    session: AsyncSession,
+    profile_id: int,
+    query: str,
+    limit: int | None = None,
+    history: list[dict] | None = None,
 ) -> list[dict]:
-    """Embed the query (plus alternative phrasings) and return the most relevant
-    knowledge chunks, blended with a lexical fallback and reordered by a reranker."""
+    """Retrieve on literal and history-contextualized forms of ``query``."""
     if limit is None:
         limit = settings.rag_top_k
     # With reranking on, cast a wider net so the cross-encoder has real choices;
@@ -136,7 +137,8 @@ async def search_knowledge(
         max(limit, settings.rag_rerank_candidates) if settings.rag_reranker else limit
     )
     repo = KnowledgeRepository(session)
-    variants = await _expanded_variants(query, _query_variants(query))
+    standalone_query = await contextualize_query(query, history)
+    variants = _retrieval_variants(query, standalone_query)
     by_chunk: dict[int, dict] = {}
 
     async def _semantic(variant: str):
@@ -187,4 +189,4 @@ async def search_knowledge(
             existing["score"] = max(existing["score"], 1.0)
 
     candidates = sorted(by_chunk.values(), key=lambda item: item["score"], reverse=True)
-    return await _rerank_candidates(query, candidates, limit)
+    return await _rerank_candidates(standalone_query, candidates, limit)

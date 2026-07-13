@@ -95,8 +95,8 @@ async def test_search_combines_multilingual_semantic_and_lexical_matches(monkeyp
     )
 
     # Variants are embedded concurrently now, so assert on the set, not order.
-    # Expansion is gated on a chat key, which the test suite leaves empty, so only
-    # the literal query and its transliteration are searched here.
+    # No history is supplied, so only the literal query and its transliteration
+    # are searched here.
     assert sorted(embedded_queries) == sorted(
         [
             "Ξέρεις τον Στράτο Παπαφωτίου?",

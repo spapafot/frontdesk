@@ -96,15 +96,15 @@ async def test_search_knowledge_applies_rerank_order(monkeypatch):
     async def embed(_query):
         return [0.1, 0.2]
 
-    async def no_expand(_query):
-        return []
+    async def no_contextualize(query, _history):
+        return query
 
     async def fake_rerank(_query, documents, top_n):
         # Reverse the retrieval order: gamma, beta, then keep top_n=2.
         return [2, 1]
 
     monkeypatch.setattr(rag_service, "embed_query", embed)
-    monkeypatch.setattr(rag_service, "expand_query", no_expand)
+    monkeypatch.setattr(rag_service, "contextualize_query", no_contextualize)
     monkeypatch.setattr(rag_service, "rerank", fake_rerank)
 
     results = await rag_service.search_knowledge(SimpleNamespace(), 7, "q", limit=2)
@@ -123,15 +123,15 @@ async def test_search_knowledge_backfills_partial_rerank(monkeypatch):
     async def embed(_query):
         return [0.1, 0.2]
 
-    async def no_expand(_query):
-        return []
+    async def no_contextualize(query, _history):
+        return query
 
     async def fake_rerank(_query, documents, top_n):
         # Reranker only returns one index; the rest must be backfilled by score.
         return [2]
 
     monkeypatch.setattr(rag_service, "embed_query", embed)
-    monkeypatch.setattr(rag_service, "expand_query", no_expand)
+    monkeypatch.setattr(rag_service, "contextualize_query", no_contextualize)
     monkeypatch.setattr(rag_service, "rerank", fake_rerank)
 
     results = await rag_service.search_knowledge(SimpleNamespace(), 7, "q", limit=3)
@@ -150,14 +150,14 @@ async def test_search_knowledge_keeps_score_order_when_rerank_unavailable(monkey
     async def embed(_query):
         return [0.1, 0.2]
 
-    async def no_expand(_query):
-        return []
+    async def no_contextualize(query, _history):
+        return query
 
     async def no_rerank(_query, documents, top_n):
         return None
 
     monkeypatch.setattr(rag_service, "embed_query", embed)
-    monkeypatch.setattr(rag_service, "expand_query", no_expand)
+    monkeypatch.setattr(rag_service, "contextualize_query", no_contextualize)
     monkeypatch.setattr(rag_service, "rerank", no_rerank)
 
     results = await rag_service.search_knowledge(SimpleNamespace(), 7, "q", limit=2)

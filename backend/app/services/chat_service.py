@@ -165,7 +165,9 @@ async def run_turn(
 
         # RAG-always: retrieve the relevant knowledge up front so the model can answer
         # in a single streaming call instead of multiple blocking tool round-trips.
-        results = await search_knowledge(session, profile.id, message)
+        results = await search_knowledge(
+            session, profile.id, message, history=history
+        )
         had_sources = bool(results)
         sources = [
             {
