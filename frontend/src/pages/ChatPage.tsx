@@ -6,6 +6,8 @@ import { ChatInput } from "../components/ChatInput";
 import { ChatWindow } from "../components/ChatWindow";
 import { DebugPanel } from "../components/DebugPanel";
 import { RatingControl } from "../components/RatingControl";
+import { Skeleton } from "../components/Skeleton";
+import { useSite } from "../components/SiteProvider";
 import { useChatStream } from "../hooks/useChatStream";
 
 interface Props {
@@ -22,10 +24,15 @@ export function ChatPage({
   onRate,
 }: Props) {
   const [showDebug, setShowDebug] = useState(false);
-  const { messages, isStreaming, send, setConversation } = useChatStream({
+  const { selectedSiteId } = useSite();
+  const { messages, isStreaming, isLoadingHistory, send, setConversation } = useChatStream({
     onConversationCreated,
+    siteId: selectedSiteId,
   });
-  const { data: settings } = useSWR(settingsKey, getSettings);
+  const { data: settings } = useSWR(
+    selectedSiteId != null ? settingsKey(selectedSiteId) : null,
+    () => getSettings(selectedSiteId as number)
+  );
 
   useEffect(() => {
     setConversation(selectedConversationId);
@@ -39,12 +46,19 @@ export function ChatPage({
       <header className="px-4 pt-4">
         <div className="mx-auto flex w-full max-w-2xl items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3">
         <div>
-          <h1 className="text-sm font-semibold text-slate-800">
-            {settings?.assistant_name ?? "Plug & Play"}
-          </h1>
-          <p className="text-xs text-slate-500">
-            {settings ? settings.business_name : "Ask about anything in our knowledge base"}
-          </p>
+          {settings ? (
+            <>
+              <h1 className="text-sm font-semibold text-slate-800">
+                {settings.assistant_name}
+              </h1>
+              <p className="text-xs text-slate-500">{settings.business_name}</p>
+            </>
+          ) : (
+            <div role="status" aria-label="Loading assistant">
+              <Skeleton className="h-4 w-32" />
+              <Skeleton className="mt-1.5 h-3 w-40" />
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-4">
           {canRate && (
@@ -58,7 +72,11 @@ export function ChatPage({
         </div>
         </div>
       </header>
-      <ChatWindow messages={messages} showDebug={showDebug} />
+      <ChatWindow
+        messages={messages}
+        showDebug={showDebug}
+        isLoadingHistory={isLoadingHistory}
+      />
       <ChatInput onSend={send} disabled={isStreaming} />
     </div>
   );

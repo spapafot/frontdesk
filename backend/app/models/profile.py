@@ -10,7 +10,7 @@ class AssistantProfile(Base):
     __tablename__ = "assistant_profiles"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    owner_user_id: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    owner_user_id: Mapped[str] = mapped_column(String(128), index=True)
     name: Mapped[str] = mapped_column(String(255))
     type: Mapped[str] = mapped_column(String(64), default="general")
     assistant_name: Mapped[str] = mapped_column(String(120), default="Assistant")

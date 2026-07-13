@@ -12,6 +12,9 @@ export interface AppearanceState {
 interface Props {
   value: AppearanceState;
   onChange: (next: AppearanceState) => void;
+  // Reserved for the paid-tier "hide branding" toggle (UI currently disabled -
+  // see the commented block below). The data-branding plumbing already exists
+  // end-to-end, so re-enabling is just uncommenting.
   showBranding: boolean;
 }
 
@@ -27,13 +30,16 @@ const SWATCHES = [
 
 const HEX = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 
-export function WidgetAppearance({ value, onChange, showBranding }: Props) {
-  const set = (patch: Partial<AppearanceState>) => onChange({ ...value, ...patch });
+export function WidgetAppearance({ value, onChange }: Props) {
+  const set = (patch: Partial<AppearanceState>) =>
+    onChange({ ...value, ...patch });
 
   return (
     <div className="space-y-5">
       <div>
-        <label className="block text-sm font-medium text-slate-700">Accent color</label>
+        <label className="block text-sm font-medium text-slate-700">
+          Accent color
+        </label>
         <p className="text-xs text-slate-400">
           Used for the launcher, header, and message bubbles.
         </p>
@@ -76,8 +82,12 @@ export function WidgetAppearance({ value, onChange, showBranding }: Props) {
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-slate-700">Launcher icon</label>
-        <p className="text-xs text-slate-400">The button shown on your website.</p>
+        <label className="block text-sm font-medium text-slate-700">
+          Launcher icon
+        </label>
+        <p className="text-xs text-slate-400">
+          The button shown on your website.
+        </p>
         <div className="mt-2 flex flex-wrap gap-2">
           {LAUNCHER_ICONS.map((icon) => {
             const selected = value.launcherIcon === icon.key;
@@ -106,28 +116,36 @@ export function WidgetAppearance({ value, onChange, showBranding }: Props) {
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-slate-700">Position</label>
+        <label className="block text-sm font-medium text-slate-700">
+          Position
+        </label>
         <div className="mt-2 inline-flex rounded-lg border border-slate-200 p-1">
-          {(["bottom-right", "bottom-left"] as LauncherPosition[]).map((pos) => (
-            <button
-              key={pos}
-              type="button"
-              onClick={() => set({ launcherPosition: pos })}
-              className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
-                value.launcherPosition === pos
-                  ? "bg-sky-600 text-white"
-                  : "text-slate-600 hover:bg-slate-100"
-              }`}
-            >
-              {pos === "bottom-right" ? "Bottom right" : "Bottom left"}
-            </button>
-          ))}
+          {(["bottom-right", "bottom-left"] as LauncherPosition[]).map(
+            (pos) => (
+              <button
+                key={pos}
+                type="button"
+                onClick={() => set({ launcherPosition: pos })}
+                className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
+                  value.launcherPosition === pos
+                    ? "bg-sky-600 text-white"
+                    : "text-slate-600 hover:bg-slate-100"
+                }`}
+              >
+                {pos === "bottom-right" ? "Bottom right" : "Bottom left"}
+              </button>
+            ),
+          )}
         </div>
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-slate-700">Greeting message</label>
-        <p className="text-xs text-slate-400">The first message visitors see.</p>
+        <label className="block text-sm font-medium text-slate-700">
+          Greeting message
+        </label>
+        <p className="text-xs text-slate-400">
+          The first message visitors see.
+        </p>
         <input
           type="text"
           value={value.greeting}
@@ -139,11 +157,12 @@ export function WidgetAppearance({ value, onChange, showBranding }: Props) {
 
       <div>
         <label className="block text-sm font-medium text-slate-700">
-          Launcher label <span className="font-normal text-slate-400">(optional)</span>
+          Launcher label{" "}
+          <span className="font-normal text-slate-400">(optional)</span>
         </label>
         <p className="text-xs text-slate-400">
-          Short text shown beside the button, e.g. "Chat with us". Leave empty for an icon
-          only.
+          Short text shown beside the button, e.g. "Chat with us". Leave empty
+          for an icon only.
         </p>
         <input
           type="text"
@@ -155,22 +174,25 @@ export function WidgetAppearance({ value, onChange, showBranding }: Props) {
         />
       </div>
 
-      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-        <label className="flex items-start gap-3 text-sm text-slate-500">
-          <input type="checkbox" checked={showBranding} disabled className="mt-0.5" />
-          <span>
-            <span className="font-medium text-slate-700">
-              Show "Powered by Plug &amp; Play"
+      {/*
+        Branding toggle - hidden until paid tiers exist. The `data-branding`
+        plumbing already works end-to-end, so re-enable by uncommenting this
+        block and adding `showBranding` back to the destructured props.
+
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <label className="flex items-start gap-3 text-sm text-slate-500">
+            <input type="checkbox" checked={showBranding} disabled className="mt-0.5" />
+            <span>
+              <span className="font-medium text-slate-700">
+                Show "Powered by Plug &amp; Play"
+              </span>
+              <span className="ml-2 rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                Paid plans
+              </span>
             </span>
-            <span className="ml-2 rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-600">
-              Paid plans
-            </span>
-            <span className="mt-0.5 block text-xs text-slate-400">
-              Removing the branding will be available on paid plans.
-            </span>
-          </span>
-        </label>
-      </div>
+          </label>
+        </div>
+      */}
     </div>
   );
 }

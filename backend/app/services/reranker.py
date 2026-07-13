@@ -3,7 +3,7 @@
 Retrieval (even multi-query + lexical) ranks by embedding similarity, which is
 recall-oriented and noisy about ordering. A cross-encoder scores each candidate
 *against the question directly*, so the passage that actually answers it rises to
-the top and near-duplicate distractors sink — letting us retrieve a wide net and
+the top and near-duplicate distractors sink - letting us retrieve a wide net and
 still inject a small, high-signal context.
 
 Best-effort: ``rerank`` returns ``None`` (caller keeps retrieval order) whenever
@@ -38,7 +38,7 @@ async def _request(payload: dict) -> dict:
 async def rerank(query: str, documents: list[str], top_n: int) -> list[int] | None:
     """Return indices into ``documents`` reordered best-first, truncated to ``top_n``.
 
-    ``None`` signals "no reranking happened" — the caller should keep its existing
+    ``None`` signals "no reranking happened" - the caller should keep its existing
     order. Only indices the API actually returned are included, so the caller must
     backfill to ``top_n`` from retrieval order if it needs a full set.
     """
@@ -57,7 +57,7 @@ async def rerank(query: str, documents: list[str], top_n: int) -> list[int] | No
     }
     try:
         data = await _request(payload)
-    except Exception:  # network / auth / timeout / bad status — never block the answer
+    except Exception:  # network / auth / timeout / bad status - never block the answer
         logger.warning("rerank failed; using retrieval order", exc_info=True)
         return None
 

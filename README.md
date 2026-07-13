@@ -43,13 +43,13 @@ key rotation, custom assistant behavior, and monthly usage.
   answers over SSE.
 - **Asynchronous document pipeline:** uploads are stored in S3 and queued to a
   dedicated ingestion Lambda that extracts, normalizes, filters junk fragments,
-  chunks with overlap, and embeds — off the request path, with a dead-letter queue
+  chunks with overlap, and embeds - off the request path, with a dead-letter queue
   for failures and re-ingestion without re-uploading files.
 - **Embeddable widget:** a small dependency-free loader, Shadow DOM launcher, and
   isolated iframe chat application.
 - **Bot protection:** Cloudflare Turnstile guards the widget session bootstrap. The
   edge Worker verifies the token (checking hostname and action) before the backend
-  will issue a session, and the backend trusts only the Worker's attestation header —
+  will issue a session, and the backend trusts only the Worker's attestation header -
   never the raw token.
 - **Per-user isolation:** Supabase JWT subjects map to separate assistant profiles,
   documents, conversations, analytics, and widget installations.
@@ -89,7 +89,7 @@ flowchart LR
    a Cloudflare Turnstile token, from the configured browser origin.
 2. The edge Worker verifies the Turnstile token with Siteverify (matching the expected
    hostname and action) and, on success, injects an internal attestation header. The
-   backend trusts only that header — never the raw token — when Turnstile enforcement
+   backend trusts only that header - never the raw token - when Turnstile enforcement
    is enabled.
 3. The backend compares that exact origin with the user's active installation and
    returns a short-lived signed widget session.
@@ -248,10 +248,10 @@ assets, a Cloudflare Worker for edge authentication, Turnstile verification, and
 limiting, and Supabase for authentication and pgvector data. The backend runs as two
 AWS Lambda container images built from separate Dockerfiles:
 
-- **API Lambda** (`Dockerfile.lambda`, `requirements-api.txt`) — FastAPI behind the
+- **API Lambda** (`Dockerfile.lambda`, `requirements-api.txt`) - FastAPI behind the
   Lambda Web Adapter with response streaming for SSE. Deployed by
   `deploy/aws/deploy-backend.sh`.
-- **Ingestion Lambda** (`Dockerfile.ingestion.lambda`, `requirements-ingestion.txt`) —
+- **Ingestion Lambda** (`Dockerfile.ingestion.lambda`, `requirements-ingestion.txt`) -
   the SQS-triggered document processor, with `antiword` for legacy `.doc` files.
   Deployed by `deploy/aws/deploy-ingestion.sh`.
 

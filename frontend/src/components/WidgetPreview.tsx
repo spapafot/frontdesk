@@ -116,6 +116,11 @@ export function WidgetPreview({
 
           {showBranding && (
             <div className="pb-2 pt-1 text-center text-[10px] text-slate-400">
+              <img
+                src="/logo-icon-full-color-16.png"
+                alt=""
+                className="mr-0.5 inline-block h-3 w-3 align-[-2px]"
+              />
               Powered by <span className="font-semibold">Plug &amp; Play</span>
             </div>
           )}

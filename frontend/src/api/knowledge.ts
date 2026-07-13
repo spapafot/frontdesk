@@ -31,30 +31,34 @@ async function handle<T>(response: Response): Promise<T> {
   return (await response.json()) as T;
 }
 
-export const documentsKey = `${API_BASE}/knowledge/documents`;
+const base = `${API_BASE}/knowledge/documents`;
 
-export async function fetchDocuments(): Promise<KnowledgeDocument[]> {
-  return handle(await fetch(documentsKey));
+export const documentsKey = (siteId: number) => `${base}?site_id=${siteId}`;
+
+export async function fetchDocuments(siteId: number): Promise<KnowledgeDocument[]> {
+  return handle(await fetch(documentsKey(siteId)));
 }
 
-export async function uploadDocument(file: File): Promise<KnowledgeDocument> {
+export async function uploadDocument(
+  siteId: number,
+  file: File
+): Promise<KnowledgeDocument> {
   const form = new FormData();
   form.append("file", file);
-  return handle(
-    await fetch(documentsKey, { method: "POST", body: form })
-  );
+  return handle(await fetch(documentsKey(siteId), { method: "POST", body: form }));
 }
 
-export async function deleteDocument(id: number): Promise<void> {
-  return handle(await fetch(`${documentsKey}/${id}`, { method: "DELETE" }));
+export async function deleteDocument(siteId: number, id: number): Promise<void> {
+  return handle(await fetch(`${base}/${id}?site_id=${siteId}`, { method: "DELETE" }));
 }
 
 export async function toggleDocument(
+  siteId: number,
   id: number,
   isActive: boolean
 ): Promise<KnowledgeDocument> {
   return handle(
-    await fetch(`${documentsKey}/${id}`, {
+    await fetch(`${base}/${id}?site_id=${siteId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ is_active: isActive }),
@@ -62,6 +66,9 @@ export async function toggleDocument(
   );
 }
 
-export async function fetchChunks(id: number): Promise<KnowledgeChunk[]> {
-  return handle(await fetch(`${documentsKey}/${id}/chunks`));
+export async function fetchChunks(
+  siteId: number,
+  id: number
+): Promise<KnowledgeChunk[]> {
+  return handle(await fetch(`${base}/${id}/chunks?site_id=${siteId}`));
 }

@@ -97,6 +97,7 @@ app.innerHTML = `
     <button class="wx-send" id="wx-send" type="submit" aria-label="Send message">${SEND_ICON}</button>
   </form>
   <div class="wx-footer" id="wx-branding"${params.branding ? "" : " hidden"}>
+    <img src="./logo-icon-full-color-16.png" alt="" width="12" height="12" />
     Powered by <a href="${POWERED_BY_URL}" target="_blank" rel="noopener noreferrer">Plug &amp; Play</a>
   </div>
 `;

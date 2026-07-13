@@ -8,6 +8,7 @@ import {
 } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { authEnabled, supabase } from "../lib/supabase";
+import { Spinner } from "./Spinner";
 
 interface AuthContextValue {
   /** True only when a real session exists and can be signed out. */
@@ -53,7 +54,13 @@ export function AuthGate({ children }: { children: ReactNode }) {
   if (!authEnabled) {
     return <AuthConfigurationError />;
   }
-  if (!ready) return null;
+  if (!ready) {
+    return (
+      <div className="flex h-full items-center justify-center bg-slate-50">
+        <Spinner className="h-8 w-8" label="Signing in" />
+      </div>
+    );
+  }
   if (!session) return <LoginForm />;
 
   return (
@@ -102,7 +109,11 @@ function LoginForm() {
         className="w-full max-w-sm space-y-5 rounded-xl border border-slate-200 bg-white p-8 shadow-sm"
       >
         <div className="flex flex-col items-center text-center">
-          <img src="/logo.png" alt="Plug & Play" className="mb-4 h-28 w-auto" />
+          <img
+            src="/logo-stacked-full-color.png"
+            alt="Plug & Play"
+            className="mb-4 h-28 w-auto"
+          />
           <h1 className="text-lg font-semibold text-slate-900">
             Admin sign in
           </h1>

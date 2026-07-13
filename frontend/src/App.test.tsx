@@ -18,13 +18,31 @@ const SETTINGS = {
   show_branding: true,
 };
 
+const SITES = [
+  {
+    id: 1,
+    name: "Acme Support",
+    assistant_name: "Aria",
+    type: "general",
+    public_key: "pk_live_test",
+    widget_origin: null,
+    widget_enabled: true,
+    widget_monthly_limit: 0,
+    widget_monthly_usage: 0,
+    created_at: "2026-01-01T00:00:00Z",
+  },
+];
+
 // Route each API call to canned JSON so the whole app shell can mount without
-// a backend. This is an integration render: SWR fetchers -> fetch -> UI.
+// a backend. This is an integration render: SWR fetchers -> fetch -> UI. The
+// site list is matched FIRST because every other admin URL now carries a
+// ?site_id= query the shell adds once a site is selected.
 function mockFetch() {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
     let body: unknown = {};
-    if (url.includes("/settings")) body = SETTINGS;
+    if (/\/sites($|\?|\/)/.test(url)) body = SITES;
+    else if (url.includes("/settings")) body = SETTINGS;
     else if (url.includes("/conversations")) body = [];
     else if (url.includes("/analytics")) {
       body = { total_conversations: 0, last_7_days: 0, ratings: {}, unanswered: [] };
@@ -37,6 +55,7 @@ function mockFetch() {
 }
 
 beforeEach(() => {
+  localStorage.clear();
   vi.stubGlobal("fetch", mockFetch());
 });
 
@@ -85,5 +104,25 @@ describe("App shell", () => {
     renderApp();
     await userEvent.click(await screen.findByRole("button", { name: "Settings" }));
     expect(await screen.findByText("0 of 0 messages used this month")).toBeInTheDocument();
+  });
+
+  it("shows a first-run panel with name and URL fields when there are no sites", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        const body = /\/sites($|\?|\/)/.test(url) ? [] : {};
+        return new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      })
+    );
+    renderApp();
+    expect(
+      await screen.findByRole("heading", { name: /add your first website/i })
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText(/website name/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/website url/i)).toBeInTheDocument();
   });
 });

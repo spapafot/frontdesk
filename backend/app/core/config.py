@@ -58,7 +58,7 @@ class Settings(BaseSettings):
 
     # Reranking (Jina): retrieve a wider candidate set, then have a cross-encoder
     # reorder it against the standalone question and keep the best `rag_top_k`.
-    # Best-effort — skipped without `jina_api_key`, and any error/timeout falls
+    # Best-effort - skipped without `jina_api_key`, and any error/timeout falls
     # back to retrieval (cosine-score) order, so it never blocks an answer.
     # Candidates are truncated to `rag_rerank_snippet_chars` before sending, which
     # is enough signal to rank on and keeps Jina's per-token cost/latency low.
@@ -70,9 +70,7 @@ class Settings(BaseSettings):
     rag_rerank_timeout: float = 6.0
 
     # Database
-    database_url: str = (
-        "postgresql+asyncpg://postgres:postgres@localhost:5432/support"
-    )
+    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/support"
     # Force pgBouncer-safe connection args (no prepared-statement caching,
     # NullPool). Auto-enabled when the URL uses Supabase's 6543 pooler port.
     db_pgbouncer: bool = False

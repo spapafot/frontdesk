@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
-from app.api.dependencies import get_current_profile
+from app.api.dependencies import get_selected_site
 from app.models.profile import AssistantProfile
 from app.repositories.knowledge_repository import KnowledgeRepository
 from app.schemas.knowledge import ChunkOut, DocumentOut, ToggleRequest
@@ -33,7 +33,7 @@ def _to_out(document, chunk_count: int) -> DocumentOut:
 @router.get("/documents", response_model=list[DocumentOut])
 async def list_documents(
     session: AsyncSession = Depends(get_session),
-    profile: AssistantProfile = Depends(get_current_profile),
+    profile: AssistantProfile = Depends(get_selected_site),
 ) -> list[DocumentOut]:
     rows = await KnowledgeRepository(session).list_documents(profile.id)
     return [_to_out(doc, count) for doc, count in rows]
@@ -43,7 +43,7 @@ async def list_documents(
 async def upload_document(
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_session),
-    profile: AssistantProfile = Depends(get_current_profile),
+    profile: AssistantProfile = Depends(get_selected_site),
 ) -> DocumentOut:
     data = await file.read()
     if not data:
@@ -117,7 +117,7 @@ async def upload_document(
 async def preview_chunks(
     document_id: int,
     session: AsyncSession = Depends(get_session),
-    profile: AssistantProfile = Depends(get_current_profile),
+    profile: AssistantProfile = Depends(get_selected_site),
 ) -> list[ChunkOut]:
     repo = KnowledgeRepository(session)
     document = await repo.get_document(profile.id, document_id)
@@ -134,7 +134,7 @@ async def toggle_document(
     document_id: int,
     body: ToggleRequest,
     session: AsyncSession = Depends(get_session),
-    profile: AssistantProfile = Depends(get_current_profile),
+    profile: AssistantProfile = Depends(get_selected_site),
 ) -> DocumentOut:
     repo = KnowledgeRepository(session)
     document = await repo.get_document(profile.id, document_id)
@@ -152,7 +152,7 @@ async def toggle_document(
 async def delete_document(
     document_id: int,
     session: AsyncSession = Depends(get_session),
-    profile: AssistantProfile = Depends(get_current_profile),
+    profile: AssistantProfile = Depends(get_selected_site),
 ) -> None:
     repo = KnowledgeRepository(session)
     document = await repo.get_document(profile.id, document_id)

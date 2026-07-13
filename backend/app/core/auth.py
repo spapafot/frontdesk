@@ -52,7 +52,7 @@ class EdgeSecretMiddleware(BaseHTTPMiddleware):
             # Constant-time compare to avoid leaking the secret via timing.
             if not hmac.compare_digest(provided, secret):
                 return JSONResponse(
-                    {"detail": "Forbidden IN APP MIDDLEWARE."},
+                    {"detail": "Forbidden API Access."},
                     status_code=status.HTTP_403_FORBIDDEN,
                 )
         return await call_next(request)
@@ -151,9 +151,7 @@ async def _decode(token: str) -> dict:
             f"{alg or 'asymmetric'} token but SUPABASE_URL is not configured"
         )
     signing_key = await _get_signing_key(token)
-    return jwt.decode(
-        token, signing_key.key, algorithms=["ES256", "RS256"], **common
-    )
+    return jwt.decode(token, signing_key.key, algorithms=["ES256", "RS256"], **common)
 
 
 async def require_admin(

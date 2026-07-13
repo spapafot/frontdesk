@@ -19,10 +19,10 @@ export interface Analytics {
   unanswered: UnansweredQuestion[];
 }
 
-export const analyticsKey = `${API_BASE}/analytics`;
+export const analyticsKey = (siteId: number) => `${API_BASE}/analytics?site_id=${siteId}`;
 
-export async function getAnalytics(): Promise<Analytics> {
-  const response = await fetch(analyticsKey);
+export async function getAnalytics(siteId: number): Promise<Analytics> {
+  const response = await fetch(analyticsKey(siteId));
   if (!response.ok) throw new Error(`Failed to load analytics (${response.status})`);
   return (await response.json()) as Analytics;
 }

@@ -1,7 +1,7 @@
 """Validation tests for the widget-appearance fields on ``SettingsUpdate``.
 
 These exercise only the Pydantic schema, so they need no database (see
-conftest.py — the suite deliberately avoids a real Postgres).
+conftest.py - the suite deliberately avoids a real Postgres).
 """
 
 import pytest

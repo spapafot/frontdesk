@@ -10,6 +10,10 @@ import {
 import { WidgetInstall } from "../components/WidgetInstall";
 import { WidgetAppearance, AppearanceState } from "../components/WidgetAppearance";
 import { WidgetPreview } from "../components/WidgetPreview";
+import { useSite } from "../components/SiteProvider";
+import { Skeleton } from "../components/Skeleton";
+import { RenameWebsiteDialog } from "../components/RenameWebsiteDialog";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 
 const DEFAULT_APPEARANCE: AppearanceState = {
   accentColor: "#0284c7",
@@ -20,7 +24,14 @@ const DEFAULT_APPEARANCE: AppearanceState = {
 };
 
 export function SettingsPage() {
-  const { data, error, isLoading, mutate } = useSWR<Settings>(settingsKey, getSettings);
+  const { selectedSiteId, sites, current, renameSite, deleteSite } = useSite();
+  const { data, error, isLoading, mutate } = useSWR<Settings>(
+    selectedSiteId != null ? settingsKey(selectedSiteId) : null,
+    () => getSettings(selectedSiteId as number)
+  );
+
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const [businessName, setBusinessName] = useState("");
   const [assistantName, setAssistantName] = useState("");
@@ -55,7 +66,7 @@ export function SettingsPage() {
     setSaved(false);
     setSaveError(null);
     try {
-      const updated = await updateSettings({
+      const updated = await updateSettings(selectedSiteId as number, {
         business_name: businessName.trim(),
         assistant_name: assistantName.trim(),
         custom_instructions: customInstructions,
@@ -84,7 +95,7 @@ export function SettingsPage() {
           Configure how your assistant introduces itself, behaves, and looks on your site.
         </p>
 
-        {isLoading && <p className="mt-4 text-sm text-slate-500">Loading...</p>}
+        {isLoading && <SettingsSkeleton />}
         {error && <p className="mt-4 text-sm text-red-600">Failed to load settings.</p>}
 
         {data && (
@@ -209,11 +220,99 @@ export function SettingsPage() {
             launcherLabel={data.launcher_label ?? ""}
             showBranding={data.show_branding}
             onRotate={async () => {
-              const updated = await rotateWidgetKey();
+              const updated = await rotateWidgetKey(selectedSiteId as number);
               await mutate(updated, { revalidate: false });
             }}
           />
         )}
+
+        {current && (
+          <section className="mt-8 max-w-2xl border-t border-slate-200 pt-6">
+            <h3 className="text-sm font-semibold text-slate-800">Website</h3>
+            <p className="mt-1 text-xs text-slate-500">
+              Rename this website, or permanently delete it and everything in it.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setRenameOpen(true)}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+              >
+                Rename website
+              </button>
+              {sites && sites.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => setDeleteOpen(true)}
+                  className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-600 transition hover:bg-red-50"
+                >
+                  Delete website
+                </button>
+              )}
+            </div>
+          </section>
+        )}
+      </div>
+
+      <RenameWebsiteDialog
+        open={renameOpen}
+        initialName={current?.name ?? ""}
+        onClose={() => setRenameOpen(false)}
+        onSubmit={async (name) => {
+          if (current) await renameSite(current.id, name);
+        }}
+      />
+
+      <ConfirmDialog
+        open={deleteOpen}
+        title="Delete website"
+        message={
+          current
+            ? `"${current.name}" and all of its knowledge base, conversations, and widget settings will be permanently deleted. This can't be undone.`
+            : ""
+        }
+        confirmLabel="Delete"
+        destructive
+        onConfirm={() => {
+          if (current) void deleteSite(current.id);
+          setDeleteOpen(false);
+        }}
+        onCancel={() => setDeleteOpen(false)}
+      />
+    </div>
+  );
+}
+
+function SettingsSkeleton() {
+  return (
+    <div className="mt-6 space-y-8" role="status" aria-label="Loading settings">
+      <section className="max-w-2xl space-y-5">
+        {Array.from({ length: 2 }).map((_, i) => (
+          <div key={i}>
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="mt-2 h-10 w-full rounded-lg" />
+          </div>
+        ))}
+        <div>
+          <Skeleton className="h-4 w-40" />
+          <Skeleton className="mt-2 h-28 w-full rounded-lg" />
+        </div>
+      </section>
+
+      <section className="border-t border-slate-200 pt-6">
+        <Skeleton className="h-4 w-44" />
+        <div className="mt-5 grid gap-8 lg:grid-cols-2">
+          <div className="space-y-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-10 w-full rounded-lg" />
+            ))}
+          </div>
+          <Skeleton className="h-64 w-full rounded-xl" />
+        </div>
+      </section>
+
+      <div>
+        <Skeleton className="h-10 w-36 rounded-full" />
       </div>
     </div>
   );

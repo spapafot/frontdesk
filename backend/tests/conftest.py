@@ -55,7 +55,7 @@ def no_database_profile(monkeypatch):
         return SimpleNamespace(id=7, owner_user_id=owner_user_id)
 
     monkeypatch.setattr(
-        "app.repositories.profile_repository.ProfileRepository.get_or_create_for_owner",
+        "app.repositories.profile_repository.ProfileRepository.get_or_create_default",
         _profile,
     )
 

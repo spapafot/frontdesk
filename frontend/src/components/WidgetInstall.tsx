@@ -84,10 +84,6 @@ export function WidgetInstall({
         Paste this snippet just before the closing &lt;/body&gt; tag on your
         site.
       </p>
-      <p className="mt-1 text-xs text-amber-600">
-        Changed the appearance above? Save, then copy the snippet again so your
-        site picks up the new look.
-      </p>
       <Link
         to="/widget-guide"
         className="mt-2 inline-block text-xs font-medium text-sky-700 hover:text-sky-800 hover:underline"

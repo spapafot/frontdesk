@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import useSWR from "swr";
 import { getSettings, settingsKey } from "../api/settings";
 import { WIDGET_SRC } from "../components/WidgetInstall";
+import { useSite } from "../components/SiteProvider";
 
 interface CodeBlockProps {
   code: string;
@@ -87,7 +88,11 @@ const attributes = [
 ];
 
 export function WidgetDocsPage() {
-  const { data: settings } = useSWR(settingsKey, getSettings);
+  const { selectedSiteId } = useSite();
+  const { data: settings } = useSWR(
+    selectedSiteId != null ? settingsKey(selectedSiteId) : null,
+    () => getSettings(selectedSiteId as number)
+  );
   const siteKey = settings?.public_key ?? "YOUR_SITE_KEY";
   const snippet = `<script
   src="${WIDGET_SRC}"

@@ -2,6 +2,8 @@ import { useState } from "react";
 import { ConversationSummary } from "../api/conversations";
 import { useAuth } from "./AuthGate";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { Skeleton } from "./Skeleton";
+import { SiteSwitcher } from "./SiteSwitcher";
 
 export type View = "chat" | "admin" | "settings" | "analytics" | "widgetDocs";
 
@@ -70,7 +72,11 @@ export function Sidebar({
       }`}
     >
       <div className="flex items-center justify-between border-b border-slate-200 px-3 py-3">
-        <img src="/logo.png" alt="Plug &amp; Play" className="h-11 w-auto" />
+        <img
+          src="/logo-horizontal-full-color.png"
+          alt="Plug &amp; Play"
+          className="h-11 w-auto"
+        />
         <button
           type="button"
           onClick={onClose}
@@ -87,6 +93,7 @@ export function Sidebar({
           </svg>
         </button>
       </div>
+      <SiteSwitcher />
       <div className="p-3">
         <button
           type="button"
@@ -101,6 +108,16 @@ export function Sidebar({
         <p className="px-2 py-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
           History
         </p>
+        {conversations === undefined && (
+          <div className="space-y-1" role="status" aria-label="Loading conversations">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="px-3 py-2">
+                <Skeleton className="h-3.5 w-4/5" />
+                <Skeleton className="mt-1.5 h-2.5 w-1/2" />
+              </div>
+            ))}
+          </div>
+        )}
         {conversations && conversations.length === 0 && (
           <p className="px-2 py-2 text-xs text-slate-400">No conversations yet.</p>
         )}

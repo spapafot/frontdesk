@@ -24,6 +24,48 @@ async def test_admin_chat_uses_authenticated_profile(client, settings, monkeypat
     assert record["include_sources"] is True
 
 
+async def test_admin_chat_honors_site_id(client, settings, monkeypatch):
+    monkeypatch.setattr(settings, "edge_shared_secret", "")
+    monkeypatch.setattr(settings, "supabase_jwt_secret", JWT_SECRET)
+    record: dict = {}
+    monkeypatch.setattr("app.api.routes.chat.stream_chat", make_fake_stream(record))
+
+    async def _get_owned(_self, site_id, _owner):
+        return SimpleNamespace(id=site_id) if site_id == 42 else None
+
+    monkeypatch.setattr(
+        "app.repositories.profile_repository.ProfileRepository.get_owned", _get_owned
+    )
+
+    response = await client.post(
+        "/chat/stream",
+        json={"message": "hello", "site_id": 42},
+        headers={"Authorization": f"Bearer {make_jwt(JWT_SECRET)}"},
+    )
+    assert response.status_code == 200
+    _ = response.text
+    assert record["profile_id"] == 42
+
+
+async def test_admin_chat_rejects_foreign_site_id(client, settings, monkeypatch):
+    monkeypatch.setattr(settings, "edge_shared_secret", "")
+    monkeypatch.setattr(settings, "supabase_jwt_secret", JWT_SECRET)
+
+    async def _get_owned(_self, _site_id, _owner):
+        return None
+
+    monkeypatch.setattr(
+        "app.repositories.profile_repository.ProfileRepository.get_owned", _get_owned
+    )
+
+    response = await client.post(
+        "/chat/stream",
+        json={"message": "hello", "site_id": 999},
+        headers={"Authorization": f"Bearer {make_jwt(JWT_SECRET)}"},
+    )
+    assert response.status_code == 404
+
+
 async def test_widget_chat_never_requests_source_metadata(
     client, settings, monkeypatch
 ):

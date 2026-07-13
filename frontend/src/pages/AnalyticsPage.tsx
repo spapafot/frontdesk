@@ -9,6 +9,8 @@ import {
   listConversations,
   StoredMessage,
 } from "../api/conversations";
+import { useSite } from "../components/SiteProvider";
+import { Skeleton } from "../components/Skeleton";
 
 interface Props {
   onOpenConversation: (id: number) => void;
@@ -43,20 +45,28 @@ function MetricCard({ label, value }: { label: string; value: number | string })
 }
 
 export function AnalyticsPage({ onOpenConversation }: Props) {
-  const { data: analytics, isLoading } = useSWR(analyticsKey, getAnalytics);
-  const { data: conversations } = useSWR(conversationsKey, listConversations);
+  const { selectedSiteId } = useSite();
+  const { data: analytics, isLoading } = useSWR(
+    selectedSiteId != null ? analyticsKey(selectedSiteId) : null,
+    () => getAnalytics(selectedSiteId as number)
+  );
+  const { data: conversations } = useSWR(
+    selectedSiteId != null ? conversationsKey(selectedSiteId) : null,
+    () => listConversations(selectedSiteId as number)
+  );
 
   const [transcript, setTranscript] = useState<StoredMessage[] | null>(null);
   const [detail, setDetail] = useState<ConversationSummary | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
 
   const openTranscript = async (id: number) => {
+    if (selectedSiteId == null) return;
     setLoadingDetail(true);
     setTranscript([]);
     try {
       const [messages, conversationDetail] = await Promise.all([
-        getConversationMessages(id),
-        getConversationDetail(id),
+        getConversationMessages(selectedSiteId, id),
+        getConversationDetail(selectedSiteId, id),
       ]);
       setTranscript(messages);
       setDetail(conversationDetail);
@@ -77,7 +87,7 @@ export function AnalyticsPage({ onOpenConversation }: Props) {
         Conversation volume, customer ratings, and questions the assistant could not answer.
       </p>
 
-      {isLoading && <p className="mt-4 text-sm text-slate-500">Loading analytics...</p>}
+      {isLoading && <AnalyticsSkeleton />}
 
       {analytics && (
         <>
@@ -136,6 +146,25 @@ export function AnalyticsPage({ onOpenConversation }: Props) {
                   </tr>
                 </thead>
                 <tbody>
+                  {conversations === undefined &&
+                    Array.from({ length: 4 }).map((_, i) => (
+                      <tr key={`skeleton-${i}`} className="border-t border-slate-100">
+                        <td className="px-3 py-2">
+                          <Skeleton className="h-4 w-40" />
+                        </td>
+                        <td className="px-3 py-2">
+                          <Skeleton className="h-4 w-24" />
+                        </td>
+                        <td className="px-3 py-2">
+                          <Skeleton className="h-4 w-16" />
+                        </td>
+                        <td className="px-3 py-2">
+                          <div className="flex justify-end">
+                            <Skeleton className="h-4 w-10" />
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
                   {conversations?.map((c) => (
                     <tr key={c.id} className="border-t border-slate-100">
                       <td className="px-3 py-2 font-medium text-slate-800">
@@ -182,14 +211,23 @@ export function AnalyticsPage({ onOpenConversation }: Props) {
           >
             <div className="border-b border-slate-200 p-4">
               <h3 className="text-sm font-semibold text-slate-800">Transcript</h3>
-              {loadingDetail && (
-                <p className="mt-1 text-xs text-slate-400">Loading summary...</p>
-              )}
+              {loadingDetail && <Skeleton className="mt-2 h-3 w-3/4" />}
               {detail?.summary && (
                 <p className="mt-1 text-xs text-slate-500">{detail.summary}</p>
               )}
             </div>
             <div className="flex-1 space-y-3 overflow-y-auto p-4">
+              {loadingDetail &&
+                transcript.length === 0 &&
+                [
+                  { w: "w-1/2", side: "justify-end" },
+                  { w: "w-2/3", side: "justify-start" },
+                  { w: "w-1/3", side: "justify-end" },
+                ].map((b, idx) => (
+                  <div key={`skeleton-${idx}`} className={`flex ${b.side}`}>
+                    <Skeleton className={`h-10 ${b.w} rounded-lg`} />
+                  </div>
+                ))}
               {transcript.map((m, idx) => (
                 <div
                   key={idx}
@@ -219,6 +257,48 @@ export function AnalyticsPage({ onOpenConversation }: Props) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function AnalyticsSkeleton() {
+  return (
+    <div className="mt-4" role="status" aria-label="Loading analytics">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="rounded-xl border border-slate-200 bg-white p-4">
+            <Skeleton className="h-8 w-12" />
+            <Skeleton className="mt-2 h-3 w-20" />
+          </div>
+        ))}
+      </div>
+
+      <section className="mt-8">
+        <Skeleton className="h-4 w-48" />
+        <div className="mt-3 space-y-2">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div
+              key={i}
+              className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2"
+            >
+              <div className="min-w-0 flex-1">
+                <Skeleton className="h-4 w-2/3" />
+                <Skeleton className="mt-1 h-3 w-24" />
+              </div>
+              <Skeleton className="ml-3 h-4 w-16" />
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="mt-8">
+        <Skeleton className="h-4 w-40" />
+        <div className="mt-3 space-y-2 rounded-lg border border-slate-200 p-3">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-5 w-full" />
+          ))}
+        </div>
+      </section>
     </div>
   );
 }
