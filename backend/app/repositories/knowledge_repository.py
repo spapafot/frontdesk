@@ -48,6 +48,17 @@ class KnowledgeRepository:
             return None
         return document
 
+    async def get_by_source_url(
+        self, profile_id: int, source_url: str
+    ) -> KnowledgeDocument | None:
+        """Return an existing link document for this URL, for dedup on add."""
+        stmt = select(KnowledgeDocument).where(
+            KnowledgeDocument.profile_id == profile_id,
+            KnowledgeDocument.source_url == source_url,
+        )
+        result = await self.session.execute(stmt)
+        return result.scalars().first()
+
     async def list_documents(self, profile_id: int) -> list[tuple[KnowledgeDocument, int]]:
         """Return (document, chunk_count) tuples for the business, newest first."""
         chunk_count = func.count(KnowledgeChunk.id)

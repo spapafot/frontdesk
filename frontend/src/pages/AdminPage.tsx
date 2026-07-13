@@ -1,13 +1,16 @@
-import { useRef, useState } from "react";
+import { FormEvent, useRef, useState } from "react";
 import useSWR from "swr";
 import {
   KnowledgeDocument,
+  addLink,
   deleteDocument,
   documentsKey,
   fetchDocuments,
+  rescanDocument,
   toggleDocument,
   uploadDocument,
 } from "../api/knowledge";
+import { ChunkPreviewDialog } from "../components/ChunkPreviewDialog";
 import { useSite } from "../components/SiteProvider";
 import { Skeleton } from "../components/Skeleton";
 import { useToast } from "../components/Toast";
@@ -40,6 +43,11 @@ export function AdminPage() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadNotice, setUploadNotice] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const [linkUrl, setLinkUrl] = useState("");
+  const [addingLink, setAddingLink] = useState(false);
+  const [linkError, setLinkError] = useState<string | null>(null);
+  const [linkNotice, setLinkNotice] = useState<string | null>(null);
+  const [previewDoc, setPreviewDoc] = useState<KnowledgeDocument | null>(null);
 
   const onFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -63,6 +71,50 @@ export function AdminPage() {
       }
       setUploading(false);
       if (fileInput.current) fileInput.current.value = "";
+    }
+  };
+
+  const onAddLink = async (e: FormEvent) => {
+    e.preventDefault();
+    const url = linkUrl.trim();
+    if (!url || addingLink) return;
+    setLinkError(null);
+    setLinkNotice(null);
+    setAddingLink(true);
+    try {
+      await addLink(selectedSiteId as number, url);
+      await mutate().catch(() => undefined);
+      setLinkUrl("");
+      setLinkNotice(
+        "We're reading that page now. It'll be ready in a minute or two — check back shortly!",
+      );
+    } catch (err) {
+      setLinkError((err as Error).message);
+    } finally {
+      setAddingLink(false);
+    }
+  };
+
+  const onRescan = async (doc: KnowledgeDocument) => {
+    const siteId = selectedSiteId as number;
+    try {
+      await mutate(
+        async (docs) => {
+          const updated = await rescanDocument(siteId, doc.id);
+          return docs?.map((d) => (d.id === updated.id ? updated : d)) ?? [];
+        },
+        {
+          // Flip the row to "queued" instantly; polling drives it back to ready.
+          optimisticData: (docs) =>
+            docs?.map((d) =>
+              d.id === doc.id ? { ...d, processing_status: "queued" } : d,
+            ) ?? [],
+          rollbackOnError: true,
+          revalidate: false,
+        },
+      );
+    } catch {
+      showToast("Couldn't rescan the page. Try again.");
     }
   };
 
@@ -107,141 +159,273 @@ export function AdminPage() {
     }
   };
 
+  const fileDocs = documents?.filter((d) => d.type !== "url") ?? [];
+  const urlDocs = documents?.filter((d) => d.type === "url") ?? [];
+
   return (
-    <div className="mx-auto flex h-full max-w-3xl flex-col p-4">
+    <div className="mx-auto h-full max-w-3xl overflow-y-auto p-4">
       <h2 className="text-lg font-semibold text-slate-800">Knowledge base</h2>
       <p className="mt-1 text-sm text-slate-500">
-        Upload the documents the assistant is allowed to answer from. Supported
-        types: TXT, PDF, DOC, DOCX, XLS, XLSX.
+        Everything the assistant is allowed to answer from. Add files or web
+        pages below.
       </p>
 
-      <div className="mt-4 rounded-xl border-2 border-dashed border-slate-300 bg-white p-6 text-center">
-        <input
-          ref={fileInput}
-          type="file"
-          multiple
-          accept={ACCEPT}
-          className="hidden"
-          onChange={(e) => onFiles(e.target.files)}
-        />
-        <button
-          type="button"
-          onClick={() => fileInput.current?.click()}
-          disabled={uploading}
-          className="rounded-full bg-sky-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-sky-700 disabled:opacity-50"
-        >
-          {uploading ? "Uploading..." : "Choose files to upload"}
-        </button>
-        <p className="mt-2 text-xs text-slate-400">Max 10 MB per file.</p>
-        {uploadError && (
-          <p className="mt-3 text-sm text-red-600">{uploadError}</p>
-        )}
-        {uploadNotice && (
-          <p className="mt-3 text-sm text-sky-700" role="status">
-            {uploadNotice}
-          </p>
-        )}
-      </div>
+      {error && (
+        <p className="mt-4 text-sm text-red-600">
+          Failed to load your knowledge base.
+        </p>
+      )}
 
-      <div className="mt-6 flex-1 overflow-y-auto">
-        {isLoading && <DocumentsSkeleton />}
-        {error && (
-          <p className="text-sm text-red-600">Failed to load documents.</p>
-        )}
-        {documents && documents.length === 0 && (
-          <p className="text-sm text-slate-500">
-            No documents yet. Upload a file to give the assistant something to
-            answer from.
-          </p>
-        )}
-        {documents && documents.length > 0 && (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[32rem] border-collapse text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 text-left text-xs uppercase text-slate-400">
-                  <th className="py-2">Title</th>
-                  <th className="py-2">Type</th>
-                  <th className="py-2">Chunks</th>
-                  <th className="py-2">Status</th>
-                  <th className="py-2 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {documents.map((doc) => (
-                  <tr key={doc.id} className="border-b border-slate-100">
-                    <td className="py-2 pr-2 font-medium text-slate-800">
-                      {doc.title}
-                    </td>
-                    <td className="py-2 pr-2 uppercase text-slate-500">
-                      {doc.type}
-                    </td>
-                    <td className="py-2 pr-2 text-slate-500">
-                      {doc.processing_status === "ready"
-                        ? doc.chunk_count
-                        : "-"}
-                    </td>
-                    <td className="py-2 pr-2">
-                      {doc.processing_status === "queued" && (
-                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700">
-                          Queued
-                        </span>
-                      )}
-                      {doc.processing_status === "processing" && (
-                        <span className="rounded-full bg-sky-100 px-2 py-0.5 text-xs text-sky-700">
-                          Processing
-                        </span>
-                      )}
-                      {doc.processing_status === "ready" && (
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-xs ${doc.is_active ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}
-                        >
-                          {doc.is_active
-                            ? "Ready / Active"
-                            : "Ready / Inactive"}
-                        </span>
-                      )}
-                      {doc.processing_status === "failed" && (
-                        <div>
-                          <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs text-red-700">
-                            Failed
-                          </span>
-                          <p className="mt-1 max-w-56 text-xs text-red-600">
-                            Your document failed to process. Please{" "}
-                            <a
-                              className="font-medium underline"
-                              href="mailto:support@plugandplay.gr"
-                            >
-                              contact support
-                            </a>
-                            .
-                          </p>
-                        </div>
-                      )}
-                    </td>
-                    <td className="py-2 text-right">
-                      <button
-                        type="button"
-                        onClick={() => onToggle(doc)}
-                        disabled={doc.processing_status !== "ready"}
-                        className="mr-3 text-xs font-medium text-sky-600 hover:underline disabled:cursor-not-allowed disabled:text-slate-300 disabled:no-underline"
-                      >
-                        {doc.is_active ? "Disable" : "Enable"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onDelete(doc.id)}
-                        className="text-xs font-medium text-red-600 hover:underline"
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      {/* Documents ------------------------------------------------------- */}
+      <section className="mt-6">
+        <h3 className="text-sm font-semibold text-slate-700">Documents</h3>
+        <p className="mt-0.5 text-xs text-slate-400">
+          Upload files: TXT, PDF, DOC, DOCX, XLS, XLSX.
+        </p>
+
+        <div className="mt-3 rounded-xl border-2 border-dashed border-slate-300 bg-white p-6 text-center">
+          <input
+            ref={fileInput}
+            type="file"
+            multiple
+            accept={ACCEPT}
+            className="hidden"
+            onChange={(e) => onFiles(e.target.files)}
+          />
+          <button
+            type="button"
+            onClick={() => fileInput.current?.click()}
+            disabled={uploading}
+            className="rounded-full bg-sky-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-sky-700 disabled:opacity-50"
+          >
+            {uploading ? "Uploading..." : "Choose files to upload"}
+          </button>
+          <p className="mt-2 text-xs text-slate-400">Max 10 MB per file.</p>
+          {uploadError && (
+            <p className="mt-3 text-sm text-red-600">{uploadError}</p>
+          )}
+          {uploadNotice && (
+            <p className="mt-3 text-sm text-sky-700" role="status">
+              {uploadNotice}
+            </p>
+          )}
+        </div>
+
+        <div className="mt-4">
+          {isLoading && <DocumentsSkeleton />}
+          {documents &&
+            (fileDocs.length === 0 ? (
+              <p className="text-sm text-slate-500">
+                No documents yet. Upload a file above.
+              </p>
+            ) : (
+              <DocumentTable
+                docs={fileDocs}
+                showType
+                onPreview={setPreviewDoc}
+                onToggle={onToggle}
+                onDelete={onDelete}
+              />
+            ))}
+        </div>
+      </section>
+
+      {/* Web pages ------------------------------------------------------- */}
+      <section className="mt-8">
+        <h3 className="text-sm font-semibold text-slate-700">Web pages</h3>
+        <p className="mt-0.5 text-xs text-slate-400">
+          Add a page by its URL. We read and keep its text — use Rescan to
+          refresh it later.
+        </p>
+
+        <form
+          onSubmit={onAddLink}
+          className="mt-3 rounded-xl border border-slate-200 bg-white p-4"
+        >
+          <label htmlFor="knowledge-link-url" className="sr-only">
+            Web page URL
+          </label>
+          <div className="flex gap-2">
+            <input
+              id="knowledge-link-url"
+              type="url"
+              required
+              maxLength={2048}
+              value={linkUrl}
+              onChange={(e) => setLinkUrl(e.target.value)}
+              placeholder="https://example.com/pricing"
+              className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+            />
+            <button
+              type="submit"
+              disabled={addingLink}
+              className="shrink-0 rounded-full bg-sky-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-sky-700 disabled:opacity-50"
+            >
+              {addingLink ? "Adding…" : "Add link"}
+            </button>
           </div>
-        )}
-      </div>
+          {linkError && <p className="mt-2 text-sm text-red-600">{linkError}</p>}
+          {linkNotice && (
+            <p className="mt-2 text-sm text-sky-700" role="status">
+              {linkNotice}
+            </p>
+          )}
+        </form>
+
+        <div className="mt-4">
+          {documents &&
+            (urlDocs.length === 0 ? (
+              <p className="text-sm text-slate-500">
+                No web pages yet. Paste a URL above to add one.
+              </p>
+            ) : (
+              <DocumentTable
+                docs={urlDocs}
+                onPreview={setPreviewDoc}
+                onRescan={onRescan}
+                onToggle={onToggle}
+                onDelete={onDelete}
+              />
+            ))}
+        </div>
+      </section>
+
+      <ChunkPreviewDialog
+        open={previewDoc !== null}
+        siteId={selectedSiteId as number}
+        doc={previewDoc}
+        onClose={() => setPreviewDoc(null)}
+      />
+    </div>
+  );
+}
+
+function DocumentTable({
+  docs,
+  showType,
+  onPreview,
+  onRescan,
+  onToggle,
+  onDelete,
+}: {
+  docs: KnowledgeDocument[];
+  showType?: boolean;
+  onPreview: (doc: KnowledgeDocument) => void;
+  onRescan?: (doc: KnowledgeDocument) => void;
+  onToggle: (doc: KnowledgeDocument) => void;
+  onDelete: (id: number) => void;
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[32rem] border-collapse text-sm">
+        <thead>
+          <tr className="border-b border-slate-200 text-left text-xs uppercase text-slate-400">
+            <th className="py-2">Title</th>
+            {showType && <th className="py-2">Type</th>}
+            <th className="py-2">Chunks</th>
+            <th className="py-2">Status</th>
+            <th className="py-2 text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {docs.map((doc) => (
+            <tr key={doc.id} className="border-b border-slate-100">
+              <td className="py-2 pr-2 font-medium text-slate-800">
+                <div>{doc.title}</div>
+                {doc.source_url && (
+                  <a
+                    href={doc.source_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block max-w-64 truncate text-xs font-normal text-sky-600 hover:underline"
+                  >
+                    {doc.source_url}
+                  </a>
+                )}
+              </td>
+              {showType && (
+                <td className="py-2 pr-2 uppercase text-slate-500">
+                  {doc.type}
+                </td>
+              )}
+              <td className="py-2 pr-2 text-slate-500">
+                {doc.processing_status === "ready" ? doc.chunk_count : "-"}
+              </td>
+              <td className="py-2 pr-2">
+                {doc.processing_status === "queued" && (
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700">
+                    Queued
+                  </span>
+                )}
+                {doc.processing_status === "processing" && (
+                  <span className="rounded-full bg-sky-100 px-2 py-0.5 text-xs text-sky-700">
+                    Processing
+                  </span>
+                )}
+                {doc.processing_status === "ready" && (
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-xs ${doc.is_active ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}
+                  >
+                    {doc.is_active ? "Ready / Active" : "Ready / Inactive"}
+                  </span>
+                )}
+                {doc.processing_status === "failed" && (
+                  <div>
+                    <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs text-red-700">
+                      Failed
+                    </span>
+                    <p className="mt-1 max-w-56 text-xs text-red-600">
+                      This source couldn't be processed. Please{" "}
+                      <a
+                        className="font-medium underline"
+                        href="mailto:support@plugandplay.gr"
+                      >
+                        contact support
+                      </a>
+                      .
+                    </p>
+                  </div>
+                )}
+              </td>
+              <td className="py-2 text-right">
+                <button
+                  type="button"
+                  onClick={() => onPreview(doc)}
+                  disabled={doc.processing_status !== "ready"}
+                  className="mr-3 text-xs font-medium text-sky-600 hover:underline disabled:cursor-not-allowed disabled:text-slate-300 disabled:no-underline"
+                >
+                  Preview
+                </button>
+                {onRescan && doc.type === "url" && (
+                  <button
+                    type="button"
+                    onClick={() => onRescan(doc)}
+                    disabled={doc.processing_status !== "ready"}
+                    className="mr-3 text-xs font-medium text-sky-600 hover:underline disabled:cursor-not-allowed disabled:text-slate-300 disabled:no-underline"
+                  >
+                    Rescan
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => onToggle(doc)}
+                  disabled={doc.processing_status !== "ready"}
+                  className="mr-3 text-xs font-medium text-sky-600 hover:underline disabled:cursor-not-allowed disabled:text-slate-300 disabled:no-underline"
+                >
+                  {doc.is_active ? "Disable" : "Enable"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDelete(doc.id)}
+                  className="text-xs font-medium text-red-600 hover:underline"
+                >
+                  Delete
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

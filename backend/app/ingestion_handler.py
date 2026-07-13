@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.core.config import settings
-from app.core.db import SessionLocal
+from app.core.db import SessionLocal, engine
 from app.repositories.knowledge_repository import KnowledgeRepository
 from app.services.ingestion_service import (
     ExtractionError,
@@ -52,6 +52,9 @@ async def _process_record(record: dict[str, Any]) -> None:
     profile_id = int(payload["profile_id"])
     filename = str(payload["filename"])
     storage_key = str(payload["storage_key"])
+    # Rescans set this so a refreshed page keeps its enable/disable state; a
+    # first ingest (upload/add-link) omits it and is activated on completion.
+    preserve_active = bool(payload.get("preserve_active", False))
     receive_count = int(
         record.get("attributes", {}).get("ApproximateReceiveCount", "1")
     )
@@ -77,7 +80,9 @@ async def _process_record(record: dict[str, Any]) -> None:
                 Key=storage_key,
             )
             data = await asyncio.to_thread(response["Body"].read)
-            await process_existing_document(session, document, filename, data)
+            await process_existing_document(
+                session, document, filename, data, preserve_active=preserve_active
+            )
             document.storage_key = None
             await session.commit()
         except (UnsupportedFileType, ExtractionError) as exc:
@@ -98,9 +103,17 @@ async def _process_record(record: dict[str, Any]) -> None:
 
 
 async def _handle(event: dict[str, Any]) -> None:
-    # Provisioning fixes batch size at one, but process all records defensively.
-    for record in event.get("Records", []):
-        await _process_record(record)
+    try:
+        # Provisioning fixes batch size at one, but process all records defensively.
+        for record in event.get("Records", []):
+            await _process_record(record)
+    finally:
+        # The handler runs one event loop per invocation (asyncio.run) while the
+        # engine persists across warm invocations. Dispose the pool inside THIS
+        # loop so a connection bound to it is never reused on the next
+        # invocation's loop, which raises "Event loop is closed" during pool
+        # cleanup. Without the pgBouncer NullPool path this is the only cleanup.
+        await engine.dispose()
 
 
 def handler(event: dict[str, Any], context: Any) -> None:

@@ -19,6 +19,9 @@ class KnowledgeDocument(Base):
     )
     title: Mapped[str] = mapped_column(String(255))
     type: Mapped[str] = mapped_column(String(64), default="text")
+    # Set for link entries (type == "url"): the page URL, kept so it can be
+    # rescanned. NULL for uploaded files.
+    source_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     content: Mapped[str] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     processing_status: Mapped[str] = mapped_column(

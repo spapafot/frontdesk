@@ -69,6 +69,21 @@ class Settings(BaseSettings):
     rag_rerank_snippet_chars: int = 400
     rag_rerank_timeout: float = 6.0
 
+    # Jina Reader (r.jina.ai): fetch a web page so a URL can be added to the
+    # knowledge base. Reuses `jina_api_key`. The timeout is generous because
+    # Reader renders JS-heavy pages server-side before returning.
+    jina_reader_timeout: float = 30.0
+    # Content extraction, tuned to cut boilerplate before chunking/embedding:
+    #  * `text` returns clean plaintext and drops the link URLs that otherwise
+    #    dominate nav-heavy pages (markdown keeps every `[label](long-url)`).
+    #  * remove-selector strips common site chrome (menus, header/footer, forms)
+    #    so mostly the main content is stored. Comma-separated; empty disables.
+    #  * target-selector, if set, restricts extraction to one CSS selector
+    #    (site-specific; usually left empty to read the whole cleaned page).
+    jina_reader_format: str = "text"
+    jina_reader_remove_selector: str = "nav,header,footer,aside,form"
+    jina_reader_target_selector: str = ""
+
     # Database
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/support"
     # Force pgBouncer-safe connection args (no prepared-statement caching,

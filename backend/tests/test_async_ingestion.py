@@ -29,6 +29,7 @@ async def test_upload_stores_and_queues_document(monkeypatch):
         id=42,
         title="guide.txt",
         type="txt",
+        source_url=None,
         is_active=False,
         processing_status="queued",
         created_at=datetime.now(timezone.utc),

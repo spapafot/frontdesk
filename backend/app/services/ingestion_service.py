@@ -231,8 +231,15 @@ async def process_existing_document(
     document: KnowledgeDocument,
     filename: str,
     data: bytes,
+    *,
+    preserve_active: bool = False,
 ) -> int:
-    """Extract and replace a queued document's content and chunks idempotently."""
+    """Extract and replace a queued document's content and chunks idempotently.
+
+    On a first ingest we activate the document so it becomes usable once ready.
+    ``preserve_active=True`` (used by rescan) instead keeps whatever the admin
+    last chose, so a disabled entry stays disabled after its content refreshes.
+    """
     text = await asyncio.to_thread(extract_text, filename, data)
     chunks = chunk_text(text)
     if not chunks:
@@ -248,11 +255,12 @@ async def process_existing_document(
             document_id=document.id,
             content=chunk,
             embedding=embedding,
-            meta={"title": filename},
+            meta={"title": document.title or filename},
         )
     document.processing_status = "ready"
     document.processing_error = None
-    document.is_active = True
+    if not preserve_active:
+        document.is_active = True
     document.processed_at = datetime.now(timezone.utc)
     await session.flush()
     return len(chunks)

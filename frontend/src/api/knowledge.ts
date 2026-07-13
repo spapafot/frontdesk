@@ -4,6 +4,8 @@ export interface KnowledgeDocument {
   id: number;
   title: string;
   type: string;
+  /** Set for link entries (type === "url"); null for uploaded files. */
+  source_url: string | null;
   is_active: boolean;
   processing_status: "queued" | "processing" | "ready" | "failed";
   chunk_count: number;
@@ -48,6 +50,28 @@ export async function uploadDocument(
   return handle(await fetch(documentsKey(siteId), { method: "POST", body: form }));
 }
 
+export async function addLink(
+  siteId: number,
+  url: string
+): Promise<KnowledgeDocument> {
+  return handle(
+    await fetch(`${API_BASE}/knowledge/links?site_id=${siteId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    })
+  );
+}
+
+export async function rescanDocument(
+  siteId: number,
+  id: number
+): Promise<KnowledgeDocument> {
+  return handle(
+    await fetch(`${base}/${id}/rescan?site_id=${siteId}`, { method: "POST" })
+  );
+}
+
 export async function deleteDocument(siteId: number, id: number): Promise<void> {
   return handle(await fetch(`${base}/${id}?site_id=${siteId}`, { method: "DELETE" }));
 }
@@ -66,9 +90,12 @@ export async function toggleDocument(
   );
 }
 
+export const chunksKey = (siteId: number, id: number) =>
+  `${base}/${id}/chunks?site_id=${siteId}`;
+
 export async function fetchChunks(
   siteId: number,
   id: number
 ): Promise<KnowledgeChunk[]> {
-  return handle(await fetch(`${base}/${id}/chunks?site_id=${siteId}`));
+  return handle(await fetch(chunksKey(siteId, id)));
 }
