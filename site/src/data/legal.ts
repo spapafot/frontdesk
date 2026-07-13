@@ -17,20 +17,21 @@ export const LEGAL_PAGES: Record<string, LegalPage> = {
         heading: "Information used by the service",
         body: [
           "Plug & Play processes account sign-in information through its authentication service. It also stores workspace profile details, such as the business name and assistant settings.",
-          "When an administrator uploads a document, the document name and extracted text are stored in the workspace knowledge base. When a website visitor chats with an assistant, the service stores the visitor's messages, assistant responses, conversation title, rating, and related analytics information.",
+          "When an administrator uploads a document or adds a web page by its URL, the document or page name and its extracted text are stored in the workspace knowledge base. When a website visitor chats with an assistant, the service stores the visitor's messages, assistant responses, conversation title, rating, and related analytics information.",
         ],
       },
       {
         heading: "How information is used",
         body: [
           "Uploaded content is used to build the assistant's searchable knowledge base. Chat messages and relevant conversation history are used to generate responses. Workspace administrators can review conversations, ratings, summaries, and unanswered questions in the admin workspace.",
-          "Do not upload or submit information unless you are authorised to share it. Website visitors should avoid sending sensitive information through the chat widget.",
+          "Do not upload, link to, or submit information unless you are authorised to share it. Website visitors should avoid sending sensitive information through the chat widget.",
         ],
       },
       {
         heading: "AI and service providers",
         body: [
           "The current application sends uploaded document text to OpenAI to create search embeddings. It sends chat content, relevant knowledge-base context, and conversation content used for summaries to DeepSeek to generate responses and summaries.",
+          "When an administrator adds a web page by its URL, the service sends that URL to Jina AI's reader to fetch the page as text; Jina AI is also used to re-rank knowledge-base search results before they are sent to the model.",
           "The application architecture also uses Supabase for authentication and database services, and the marketing website uses Google Analytics to measure site usage after a visitor consents (see the Cookie Policy). Production hosting and edge services must be confirmed before a final policy identifies all providers and applicable data locations.",
         ],
       },
@@ -64,8 +65,9 @@ export const LEGAL_PAGES: Record<string, LegalPage> = {
       {
         heading: "Your content and responsibilities",
         body: [
-          "You are responsible for the documents, instructions, and other content you provide to configure your assistant, including having the necessary rights and permissions to use that content.",
-          "You should review your assistant's configuration and the information it makes available to website visitors.",
+          "You are solely responsible for all content you add to your assistant's knowledge base — uploaded documents, instructions, and any web page you ingest by its URL — and you must hold all rights, licences, and permissions necessary to use that content for this purpose.",
+          "When you add a web page by its URL, the service fetches that page through a third-party reader and stores the extracted text in your workspace knowledge base. By adding a URL you confirm that you are authorised to ingest and use that page's content and that doing so does not infringe any third party's rights or the source website's terms. Plug & Play is not responsible for content you choose to ingest and may remove content or suspend access if it receives a credible report of infringement or misuse.",
+          "You should review your assistant's configuration and the information it makes available to website visitors, and remove any content you are not authorised to use.",
         ],
       },
       {

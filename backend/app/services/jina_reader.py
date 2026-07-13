@@ -66,7 +66,13 @@ async def fetch_url(url: str, *, no_cache: bool = False) -> tuple[str, str]:
     if not isinstance(data, dict):
         raise JinaReaderError("The reader returned an unexpected response.")
 
-    content = (data.get("content") or "").strip()
+    # Reader names the body field after the requested format: `text` mode (our
+    # default) returns `text`, `markdown` returns `content`, `html` returns
+    # `html`. Read the format's field, then fall back across the others so a
+    # config change to `jina_reader_format` can't silently break ingestion.
+    content = (
+        data.get("text") or data.get("content") or data.get("html") or ""
+    ).strip()
     if not content:
         raise JinaReaderError("The page had no readable content.")
 

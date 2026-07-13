@@ -10,7 +10,9 @@ import {
   toggleDocument,
   uploadDocument,
 } from "../api/knowledge";
+import { TERMS_URL } from "../api/client";
 import { ChunkPreviewDialog } from "../components/ChunkPreviewDialog";
+import { LinkDisclaimerDialog } from "../components/LinkDisclaimerDialog";
 import { useSite } from "../components/SiteProvider";
 import { Skeleton } from "../components/Skeleton";
 import { useToast } from "../components/Toast";
@@ -47,6 +49,7 @@ export function AdminPage() {
   const [addingLink, setAddingLink] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
   const [linkNotice, setLinkNotice] = useState<string | null>(null);
+  const [showLinkDisclaimer, setShowLinkDisclaimer] = useState(false);
   const [previewDoc, setPreviewDoc] = useState<KnowledgeDocument | null>(null);
 
   const onFiles = async (files: FileList | null) => {
@@ -74,12 +77,19 @@ export function AdminPage() {
     }
   };
 
-  const onAddLink = async (e: FormEvent) => {
+  const onAddLink = (e: FormEvent) => {
     e.preventDefault();
-    const url = linkUrl.trim();
-    if (!url || addingLink) return;
+    if (!linkUrl.trim() || addingLink) return;
     setLinkError(null);
     setLinkNotice(null);
+    // Require the responsibility acknowledgment before fetching the page.
+    setShowLinkDisclaimer(true);
+  };
+
+  const confirmAddLink = async () => {
+    setShowLinkDisclaimer(false);
+    const url = linkUrl.trim();
+    if (!url) return;
     setAddingLink(true);
     try {
       await addLink(selectedSiteId as number, url);
@@ -201,6 +211,19 @@ export function AdminPage() {
             {uploading ? "Uploading..." : "Choose files to upload"}
           </button>
           <p className="mt-2 text-xs text-slate-400">Max 10 MB per file.</p>
+          <p className="mt-1 text-xs text-slate-400">
+            By uploading, you confirm you have the right to use the content and
+            accept our{" "}
+            <a
+              href={TERMS_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="underline hover:text-slate-500"
+            >
+              Terms of Service
+            </a>
+            .
+          </p>
           {uploadError && (
             <p className="mt-3 text-sm text-red-600">{uploadError}</p>
           )}
@@ -289,6 +312,13 @@ export function AdminPage() {
             ))}
         </div>
       </section>
+
+      <LinkDisclaimerDialog
+        open={showLinkDisclaimer}
+        url={linkUrl.trim()}
+        onConfirm={confirmAddLink}
+        onCancel={() => setShowLinkDisclaimer(false)}
+      />
 
       <ChunkPreviewDialog
         open={previewDoc !== null}

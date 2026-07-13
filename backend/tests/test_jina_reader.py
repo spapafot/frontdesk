@@ -42,9 +42,11 @@ def _response(status_code=200, body=None):
 async def test_fetch_url_returns_title_and_content(monkeypatch, settings):
     monkeypatch.setattr(settings, "jina_api_key", "test-key")
     capture: dict = {}
+    # Default format is `text`, so Reader returns the body in the `text` field
+    # (there is no `content` field in that mode) — mirror the real response.
     _install_client(
         monkeypatch,
-        response=_response(body={"data": {"title": "Example", "content": "Body text"}}),
+        response=_response(body={"data": {"title": "Example", "text": "Body text"}}),
         capture=capture,
     )
 

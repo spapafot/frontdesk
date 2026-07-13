@@ -107,7 +107,7 @@ describe("AdminPage optimistic knowledge-base actions", () => {
     expect(screen.getByText("Handbook")).toBeInTheDocument();
   });
 
-  it("posts a link to the KB and confirms it is being read", async () => {
+  it("gates link ingestion behind the responsibility disclaimer", async () => {
     const calls: { url: string; init?: RequestInit }[] = [];
     vi.stubGlobal(
       "fetch",
@@ -125,6 +125,15 @@ describe("AdminPage optimistic knowledge-base actions", () => {
     const input = await screen.findByPlaceholderText(/example\.com/i);
     await userEvent.type(input, "https://acme.com/pricing");
     await userEvent.click(screen.getByRole("button", { name: "Add link" }));
+
+    // The disclaimer opens and nothing is posted until it is acknowledged.
+    const confirm = await screen.findByRole("button", { name: /add page/i });
+    expect(confirm).toBeDisabled();
+    expect(calls.some((c) => c.url.includes("/knowledge/links"))).toBe(false);
+
+    await userEvent.click(screen.getByRole("checkbox"));
+    expect(confirm).toBeEnabled();
+    await userEvent.click(confirm);
 
     await waitFor(() =>
       expect(
