@@ -4,6 +4,12 @@ import { API_BASE } from "../api/client";
 
 interface Props {
   siteKey: string | null;
+  accentColor: string;
+  launcherIcon: string;
+  launcherPosition: string;
+  greeting: string;
+  launcherLabel: string;
+  showBranding: boolean;
   onRotate: () => Promise<void>;
 }
 
@@ -13,7 +19,25 @@ export const WIDGET_SRC =
   (import.meta.env.VITE_WIDGET_SRC as string | undefined) ??
   "https://cdn.yourdomain.com/widget.js";
 
-export function WidgetInstall({ siteKey, onRotate }: Props) {
+// Escape a value for safe inclusion inside a double-quoted HTML attribute.
+function attrEscape(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+export function WidgetInstall({
+  siteKey,
+  accentColor,
+  launcherIcon,
+  launcherPosition,
+  greeting,
+  launcherLabel,
+  showBranding,
+  onRotate,
+}: Props) {
   const [copied, setCopied] = useState(false);
   const [rotating, setRotating] = useState(false);
 
@@ -21,15 +45,25 @@ export function WidgetInstall({ siteKey, onRotate }: Props) {
 
   // The loader defaults its API base to wherever widget.js is served. In this
   // deployment the widget assets live on the CDN/Pages host, which does not
-  // serve the API, so we pin data-api to the API origin explicitly.
-  const snippet = `<script
-  src="${WIDGET_SRC}"
-  data-site-key="${siteKey}"
-  data-api="${API_BASE}"
-  data-accent="#0284c7"
-  data-position="bottom-right"
-  async
-></script>`;
+  // serve the API, so we pin data-api to the API origin explicitly. Appearance
+  // is carried as data-* attributes reflecting what was saved above.
+  const lines = [
+    `  src="${WIDGET_SRC}"`,
+    `  data-site-key="${siteKey}"`,
+    `  data-api="${API_BASE}"`,
+    `  data-accent="${attrEscape(accentColor)}"`,
+    `  data-position="${launcherPosition}"`,
+    `  data-icon="${launcherIcon}"`,
+    `  data-greeting="${attrEscape(greeting)}"`,
+  ];
+  if (launcherLabel.trim()) {
+    lines.push(`  data-launcher-label="${attrEscape(launcherLabel.trim())}"`);
+  }
+  if (!showBranding) {
+    lines.push(`  data-branding="false"`);
+  }
+  lines.push("  async");
+  const snippet = `<script\n${lines.join("\n")}\n></script>`;
 
   const copy = async () => {
     try {
@@ -49,6 +83,10 @@ export function WidgetInstall({ siteKey, onRotate }: Props) {
       <p className="mt-1 text-xs text-slate-500">
         Paste this snippet just before the closing &lt;/body&gt; tag on your
         site.
+      </p>
+      <p className="mt-1 text-xs text-amber-600">
+        Changed the appearance above? Save, then copy the snippet again so your
+        site picks up the new look.
       </p>
       <Link
         to="/widget-guide"

@@ -59,6 +59,12 @@ async def _to_out(profile: AssistantProfile, session: AsyncSession) -> SettingsO
         widget_monthly_limit=installation.monthly_limit,
         widget_monthly_usage=await repo.usage(installation.id, period),
         widget_resets_at=reset,
+        accent_color=installation.accent_color,
+        launcher_icon=installation.launcher_icon,
+        launcher_position=installation.launcher_position,
+        greeting=installation.greeting,
+        launcher_label=installation.launcher_label,
+        show_branding=installation.show_branding,
     )
 
 
@@ -89,6 +95,18 @@ async def update_settings(
         installation.allowed_origin = _normalize_origin(body.widget_origin)
     if body.widget_enabled is not None:
         installation.is_enabled = body.widget_enabled
+    if body.accent_color is not None:
+        installation.accent_color = body.accent_color
+    if body.launcher_icon is not None:
+        installation.launcher_icon = body.launcher_icon
+    if body.launcher_position is not None:
+        installation.launcher_position = body.launcher_position
+    if body.greeting is not None:
+        installation.greeting = body.greeting
+    if "launcher_label" in body.model_fields_set:
+        installation.launcher_label = (body.launcher_label or "").strip() or None
+    if body.show_branding is not None:
+        installation.show_branding = body.show_branding
     await session.commit()
     return await _to_out(profile, session)
 

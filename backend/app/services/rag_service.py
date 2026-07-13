@@ -13,12 +13,13 @@ from app.services.reranker import rerank
 
 logger = logging.getLogger(__name__)
 
-# cosine distance ranges 0 (identical) .. 2 (opposite). Convert to a 0..1 score.
+# Cosine distance ranges 0 (identical) .. 2 (opposite). Convert to a 0..1 score.
 # Anything below this score is treated as not confidently relevant.
 RELEVANCE_THRESHOLD = 0.30
+RRF_K = 60
 
 _GREEK_RE = re.compile(r"[\u0370-\u03ff\u1f00-\u1fff]")
-_WORD_RE = re.compile(r"[a-z0-9]+")
+_WORD_RE = re.compile(r"[^\W_]+", re.UNICODE)
 _GREEK_DIGRAPHS = {
     "ου": "ou",
     "αι": "ai",
@@ -43,12 +44,15 @@ _GREEK_CHARS = str.maketrans(
         "ω": "o",
     }
 )
-_TRANSLITERATED_STOPWORDS = frozenset(
+_LEXICAL_STOPWORDS = frozenset(
     {
         "apo", "afto", "afton", "einai", "ena", "enas", "gia", "kai", "me",
         "mou", "na", "poios", "poia", "poio", "pou", "se", "ston", "stin",
         "stis", "sto", "ta", "tin", "tis", "to", "ton", "tou", "xereis",
         "ksereis", "sxetika", "plirofories",
+        "από", "αυτό", "αυτόν", "είναι", "ένα", "ένας", "για", "και", "με",
+        "μου", "ποιος", "ποια", "ποιο", "που", "στον", "στην", "στις", "στο",
+        "την", "της", "τον", "του", "ξέρεις", "σχετικά", "πληροφορίες",
     }
 )
 
@@ -75,13 +79,18 @@ def _lexical_terms(query_variants: list[str]) -> list[str]:
     terms: list[str] = []
     for variant in query_variants:
         for term in _WORD_RE.findall(variant.lower()):
-            if len(term) >= 4 and term not in _TRANSLITERATED_STOPWORDS and term not in terms:
+            if len(term) >= 4 and term not in _LEXICAL_STOPWORDS and term not in terms:
                 terms.append(term)
-    return terms[:8]
+    return terms[:12]
 
 
 def _distance_to_score(distance: float) -> float:
     return max(0.0, 1.0 - distance / 2.0)
+
+
+def _rrf_contribution(rank: int) -> float:
+    """Return one reciprocal-rank-fusion contribution for a 1-based rank."""
+    return 1.0 / (RRF_K + rank)
 
 
 def _retrieval_variants(query: str, standalone_query: str) -> list[str]:
@@ -145,9 +154,9 @@ async def search_knowledge(
         embedding = await embed_query(variant)
         return await repo.search(profile_id, embedding, limit=candidate_limit)
 
-    # Each variant is an independent embed+search round-trip; expansion can add
-    # several, so run them concurrently rather than serially on the chat's
-    # critical path. One variant failing must not sink the rest of the search.
+    # Each variant is an independent embed+search round-trip. Run them concurrently
+    # rather than serially on the chat's critical path. One variant failing must
+    # not sink the rest of the search.
     variant_rows = await asyncio.gather(
         *(_semantic(variant) for variant in variants), return_exceptions=True
     )
@@ -155,24 +164,32 @@ async def search_knowledge(
         if isinstance(rows, BaseException):
             logger.warning("semantic search failed for variant %r", variant, exc_info=rows)
             continue
-        for chunk, title, distance in rows:
-            score = _distance_to_score(distance)
-            if score < RELEVANCE_THRESHOLD:
+        for rank, (chunk, title, distance) in enumerate(rows, start=1):
+            semantic_score = _distance_to_score(distance)
+            if semantic_score < RELEVANCE_THRESHOLD:
                 continue
             existing = by_chunk.get(chunk.id)
-            if existing is None or score > existing["score"]:
+            if existing is None:
                 by_chunk[chunk.id] = {
                     "chunk_id": chunk.id,
                     "document_id": chunk.document_id,
                     "title": title,
                     "content": chunk.content,
                     "distance": round(distance, 4),
-                    "score": round(score, 4),
+                    "semantic_score": round(semantic_score, 4),
+                    "lexical_score": None,
+                    "rrf_score": _rrf_contribution(rank),
                     "match": "semantic",
                 }
+            else:
+                existing["rrf_score"] += _rrf_contribution(rank)
+                if semantic_score > (existing["semantic_score"] or 0.0):
+                    existing["semantic_score"] = round(semantic_score, 4)
+                    existing["distance"] = round(distance, 4)
 
     terms = _lexical_terms(variants)
-    for chunk, title in await repo.search_text(profile_id, terms, limit=candidate_limit):
+    lexical_rows = await repo.search_text(profile_id, terms, limit=candidate_limit)
+    for rank, (chunk, title, lexical_score) in enumerate(lexical_rows, start=1):
         existing = by_chunk.get(chunk.id)
         if existing is None:
             by_chunk[chunk.id] = {
@@ -181,12 +198,25 @@ async def search_knowledge(
                 "title": title,
                 "content": chunk.content,
                 "distance": None,
-                "score": 1.0,
+                "semantic_score": None,
+                "lexical_score": round(lexical_score, 4),
+                "rrf_score": _rrf_contribution(rank),
                 "match": "lexical",
             }
         else:
             existing["match"] = "semantic+lexical"
-            existing["score"] = max(existing["score"], 1.0)
+            existing["lexical_score"] = round(lexical_score, 4)
+            existing["rrf_score"] += _rrf_contribution(rank)
 
-    candidates = sorted(by_chunk.values(), key=lambda item: item["score"], reverse=True)
+    for candidate in by_chunk.values():
+        candidate["score"] = round(candidate.pop("rrf_score"), 6)
+    candidates = sorted(
+        by_chunk.values(),
+        key=lambda item: (
+            -item["score"],
+            -(item["semantic_score"] or 0.0),
+            -(item["lexical_score"] or 0.0),
+            item["chunk_id"],
+        ),
+    )
     return await _rerank_candidates(standalone_query, candidates, limit)

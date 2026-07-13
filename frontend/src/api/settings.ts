@@ -1,5 +1,7 @@
 import { API_BASE } from "./client";
 
+export type LauncherPosition = "bottom-right" | "bottom-left";
+
 export interface Settings {
   business_name: string;
   assistant_name: string;
@@ -10,6 +12,13 @@ export interface Settings {
   widget_monthly_limit: number;
   widget_monthly_usage: number;
   widget_resets_at: string;
+  // Appearance
+  accent_color: string;
+  launcher_icon: string;
+  launcher_position: LauncherPosition;
+  greeting: string;
+  launcher_label: string | null;
+  show_branding: boolean;
 }
 
 export const settingsKey = `${API_BASE}/settings`;
@@ -38,6 +47,11 @@ export async function updateSettings(payload: {
   custom_instructions: string;
   widget_origin: string;
   widget_enabled: boolean;
+  accent_color: string;
+  launcher_icon: string;
+  launcher_position: LauncherPosition;
+  greeting: string;
+  launcher_label: string;
 }): Promise<Settings> {
   return handle(
     await fetch(settingsKey, {

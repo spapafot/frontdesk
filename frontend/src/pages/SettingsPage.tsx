@@ -8,6 +8,16 @@ import {
   updateSettings,
 } from "../api/settings";
 import { WidgetInstall } from "../components/WidgetInstall";
+import { WidgetAppearance, AppearanceState } from "../components/WidgetAppearance";
+import { WidgetPreview } from "../components/WidgetPreview";
+
+const DEFAULT_APPEARANCE: AppearanceState = {
+  accentColor: "#0284c7",
+  launcherIcon: "chat",
+  launcherPosition: "bottom-right",
+  greeting: "Hi! How can I help you today?",
+  launcherLabel: "",
+};
 
 export function SettingsPage() {
   const { data, error, isLoading, mutate } = useSWR<Settings>(settingsKey, getSettings);
@@ -17,6 +27,7 @@ export function SettingsPage() {
   const [customInstructions, setCustomInstructions] = useState("");
   const [widgetOrigin, setWidgetOrigin] = useState("");
   const [widgetEnabled, setWidgetEnabled] = useState(true);
+  const [appearance, setAppearance] = useState<AppearanceState>(DEFAULT_APPEARANCE);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -28,6 +39,13 @@ export function SettingsPage() {
       setCustomInstructions(data.custom_instructions ?? "");
       setWidgetOrigin(data.widget_origin ?? "");
       setWidgetEnabled(data.widget_enabled ?? true);
+      setAppearance({
+        accentColor: data.accent_color,
+        launcherIcon: data.launcher_icon,
+        launcherPosition: data.launcher_position,
+        greeting: data.greeting,
+        launcherLabel: data.launcher_label ?? "",
+      });
     }
   }, [data]);
 
@@ -43,6 +61,11 @@ export function SettingsPage() {
         custom_instructions: customInstructions,
         widget_origin: widgetOrigin,
         widget_enabled: widgetEnabled,
+        accent_color: appearance.accentColor.trim(),
+        launcher_icon: appearance.launcherIcon,
+        launcher_position: appearance.launcherPosition,
+        greeting: appearance.greeting.trim(),
+        launcher_label: appearance.launcherLabel.trim(),
       });
       await mutate(updated, { revalidate: false });
       setSaved(true);
@@ -55,105 +78,136 @@ export function SettingsPage() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto flex min-h-full max-w-2xl flex-col p-4">
-      <h2 className="text-lg font-semibold text-slate-800">Settings</h2>
-      <p className="mt-1 text-sm text-slate-500">
-        Configure how your assistant introduces itself and how it should behave.
-      </p>
+      <div className="mx-auto flex min-h-full max-w-4xl flex-col p-4">
+        <h2 className="text-lg font-semibold text-slate-800">Settings</h2>
+        <p className="mt-1 text-sm text-slate-500">
+          Configure how your assistant introduces itself, behaves, and looks on your site.
+        </p>
 
-      {isLoading && <p className="mt-4 text-sm text-slate-500">Loading...</p>}
-      {error && <p className="mt-4 text-sm text-red-600">Failed to load settings.</p>}
+        {isLoading && <p className="mt-4 text-sm text-slate-500">Loading...</p>}
+        {error && <p className="mt-4 text-sm text-red-600">Failed to load settings.</p>}
 
-      {data && (
-        <form onSubmit={submit} className="mt-6 space-y-5">
-          <div>
-            <label className="block text-sm font-medium text-slate-700">Business name</label>
-            <input
-              type="text"
-              value={businessName}
-              onChange={(e) => setBusinessName(e.target.value)}
-              required
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
-            />
-          </div>
+        {data && (
+          <form onSubmit={submit} className="mt-6 space-y-8">
+            {/* Assistant */}
+            <section className="max-w-2xl space-y-5">
+              <div>
+                <label className="block text-sm font-medium text-slate-700">Business name</label>
+                <input
+                  type="text"
+                  value={businessName}
+                  onChange={(e) => setBusinessName(e.target.value)}
+                  required
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+                />
+              </div>
 
-          <div>
-            <label className="block text-sm font-medium text-slate-700">Assistant name</label>
-            <input
-              type="text"
-              value={assistantName}
-              onChange={(e) => setAssistantName(e.target.value)}
-              required
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
-            />
-          </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700">Assistant name</label>
+                <input
+                  type="text"
+                  value={assistantName}
+                  onChange={(e) => setAssistantName(e.target.value)}
+                  required
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+                />
+              </div>
 
-          <div>
-            <label className="block text-sm font-medium text-slate-700">
-              Custom instructions
-            </label>
-            <p className="text-xs text-slate-400">
-              Extra guidance and tone for the assistant. These add to the built-in safety
-              rules and cannot override them.
-            </p>
-            <textarea
-              value={customInstructions}
-              onChange={(e) => setCustomInstructions(e.target.value)}
-              rows={6}
-              maxLength={4000}
-              placeholder="e.g. Always greet customers warmly. Refer to our company as 'the team'."
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
-            />
-            <p className="mt-1 text-right text-xs text-slate-400">
-              {customInstructions.length}/4000
-            </p>
-          </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700">
+                  Custom instructions
+                </label>
+                <p className="text-xs text-slate-400">
+                  Extra guidance and tone for the assistant. These add to the built-in safety
+                  rules and cannot override them.
+                </p>
+                <textarea
+                  value={customInstructions}
+                  onChange={(e) => setCustomInstructions(e.target.value)}
+                  rows={6}
+                  maxLength={4000}
+                  placeholder="e.g. Always greet customers warmly. Refer to our company as 'the team'."
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+                />
+                <p className="mt-1 text-right text-xs text-slate-400">
+                  {customInstructions.length}/4000
+                </p>
+              </div>
+            </section>
 
-          <div className="flex items-center gap-3">
-            <button
-              type="submit"
-              disabled={saving}
-              className="rounded-full bg-sky-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-sky-700 disabled:opacity-50"
-            >
-              {saving ? "Saving..." : "Save settings"}
-            </button>
-            {saved && <span className="text-sm text-emerald-600">Saved.</span>}
-            {saveError && <span className="text-sm text-red-600">{saveError}</span>}
-          </div>
+            {/* Widget appearance */}
+            <section className="border-t border-slate-200 pt-6">
+              <h3 className="text-sm font-semibold text-slate-800">Widget appearance</h3>
+              <p className="mt-1 text-xs text-slate-500">
+                Customize the chat launcher and window. The preview updates as you edit.
+              </p>
+              <div className="mt-5 grid gap-8 lg:grid-cols-2">
+                <WidgetAppearance
+                  value={appearance}
+                  onChange={setAppearance}
+                  showBranding={data.show_branding}
+                />
+                <div className="lg:sticky lg:top-4 lg:self-start">
+                  <WidgetPreview
+                    appearance={appearance}
+                    assistantName={assistantName}
+                    businessName={businessName}
+                    showBranding={data.show_branding}
+                  />
+                </div>
+              </div>
+            </section>
 
-          <div className="border-t border-slate-200 pt-5">
-            <label className="block text-sm font-medium text-slate-700">
-              Website origin
-            </label>
-            <p className="text-xs text-slate-400">
-              Exact HTTPS origin where the widget is installed.
-            </p>
-            <input
-              type="url"
-              value={widgetOrigin}
-              onChange={(e) => setWidgetOrigin(e.target.value)}
-              placeholder="https://example.com"
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
-            />
-            <label className="mt-3 flex items-center gap-2 text-sm text-slate-700">
+            {/* Website & access */}
+            <section className="max-w-2xl border-t border-slate-200 pt-6">
+              <label className="block text-sm font-medium text-slate-700">Website origin</label>
+              <p className="text-xs text-slate-400">
+                Exact HTTPS origin where the widget is installed.
+              </p>
               <input
-                type="checkbox"
-                checked={widgetEnabled}
-                onChange={(e) => setWidgetEnabled(e.target.checked)}
+                type="url"
+                value={widgetOrigin}
+                onChange={(e) => setWidgetOrigin(e.target.value)}
+                placeholder="https://example.com"
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
               />
-              Widget enabled
-            </label>
-            <p className="mt-2 text-xs text-slate-500">
-              {(data.widget_monthly_usage ?? 0).toLocaleString()} of{" "}
-              {(data.widget_monthly_limit ?? 0).toLocaleString()} messages used this month
-            </p>
-          </div>
-        </form>
-      )}
+              <label className="mt-3 flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={widgetEnabled}
+                  onChange={(e) => setWidgetEnabled(e.target.checked)}
+                />
+                Widget enabled
+              </label>
+              <p className="mt-2 text-xs text-slate-500">
+                {(data.widget_monthly_usage ?? 0).toLocaleString()} of{" "}
+                {(data.widget_monthly_limit ?? 0).toLocaleString()} messages used this month
+              </p>
+            </section>
+
+            <div className="flex items-center gap-3">
+              <button
+                type="submit"
+                disabled={saving}
+                className="rounded-full bg-sky-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-sky-700 disabled:opacity-50"
+              >
+                {saving ? "Saving..." : "Save settings"}
+              </button>
+              {saved && <span className="text-sm text-emerald-600">Saved.</span>}
+              {saveError && <span className="text-sm text-red-600">{saveError}</span>}
+            </div>
+          </form>
+        )}
 
         {data && (
           <WidgetInstall
             siteKey={data.public_key}
+            accentColor={data.accent_color}
+            launcherIcon={data.launcher_icon}
+            launcherPosition={data.launcher_position}
+            greeting={data.greeting}
+            launcherLabel={data.launcher_label ?? ""}
+            showBranding={data.show_branding}
             onRotate={async () => {
               const updated = await rotateWidgetKey();
               await mutate(updated, { revalidate: false });

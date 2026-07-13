@@ -10,6 +10,12 @@ const SETTINGS = {
   assistant_name: "Aria",
   custom_instructions: null,
   public_key: "pk_live_test",
+  accent_color: "#0284c7",
+  launcher_icon: "chat",
+  launcher_position: "bottom-right",
+  greeting: "Hi! How can I help you today?",
+  launcher_label: null,
+  show_branding: true,
 };
 
 // Route each API call to canned JSON so the whole app shell can mount without

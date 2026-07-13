@@ -62,7 +62,12 @@ def test_greek_name_query_gets_latin_alias_terms():
     variants = rag_service._query_variants(query)
 
     assert variants == [query, "xereis ton strato papafotiou;"]
-    assert rag_service._lexical_terms(variants) == ["strato", "papafotiou"]
+    assert rag_service._lexical_terms(variants) == [
+        "στράτο",
+        "παπαφωτίου",
+        "strato",
+        "papafotiou",
+    ]
 
 
 async def test_search_combines_multilingual_semantic_and_lexical_matches(monkeypatch):
@@ -78,7 +83,7 @@ async def test_search_combines_multilingual_semantic_and_lexical_matches(monkeyp
 
         async def search_text(self, _profile_id, terms, limit):
             self.terms = terms
-            return [(lexical_chunk, "CV")]
+            return [(lexical_chunk, "CV", 0.75)]
 
     repository = FakeRepository()
     embedded_queries: list[str] = []
@@ -103,5 +108,40 @@ async def test_search_combines_multilingual_semantic_and_lexical_matches(monkeyp
             "xereis ton strato papafotiou?",
         ]
     )
-    assert repository.terms == ["strato", "papafotiou"]
+    assert repository.terms == ["στράτο", "παπαφωτίου", "strato", "papafotiou"]
     assert {result["match"] for result in results} == {"semantic", "lexical"}
+
+
+async def test_rrf_rewards_chunks_found_by_semantic_and_lexical_search(monkeypatch):
+    semantic_only = SimpleNamespace(id=1, document_id=10, content="semantic only")
+    hybrid = SimpleNamespace(id=2, document_id=10, content="hybrid result")
+
+    class FakeRepository:
+        async def search(self, _profile_id, _embedding, limit):
+            return [
+                (semantic_only, "Doc", 0.1),
+                (hybrid, "Doc", 0.2),
+            ]
+
+        async def search_text(self, _profile_id, terms, limit):
+            return [(hybrid, "Doc", 0.8)]
+
+    async def embed(_query):
+        return [0.1, 0.2]
+
+    async def no_rerank(_query, _documents, _top_n):
+        return None
+
+    monkeypatch.setattr(rag_service, "KnowledgeRepository", lambda _session: FakeRepository())
+    monkeypatch.setattr(rag_service, "embed_query", embed)
+    monkeypatch.setattr(rag_service, "rerank", no_rerank)
+
+    results = await rag_service.search_knowledge(
+        SimpleNamespace(), 7, "hybrid result", limit=2
+    )
+
+    assert [result["chunk_id"] for result in results] == [2, 1]
+    assert results[0]["match"] == "semantic+lexical"
+    assert results[0]["score"] == round(1 / 62 + 1 / 61, 6)
+    assert results[0]["semantic_score"] == 0.9
+    assert results[0]["lexical_score"] == 0.8

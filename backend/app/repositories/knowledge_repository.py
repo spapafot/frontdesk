@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy import delete, func, literal_column, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.knowledge import KnowledgeChunk, KnowledgeDocument
@@ -102,40 +102,39 @@ class KnowledgeRepository:
 
     async def search_text(
         self, profile_id: int, terms: list[str], limit: int = 4
-    ) -> list[tuple[KnowledgeChunk, str]]:
-        """Return active chunks containing any exact query term.
+    ) -> list[tuple[KnowledgeChunk, str, float]]:
+        """Return active chunks ranked by OR-based PostgreSQL full-text search.
 
         This complements vector search for names, identifiers, and transliterated
         words, which semantic embeddings can otherwise rank inconsistently.
         """
-        escaped_terms = [
-            term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-            for term in terms
-            if term
-        ]
-        patterns = [f"%{term}%" for term in escaped_terms]
-        if not patterns:
+        clean_terms = list(dict.fromkeys(term.lower() for term in terms if term))
+        if not clean_terms:
             return []
 
-        matches = []
-        for pattern in patterns:
-            matches.append(
-                or_(
-                    KnowledgeChunk.content.ilike(pattern, escape="\\"),
-                    KnowledgeDocument.title.ilike(pattern, escape="\\"),
-                )
-            )
+        # Terms come from the service's Unicode word tokenizer, so joining them
+        # with OR produces a safe to_tsquery expression rather than user-authored
+        # query syntax. `simple` keeps names, identifiers, and Greek words intact.
+        config = literal_column("'simple'")
+        query = func.to_tsquery(config, " | ".join(clean_terms))
+        content_vector = func.to_tsvector(config, KnowledgeChunk.content)
+        title_vector = func.to_tsvector(config, KnowledgeDocument.title)
+        content_rank = func.ts_rank_cd(content_vector, query)
+        # A title match is unusually strong evidence for a short document chunk.
+        rank = (content_rank + 2.0 * func.ts_rank_cd(title_vector, query)).label(
+            "text_rank"
+        )
         stmt = (
-            select(KnowledgeChunk, KnowledgeDocument.title)
+            select(KnowledgeChunk, KnowledgeDocument.title, rank)
             .join(KnowledgeDocument, KnowledgeChunk.document_id == KnowledgeDocument.id)
             .where(
                 KnowledgeChunk.profile_id == profile_id,
                 KnowledgeDocument.is_active.is_(True),
                 KnowledgeDocument.processing_status == "ready",
-                and_(*matches),
+                or_(content_vector.op("@@")(query), title_vector.op("@@")(query)),
             )
-            .order_by(KnowledgeChunk.id)
+            .order_by(rank.desc(), KnowledgeChunk.id)
             .limit(limit)
         )
         result = await self.session.execute(stmt)
-        return [(row[0], row[1]) for row in result.all()]
+        return [(row[0], row[1], float(row[2])) for row in result.all()]
