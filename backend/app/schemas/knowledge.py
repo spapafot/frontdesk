@@ -1,13 +1,14 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, HttpUrl
 
 
 class DocumentOut(BaseModel):
     id: int
     title: str
     type: str
+    source_url: str | None = None
     is_active: bool
     processing_status: Literal["queued", "processing", "ready", "failed"]
     chunk_count: int
@@ -22,3 +23,7 @@ class ChunkOut(BaseModel):
 
 class ToggleRequest(BaseModel):
     is_active: bool
+
+
+class LinkRequest(BaseModel):
+    url: HttpUrl

@@ -1,11 +1,14 @@
 // Dependency-free chat UI rendered inside the widget iframe. Chat-only over SSE.
 
+import { contrastColor, shiftColor } from "./theme";
+
 interface Params {
   origin: string;
   api: string;
   accent: string;
   greeting: string;
   turnstileSiteKey: string;
+  branding: boolean;
 }
 
 interface WidgetSession {
@@ -28,7 +31,7 @@ interface TurnstileApi {
       "error-callback": () => void;
       "expired-callback": () => void;
       "timeout-callback": () => void;
-    }
+    },
   ): string;
   reset(widgetId: string): void;
 }
@@ -39,6 +42,9 @@ declare global {
   }
 }
 
+// Where "Powered by Plug & Play" links to. Kept in one place for easy change.
+const POWERED_BY_URL = "https://plugandplay.gr";
+
 function readParams(): Params {
   const q = new URLSearchParams(location.hash.slice(1));
   return {
@@ -47,38 +53,63 @@ function readParams(): Params {
     accent: q.get("accent") || "#0284c7",
     greeting: q.get("greeting") || "Hi! How can I help you today?",
     turnstileSiteKey: q.get("turnstileSiteKey") || "",
+    branding: q.get("branding") !== "false",
   };
 }
 
 const params = readParams();
 history.replaceState(null, "", `${location.pathname}${location.search}`);
-document.documentElement.style.setProperty("--accent", params.accent);
+const rootStyle = document.documentElement.style;
+rootStyle.setProperty("--accent", params.accent);
+rootStyle.setProperty("--accent-strong", shiftColor(params.accent, -28));
+rootStyle.setProperty("--accent-contrast", contrastColor(params.accent));
+
+const AVATAR_ICON =
+  '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>';
+const SEND_ICON =
+  '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3.4 20.4l17.45-7.48a1 1 0 0 0 0-1.84L3.4 3.6a.993.993 0 0 0-1.39.91L2 9.12c0 .5.37.93.87.99L17 12 2.87 13.88c-.5.07-.87.5-.87 1l.01 4.61c0 .71.73 1.2 1.39.91z"/></svg>';
+const TYPING =
+  '<span class="wx-typing"><span></span><span></span><span></span></span>';
 
 const app = document.getElementById("app") as HTMLDivElement;
 app.innerHTML = `
   <header class="wx-header">
-    <div>
-      <h1 id="wx-title">Chat</h1>
-      <p id="wx-subtitle"></p>
+    <div class="wx-header-main">
+      <div class="wx-avatar wx-avatar-lg">${AVATAR_ICON}</div>
+      <div class="wx-header-text">
+        <h1 id="wx-title">Chat</h1>
+        <div class="wx-status"><span class="wx-dot"></span><span id="wx-subtitle">Online</span></div>
+      </div>
     </div>
-    <button class="wx-close" id="wx-close" title="Close" aria-label="Close">&times;</button>
+    <button class="wx-close" id="wx-close" title="Minimize" aria-label="Minimize chat">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
+    </button>
   </header>
   <section class="wx-verification" id="wx-verification" aria-live="polite">
+    <div class="wx-spinner" aria-hidden="true"></div>
     <p id="wx-verification-message">Securing chat&hellip;</p>
     <div id="wx-turnstile"></div>
     <button class="wx-retry" id="wx-retry" type="button" hidden>Try again</button>
   </section>
-  <div class="wx-messages" id="wx-messages" hidden></div>
+  <div class="wx-messages" id="wx-messages" role="log" aria-live="polite" hidden></div>
   <form class="wx-form" id="wx-form" hidden>
-    <input class="wx-input" id="wx-input" type="text" placeholder="Type a message..." autocomplete="off" />
-    <button class="wx-send" id="wx-send" type="submit">Send</button>
+    <input class="wx-input" id="wx-input" type="text" placeholder="Type a message&hellip;" autocomplete="off" />
+    <button class="wx-send" id="wx-send" type="submit" aria-label="Send message">${SEND_ICON}</button>
   </form>
+  <div class="wx-footer" id="wx-branding"${params.branding ? "" : " hidden"}>
+    <img src="./logo-icon-full-color-16.png" alt="" width="12" height="12" />
+    Powered by <a href="${POWERED_BY_URL}" target="_blank" rel="noopener noreferrer">Plug &amp; Play</a>
+  </div>
 `;
 
 const titleEl = document.getElementById("wx-title") as HTMLElement;
 const subtitleEl = document.getElementById("wx-subtitle") as HTMLElement;
-const verificationEl = document.getElementById("wx-verification") as HTMLElement;
-const verificationMessageEl = document.getElementById("wx-verification-message") as HTMLElement;
+const verificationEl = document.getElementById(
+  "wx-verification",
+) as HTMLElement;
+const verificationMessageEl = document.getElementById(
+  "wx-verification-message",
+) as HTMLElement;
 const retryEl = document.getElementById("wx-retry") as HTMLButtonElement;
 const messagesEl = document.getElementById("wx-messages") as HTMLDivElement;
 const formEl = document.getElementById("wx-form") as HTMLFormElement;
@@ -97,7 +128,9 @@ function postToParent(message: object) {
   if (params.origin) parent.postMessage(message, params.origin);
 }
 
-function showVerificationError(message = "Verification failed. Please try again.") {
+function showVerificationError(
+  message = "Verification failed. Please try again.",
+) {
   verificationEl.hidden = false;
   messagesEl.hidden = true;
   formEl.hidden = true;
@@ -109,7 +142,7 @@ function showVerificationError(message = "Verification failed. Please try again.
 function showChat(session: WidgetSession) {
   widgetToken = session.token;
   titleEl.textContent = session.assistant_name || "Chat";
-  subtitleEl.textContent = session.business_name || "";
+  subtitleEl.textContent = session.business_name || "Online";
   conversationStorageKey = `wx_conv_${session.installation_id}_${encodeURIComponent(session.origin)}`;
   const stored = Number(localStorage.getItem(conversationStorageKey));
   conversationId = Number.isFinite(stored) && stored > 0 ? stored : null;
@@ -140,7 +173,9 @@ function renderVerification() {
     return;
   }
   if (!window.turnstile) {
-    showVerificationError("Verification could not load. Check your connection and retry.");
+    showVerificationError(
+      "Verification could not load. Check your connection and retry.",
+    );
     return;
   }
   if (turnstileWidgetId) {
@@ -157,8 +192,10 @@ function renderVerification() {
       postToParent({ type: "wx-turnstile", token });
     },
     "error-callback": () => showVerificationError(),
-    "expired-callback": () => showVerificationError("Verification expired. Please try again."),
-    "timeout-callback": () => showVerificationError("Verification timed out. Please try again."),
+    "expired-callback": () =>
+      showVerificationError("Verification expired. Please try again."),
+    "timeout-callback": () =>
+      showVerificationError("Verification timed out. Please try again."),
   });
 }
 
@@ -185,12 +222,24 @@ function scrollToBottom() {
 }
 
 function addBubble(role: "user" | "assistant", text: string): HTMLDivElement {
-  const el = document.createElement("div");
-  el.className = `wx-bubble ${role}`;
-  el.textContent = text;
-  messagesEl.appendChild(el);
+  const bubble = document.createElement("div");
+  bubble.className = `wx-bubble ${role}`;
+  bubble.textContent = text;
+
+  if (role === "assistant") {
+    const row = document.createElement("div");
+    row.className = "wx-row assistant";
+    const avatar = document.createElement("div");
+    avatar.className = "wx-avatar";
+    avatar.innerHTML = AVATAR_ICON;
+    row.appendChild(avatar);
+    row.appendChild(bubble);
+    messagesEl.appendChild(row);
+  } else {
+    messagesEl.appendChild(bubble);
+  }
   scrollToBottom();
-  return el;
+  return bubble;
 }
 
 function setStreaming(value: boolean) {
@@ -221,6 +270,7 @@ async function send(text: string) {
 
   const pending = addBubble("assistant", "");
   pending.classList.add("pending");
+  pending.innerHTML = TYPING;
   let answer = "";
 
   try {
@@ -268,7 +318,10 @@ async function send(text: string) {
           case "conversation":
             conversationId = event.conversation_id as number;
             if (conversationStorageKey) {
-              localStorage.setItem(conversationStorageKey, String(conversationId));
+              localStorage.setItem(
+                conversationStorageKey,
+                String(conversationId),
+              );
             }
             break;
           case "token":
@@ -280,7 +333,8 @@ async function send(text: string) {
           case "error":
             pending.classList.remove("pending");
             pending.classList.add("wx-error");
-            pending.textContent = (event.message as string) || "Something went wrong.";
+            pending.textContent =
+              (event.message as string) || "Something went wrong.";
             break;
         }
       }

@@ -6,6 +6,7 @@ _REDACTED_SETTINGS = frozenset(
     {
         "deepseek_api_key",
         "openai_api_key",
+        "jina_api_key",
         "database_url",
         "widget_session_secret",
         "edge_shared_secret",
@@ -43,14 +44,48 @@ class Settings(BaseSettings):
 
     # Retrieval / chunking. Kept modest so the injected context stays small and
     # the model's time-to-first-token stays low.
-    rag_top_k: int = 8
+    rag_top_k: int = 12
     chunk_size: int = 1200
     chunk_overlap: int = 200
 
+    # Follow-up query contextualization: rewrite an ambiguous latest message into
+    # one standalone retrieval query using bounded recent conversation history.
+    # The literal message is searched too, and any rewrite failure falls back to it.
+    rag_query_contextualization: bool = True
+    rag_query_context_messages: int = 6
+    rag_query_context_chars: int = 6000
+    rag_query_context_timeout: float = 6.0
+
+    # Reranking (Jina): retrieve a wider candidate set, then have a cross-encoder
+    # reorder it against the standalone question and keep the best `rag_top_k`.
+    # Best-effort - skipped without `jina_api_key`, and any error/timeout falls
+    # back to retrieval (cosine-score) order, so it never blocks an answer.
+    # Candidates are truncated to `rag_rerank_snippet_chars` before sending, which
+    # is enough signal to rank on and keeps Jina's per-token cost/latency low.
+    rag_reranker: bool = True
+    jina_api_key: str = ""
+    jina_reranker_model: str = "jina-reranker-v2-base-multilingual"
+    rag_rerank_candidates: int = 24
+    rag_rerank_snippet_chars: int = 400
+    rag_rerank_timeout: float = 6.0
+
+    # Jina Reader (r.jina.ai): fetch a web page so a URL can be added to the
+    # knowledge base. Reuses `jina_api_key`. The timeout is generous because
+    # Reader renders JS-heavy pages server-side before returning.
+    jina_reader_timeout: float = 30.0
+    # Content extraction, tuned to cut boilerplate before chunking/embedding:
+    #  * `text` returns clean plaintext and drops the link URLs that otherwise
+    #    dominate nav-heavy pages (markdown keeps every `[label](long-url)`).
+    #  * remove-selector strips common site chrome (menus, header/footer, forms)
+    #    so mostly the main content is stored. Comma-separated; empty disables.
+    #  * target-selector, if set, restricts extraction to one CSS selector
+    #    (site-specific; usually left empty to read the whole cleaned page).
+    jina_reader_format: str = "text"
+    jina_reader_remove_selector: str = "nav,header,footer,aside,form"
+    jina_reader_target_selector: str = ""
+
     # Database
-    database_url: str = (
-        "postgresql+asyncpg://postgres:postgres@localhost:5432/support"
-    )
+    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/support"
     # Force pgBouncer-safe connection args (no prepared-statement caching,
     # NullPool). Auto-enabled when the URL uses Supabase's 6543 pooler port.
     db_pgbouncer: bool = False

@@ -12,14 +12,17 @@ export interface ChatMessage {
 
 interface Options {
   onConversationCreated?: (id: number) => void;
+  siteId: number | null;
 }
 
 let counter = 0;
 const nextId = () => `${Date.now()}-${counter++}`;
 
 export function useChatStream(options?: Options) {
+  const siteId = options?.siteId ?? null;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const conversationRef = useRef<number | null>(null);
 
   const updateAssistant = useCallback(
@@ -32,12 +35,16 @@ export function useChatStream(options?: Options) {
   const setConversation = useCallback(async (id: number | null) => {
     if (id === conversationRef.current) return;
     conversationRef.current = id;
-    if (id === null) {
+    if (id === null || siteId === null) {
       setMessages([]);
       return;
     }
+    // Clear immediately so the chat window shows history skeletons rather than
+    // the previously selected conversation's messages while this one loads.
+    setMessages([]);
+    setIsLoadingHistory(true);
     try {
-      const stored = await getConversationMessages(id);
+      const stored = await getConversationMessages(siteId, id);
       setMessages(
         stored.map((m, i) => ({
           id: `${id}-${i}`,
@@ -49,8 +56,10 @@ export function useChatStream(options?: Options) {
       );
     } catch {
       setMessages([]);
+    } finally {
+      setIsLoadingHistory(false);
     }
-  }, []);
+  }, [siteId]);
 
   const send = useCallback(
     async (text: string) => {
@@ -111,7 +120,7 @@ export function useChatStream(options?: Options) {
 
       try {
         await streamChat(
-          { message: trimmed, conversationId: conversationRef.current },
+          { message: trimmed, conversationId: conversationRef.current, siteId },
           onEvent
         );
       } catch (err) {
@@ -123,8 +132,8 @@ export function useChatStream(options?: Options) {
         setIsStreaming(false);
       }
     },
-    [isStreaming, options, updateAssistant]
+    [isStreaming, options, siteId, updateAssistant]
   );
 
-  return { messages, isStreaming, send, setConversation };
+  return { messages, isStreaming, isLoadingHistory, send, setConversation };
 }

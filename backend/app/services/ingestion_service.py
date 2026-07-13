@@ -34,9 +34,15 @@ def _extract_txt(data: bytes) -> str:
 
 def _extract_pdf(data: bytes) -> str:
     from pypdf import PdfReader
+    from pypdf.errors import FileNotDecryptedError
 
     reader = PdfReader(io.BytesIO(data))
-    return "\n".join(page.extract_text() or "" for page in reader.pages)
+    try:
+        return "\n".join(page.extract_text() or "" for page in reader.pages)
+    except FileNotDecryptedError as exc:
+        raise ExtractionError(
+            "This PDF is password-protected. Please upload an unlocked copy."
+        ) from exc
 
 
 def _extract_docx(data: bytes) -> str:
@@ -125,7 +131,20 @@ def extract_text(filename: str, data: bytes) -> str:
     extractor = _EXTRACTORS.get(ext)
     if extractor is None:
         raise UnsupportedFileType(f"Unsupported file type: {ext or 'unknown'}")
-    text = normalize_text(extractor(data))
+    try:
+        raw = extractor(data)
+    except (UnsupportedFileType, ExtractionError):
+        raise
+    except Exception as exc:
+        # Extraction is deterministic on the file bytes, so a parser failure
+        # (corrupt/encrypted PDF, malformed docx, ...) will never succeed on
+        # retry. Surface it as a terminal ExtractionError so the document is
+        # marked "failed" on the first SQS receive instead of churning through
+        # the retry/DLQ window stuck at "processing".
+        raise ExtractionError(
+            f"Could not read this {ext.lstrip('.') or 'file'} file: {exc}"
+        ) from exc
+    text = normalize_text(raw)
     if not text:
         raise ExtractionError("No readable text could be extracted from this file.")
     return text
@@ -212,8 +231,15 @@ async def process_existing_document(
     document: KnowledgeDocument,
     filename: str,
     data: bytes,
+    *,
+    preserve_active: bool = False,
 ) -> int:
-    """Extract and replace a queued document's content and chunks idempotently."""
+    """Extract and replace a queued document's content and chunks idempotently.
+
+    On a first ingest we activate the document so it becomes usable once ready.
+    ``preserve_active=True`` (used by rescan) instead keeps whatever the admin
+    last chose, so a disabled entry stays disabled after its content refreshes.
+    """
     text = await asyncio.to_thread(extract_text, filename, data)
     chunks = chunk_text(text)
     if not chunks:
@@ -229,11 +255,12 @@ async def process_existing_document(
             document_id=document.id,
             content=chunk,
             embedding=embedding,
-            meta={"title": filename},
+            meta={"title": document.title or filename},
         )
     document.processing_status = "ready"
     document.processing_error = None
-    document.is_active = True
+    if not preserve_active:
+        document.is_active = True
     document.processed_at = datetime.now(timezone.utc)
     await session.flush()
     return len(chunks)

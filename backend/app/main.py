@@ -8,6 +8,7 @@ from app.api.routes import (
     health,
     knowledge,
     settings as settings_routes,
+    sites,
     widget,
 )
 from app.core.auth import EdgeSecretMiddleware, require_admin
@@ -40,6 +41,7 @@ app.include_router(widget.router)
 # Admin routes: require a valid Supabase JWT (no-op when auth is disabled in
 # local dev). See app.core.auth.require_admin.
 _admin = [Depends(require_admin)]
+app.include_router(sites.router, dependencies=_admin)
 app.include_router(knowledge.router, dependencies=_admin)
 app.include_router(settings_routes.router, dependencies=_admin)
 app.include_router(conversations.router, dependencies=_admin)

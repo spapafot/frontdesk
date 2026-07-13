@@ -15,25 +15,31 @@ export interface StoredMessage {
   content: string;
 }
 
-export const conversationsKey = `${API_BASE}/conversations`;
+const base = `${API_BASE}/conversations`;
 
-export async function listConversations(): Promise<ConversationSummary[]> {
-  const response = await fetch(conversationsKey);
+export const conversationsKey = (siteId: number) => `${base}?site_id=${siteId}`;
+
+export async function listConversations(siteId: number): Promise<ConversationSummary[]> {
+  const response = await fetch(conversationsKey(siteId));
   if (!response.ok) throw new Error(`Failed to load conversations (${response.status})`);
   return (await response.json()) as ConversationSummary[];
 }
 
-export async function getConversationMessages(id: number): Promise<StoredMessage[]> {
-  const response = await fetch(`${conversationsKey}/${id}/messages`);
+export async function getConversationMessages(
+  siteId: number,
+  id: number
+): Promise<StoredMessage[]> {
+  const response = await fetch(`${base}/${id}/messages?site_id=${siteId}`);
   if (!response.ok) throw new Error(`Failed to load conversation (${response.status})`);
   return (await response.json()) as StoredMessage[];
 }
 
 export async function renameConversation(
+  siteId: number,
   id: number,
   title: string
 ): Promise<ConversationSummary> {
-  const response = await fetch(`${conversationsKey}/${id}`, {
+  const response = await fetch(`${base}/${id}?site_id=${siteId}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ title }),
@@ -42,24 +48,28 @@ export async function renameConversation(
   return (await response.json()) as ConversationSummary;
 }
 
-export async function deleteConversation(id: number): Promise<void> {
-  const response = await fetch(`${conversationsKey}/${id}`, { method: "DELETE" });
+export async function deleteConversation(siteId: number, id: number): Promise<void> {
+  const response = await fetch(`${base}/${id}?site_id=${siteId}`, { method: "DELETE" });
   if (!response.ok && response.status !== 204) {
     throw new Error(`Failed to delete conversation (${response.status})`);
   }
 }
 
-export async function getConversationDetail(id: number): Promise<ConversationSummary> {
-  const response = await fetch(`${conversationsKey}/${id}`);
+export async function getConversationDetail(
+  siteId: number,
+  id: number
+): Promise<ConversationSummary> {
+  const response = await fetch(`${base}/${id}?site_id=${siteId}`);
   if (!response.ok) throw new Error(`Failed to load conversation (${response.status})`);
   return (await response.json()) as ConversationSummary;
 }
 
 export async function rateConversation(
+  siteId: number,
   id: number,
   rating: Rating
 ): Promise<ConversationSummary> {
-  const response = await fetch(`${conversationsKey}/${id}/rating`, {
+  const response = await fetch(`${base}/${id}/rating?site_id=${siteId}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ rating }),

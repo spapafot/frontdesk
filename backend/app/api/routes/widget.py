@@ -14,8 +14,8 @@ router = APIRouter(prefix="/widget", tags=["widget"])
 def _canonical_host(origin: str) -> str:
     """Origin with a leading ``www.`` stripped from its host.
 
-    Lets the apex domain and its ``www`` subdomain authorize interchangeably —
-    they are the same site — so an admin only has to register one of them.
+    Lets the apex domain and its ``www`` subdomain authorize interchangeably -
+    they are the same site - so an admin only has to register one of them.
     """
     scheme, sep, host = origin.partition("://")
     if not sep:
@@ -59,7 +59,9 @@ async def create_session(
                 detail="Widget verification enforcement is misconfigured.",
             )
         if request.headers.get(settings.turnstile_verified_header) != "1":
-            raise HTTPException(status_code=403, detail="Widget verification is required.")
+            raise HTTPException(
+                status_code=403, detail="Widget verification is required."
+            )
     origin = request.headers.get("origin")
     installation = await WidgetRepository(session).get_by_key(key)
     if (
@@ -68,7 +70,9 @@ async def create_session(
         or not installation.is_enabled
         or not _origin_allowed(installation.allowed_origin, origin)
     ):
-        raise HTTPException(status_code=403, detail="Widget is not authorized for this origin.")
+        raise HTTPException(
+            status_code=403, detail="Widget is not authorized for this origin."
+        )
     profile = await ProfileRepository(session).get(installation.profile_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="Assistant profile not found.")

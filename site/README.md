@@ -17,7 +17,7 @@ src/
     index.astro           Landing (hero + feature sections + CTA)
     [slug].astro          Legal pages (/privacy-policy, /terms-of-service, …)
     sitemap.xml.ts        Generated sitemap
-public/                   robots.txt, favicon.svg, og.svg
+public/                   robots.txt, PNG logo assets, favicons, og.png
 ```
 
 The feature showcases are static reimplementations of the admin app's UI
@@ -51,6 +51,5 @@ Deploy to Cloudflare Pages (project `plugandplay-site`) with
 
 ## Notes
 
-- `public/og.svg` is the social-share image. Most networks render SVG, but for
-  the widest compatibility export a 1200×630 **PNG/JPG** and point
-  `SITE.ogImage` in `src/config.ts` at it.
+- `public/og.png` is the 1200×630 social-share image referenced by
+  `SITE.ogImage` in `src/config.ts`.

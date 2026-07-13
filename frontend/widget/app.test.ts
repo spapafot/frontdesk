@@ -82,3 +82,45 @@ describe("embedded widget verification flow", () => {
     expect(document.getElementById("wx-title")).toHaveTextContent("Helper");
   });
 });
+
+describe("widget appearance", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    document.body.innerHTML = '<div id="app"></div>';
+    document.documentElement.removeAttribute("style");
+  });
+
+  function setHash(extra: Record<string, string>) {
+    history.replaceState(
+      null,
+      "",
+      `/#${new URLSearchParams({ origin: location.origin, api: "https://api.example", ...extra })}`
+    );
+  }
+
+  it("shows the Powered by Plug & Play footer by default", async () => {
+    setHash({});
+    await import("./app");
+    const footer = document.getElementById("wx-branding") as HTMLElement;
+    expect(footer.hidden).toBe(false);
+    expect(footer).toHaveTextContent("Powered by Plug & Play");
+  });
+
+  it("hides branding when branding=false", async () => {
+    setHash({ branding: "false" });
+    await import("./app");
+    expect((document.getElementById("wx-branding") as HTMLElement).hidden).toBe(true);
+  });
+
+  it("derives readable text color from the accent", async () => {
+    setHash({ accent: "#0284c7" }); // dark accent -> white text
+    await import("./app");
+    expect(document.documentElement.style.getPropertyValue("--accent-contrast")).toBe("#ffffff");
+  });
+
+  it("uses dark text on a light accent", async () => {
+    setHash({ accent: "#fde047" }); // light yellow -> dark text
+    await import("./app");
+    expect(document.documentElement.style.getPropertyValue("--accent-contrast")).toBe("#0f172a");
+  });
+});

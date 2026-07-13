@@ -50,7 +50,13 @@ async def chat_stream(
                 scheme="Bearer", credentials=authorization[7:]
             )
         user = await require_admin(credentials)
-        profile = await ProfileRepository(session).get_or_create_for_owner(user.id, user.email)
+        repo = ProfileRepository(session)
+        if body.site_id is not None:
+            profile = await repo.get_owned(body.site_id, user.id)
+            if profile is None:
+                raise HTTPException(status_code=404, detail="Site not found.")
+        else:
+            profile = await repo.get_or_create_default(user.id, user.email)
         await session.commit()
         profile_id = profile.id
 

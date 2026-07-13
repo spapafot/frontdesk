@@ -10,15 +10,14 @@ import {
   Rating,
   renameConversation,
 } from "./api/conversations";
-import { getSettings, settingsKey } from "./api/settings";
 import { Sidebar, View } from "./components/Sidebar";
+import { SiteProvider, useSite } from "./components/SiteProvider";
+import { ToastProvider, useToast } from "./components/Toast";
 import { AdminPage } from "./pages/AdminPage";
 import { AnalyticsPage } from "./pages/AnalyticsPage";
 import { ChatPage } from "./pages/ChatPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { WidgetDocsPage } from "./pages/WidgetDocsPage";
-
-const SELECTED_KEY = "selectedConversationId";
 
 // Each view is a real URL so refresh restores it and the browser Back/Forward
 // buttons move between views instead of leaving the app.
@@ -38,19 +37,24 @@ function viewFromPath(pathname: string): View {
   return "chat";
 }
 
-function loadSelectedId(): number | null {
-  const raw = localStorage.getItem(SELECTED_KEY);
-  if (!raw) return null;
-  const id = Number(raw);
-  return Number.isFinite(id) ? id : null;
+export default function App() {
+  return (
+    <ToastProvider>
+      <SiteProvider>
+        <AppShell />
+      </SiteProvider>
+    </ToastProvider>
+  );
 }
 
-export default function App() {
+function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
   const view = viewFromPath(location.pathname);
+  const { sites, selectedSiteId, current, isLoading, createSite } = useSite();
+  const { showToast } = useToast();
   const [selectedConversationId, setSelectedConversationId] = useState<number | null>(
-    loadSelectedId
+    null
   );
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -59,24 +63,25 @@ export default function App() {
     setSidebarOpen(false);
   }, [location.pathname]);
 
+  // Conversations belong to one site; drop any selection when the site changes.
+  useEffect(() => {
+    setSelectedConversationId(null);
+  }, [selectedSiteId]);
+
   const { data: conversations, mutate: mutateConversations } = useSWR(
-    conversationsKey,
-    listConversations
+    selectedSiteId != null ? conversationsKey(selectedSiteId) : null,
+    () => listConversations(selectedSiteId as number)
   );
-  const { data: settings } = useSWR(settingsKey, getSettings);
-  const { mutate: mutateAnalytics } = useSWR(analyticsKey, getAnalytics);
+  const { mutate: mutateAnalytics } = useSWR(
+    selectedSiteId != null ? analyticsKey(selectedSiteId) : null,
+    () => getAnalytics(selectedSiteId as number)
+  );
 
   const selectedConversation = conversations?.find(
     (c) => c.id === selectedConversationId
   );
 
-  // Persist the selected conversation across reloads.
-  useEffect(() => {
-    if (selectedConversationId === null) localStorage.removeItem(SELECTED_KEY);
-    else localStorage.setItem(SELECTED_KEY, String(selectedConversationId));
-  }, [selectedConversationId]);
-
-  // If the persisted conversation no longer exists, clear the selection.
+  // If the selected conversation no longer exists, clear the selection.
   useEffect(() => {
     if (
       selectedConversationId !== null &&
@@ -122,21 +127,65 @@ export default function App() {
   };
 
   const onRenameConversation = async (id: number, title: string) => {
-    await renameConversation(id, title);
-    mutateConversations();
+    if (selectedSiteId == null) return;
+    try {
+      await mutateConversations(
+        async (list) => {
+          const updated = await renameConversation(selectedSiteId, id, title);
+          return list?.map((c) => (c.id === updated.id ? updated : c)) ?? [];
+        },
+        {
+          optimisticData: (list) =>
+            list?.map((c) => (c.id === id ? { ...c, title } : c)) ?? [],
+          rollbackOnError: true,
+          revalidate: false,
+        }
+      );
+    } catch {
+      showToast("Couldn't rename the conversation. Restored.");
+    }
   };
 
   const onDeleteConversation = async (id: number) => {
-    await deleteConversation(id);
+    if (selectedSiteId == null) return;
     if (id === selectedConversationId) setSelectedConversationId(null);
-    mutateConversations();
-    mutateAnalytics();
+    try {
+      await mutateConversations(
+        async (list) => {
+          await deleteConversation(selectedSiteId, id);
+          return list?.filter((c) => c.id !== id) ?? [];
+        },
+        {
+          optimisticData: (list) => list?.filter((c) => c.id !== id) ?? [],
+          rollbackOnError: true,
+          revalidate: false,
+        }
+      );
+      mutateAnalytics();
+    } catch {
+      showToast("Couldn't delete the conversation. Restored.");
+    }
   };
 
   const onRate = async (id: number, rating: Rating) => {
-    await rateConversation(id, rating);
-    mutateConversations();
-    mutateAnalytics();
+    if (selectedSiteId == null) return;
+    try {
+      await mutateConversations(
+        async (list) => {
+          const updated = await rateConversation(selectedSiteId, id, rating);
+          return list?.map((c) => (c.id === updated.id ? updated : c)) ?? [];
+        },
+        {
+          optimisticData: (list) =>
+            list?.map((c) => (c.id === id ? { ...c, rating } : c)) ?? [],
+          rollbackOnError: true,
+          revalidate: false,
+        }
+      );
+      mutateAnalytics();
+    } catch {
+      showToast("Couldn't save your rating. Restored.");
+    }
   };
 
   const onOpenConversation = (id: number) => {
@@ -144,14 +193,18 @@ export default function App() {
     navigate("/");
   };
 
+  if (!isLoading && sites && sites.length === 0) {
+    return <FirstRunPanel onCreate={createSite} />;
+  }
+
   return (
     <div className="flex h-full">
       <Sidebar
         conversations={conversations}
         selectedConversationId={selectedConversationId}
         view={view}
-        businessName={settings?.business_name}
-        assistantName={settings?.assistant_name}
+        businessName={current?.name}
+        assistantName={current?.assistant_name}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         onNewChat={onNewChat}
@@ -189,7 +242,7 @@ export default function App() {
             </svg>
           </button>
           <span className="truncate text-sm font-semibold text-slate-800">
-            {settings?.assistant_name ?? "Plug & Play"}
+            {current?.assistant_name ?? "Plug & Play"}
           </span>
         </header>
 
@@ -217,6 +270,87 @@ export default function App() {
         </Routes>
         </main>
       </div>
+    </div>
+  );
+}
+
+function FirstRunPanel({
+  onCreate,
+}: {
+  onCreate: (name: string, url: string) => Promise<unknown>;
+}) {
+  const [name, setName] = useState("");
+  const [url, setUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = name.trim();
+    if (!trimmed || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onCreate(trimmed, url.trim());
+    } catch (err) {
+      setError((err as Error).message);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex h-full items-center justify-center bg-slate-50 p-4">
+      <form
+        onSubmit={submit}
+        className="w-full max-w-sm space-y-4 rounded-xl border border-slate-200 bg-white p-8 shadow-sm"
+      >
+        <div className="text-center">
+          <h1 className="text-lg font-semibold text-slate-900">Add your first website</h1>
+          <p className="mt-1 text-sm text-slate-500">
+            Each website gets its own assistant, knowledge base, and widget.
+          </p>
+        </div>
+
+        <label className="block text-sm font-medium text-slate-700">
+          Website name
+          <input
+            type="text"
+            autoFocus
+            required
+            maxLength={120}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Acme Store"
+            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+          />
+        </label>
+
+        <div>
+          <label className="block text-sm font-medium text-slate-700">
+            Website URL <span className="font-normal text-slate-400">(optional)</span>
+            <input
+              type="url"
+              maxLength={255}
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://example.com"
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+            />
+          </label>
+          <p className="mt-1 text-xs text-slate-400">
+            The exact origin where the widget runs. You can set or change this later in Settings.
+          </p>
+        </div>
+
+        {error && <p className="text-sm text-red-600">{error}</p>}
+        <button
+          type="submit"
+          disabled={busy}
+          className="w-full rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-sky-700 disabled:opacity-60"
+        >
+          {busy ? "Creating…" : "Create website"}
+        </button>
+      </form>
     </div>
   );
 }

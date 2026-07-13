@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
-from app.api.dependencies import get_current_profile
+from app.api.dependencies import get_selected_site
 from app.models.profile import AssistantProfile
 from app.repositories.conversation_repository import ConversationRepository
 from app.schemas.conversation import (
@@ -37,7 +37,7 @@ async def _get_owned(conversation_id: int, profile_id: int, session: AsyncSessio
 @router.get("", response_model=list[ConversationOut])
 async def list_conversations(
     session: AsyncSession = Depends(get_session),
-    profile: AssistantProfile = Depends(get_current_profile),
+    profile: AssistantProfile = Depends(get_selected_site),
 ) -> list[ConversationOut]:
     conversations = await ConversationRepository(session).list_conversations(profile.id)
     return [_to_out(c) for c in conversations]
@@ -48,7 +48,7 @@ async def rename_conversation(
     conversation_id: int,
     body: RenameRequest,
     session: AsyncSession = Depends(get_session),
-    profile: AssistantProfile = Depends(get_current_profile),
+    profile: AssistantProfile = Depends(get_selected_site),
 ) -> ConversationOut:
     repo, conversation = await _get_owned(conversation_id, profile.id, session)
     await repo.rename(conversation, body.title.strip())
@@ -60,7 +60,7 @@ async def rename_conversation(
 async def delete_conversation(
     conversation_id: int,
     session: AsyncSession = Depends(get_session),
-    profile: AssistantProfile = Depends(get_current_profile),
+    profile: AssistantProfile = Depends(get_selected_site),
 ) -> None:
     repo, conversation = await _get_owned(conversation_id, profile.id, session)
     await repo.delete(conversation)
@@ -72,7 +72,7 @@ async def rate_conversation(
     conversation_id: int,
     body: RatingRequest,
     session: AsyncSession = Depends(get_session),
-    profile: AssistantProfile = Depends(get_current_profile),
+    profile: AssistantProfile = Depends(get_selected_site),
 ) -> ConversationOut:
     repo, conversation = await _get_owned(conversation_id, profile.id, session)
     await repo.set_rating(conversation, body.rating)
@@ -84,7 +84,7 @@ async def rate_conversation(
 async def get_conversation(
     conversation_id: int,
     session: AsyncSession = Depends(get_session),
-    profile: AssistantProfile = Depends(get_current_profile),
+    profile: AssistantProfile = Depends(get_selected_site),
 ) -> ConversationOut:
     repo, conversation = await _get_owned(conversation_id, profile.id, session)
     if not conversation.summary:
@@ -106,7 +106,7 @@ async def get_conversation(
 async def get_conversation_messages(
     conversation_id: int,
     session: AsyncSession = Depends(get_session),
-    profile: AssistantProfile = Depends(get_current_profile),
+    profile: AssistantProfile = Depends(get_selected_site),
 ) -> list[MessageOut]:
     repo = ConversationRepository(session)
     conversation = await repo.get(conversation_id)

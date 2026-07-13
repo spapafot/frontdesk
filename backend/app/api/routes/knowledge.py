@@ -5,16 +5,21 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
-from app.api.dependencies import get_current_profile
+from app.api.dependencies import get_selected_site
 from app.models.profile import AssistantProfile
 from app.repositories.knowledge_repository import KnowledgeRepository
-from app.schemas.knowledge import ChunkOut, DocumentOut, ToggleRequest
-from app.services import aws_ingestion
+from app.schemas.knowledge import ChunkOut, DocumentOut, LinkRequest, ToggleRequest
+from app.services import aws_ingestion, jina_reader
 from app.services.ingestion_service import SUPPORTED_EXTENSIONS
+from app.services.jina_reader import JinaReaderError
 
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
+
+# Link sources are fetched to markdown and stored as a .txt object so the Lambda
+# reuses the existing text extractor; the filename drives extractor selection.
+LINK_STORAGE_FILENAME = "page.txt"
 
 
 def _to_out(document, chunk_count: int) -> DocumentOut:
@@ -22,6 +27,7 @@ def _to_out(document, chunk_count: int) -> DocumentOut:
         id=document.id,
         title=document.title,
         type=document.type,
+        source_url=document.source_url,
         is_active=document.is_active,
         processing_status=document.processing_status,
         chunk_count=chunk_count,
@@ -30,10 +36,31 @@ def _to_out(document, chunk_count: int) -> DocumentOut:
     )
 
 
+def _link_storage_key(profile_id: int) -> str:
+    return f"profiles/{profile_id}/{uuid.uuid4().hex}/{LINK_STORAGE_FILENAME}"
+
+
+async def _fetch_link(url: str, *, no_cache: bool) -> tuple[str, bytes]:
+    """Fetch a URL via Jina Reader and return ``(title, utf-8 bytes)``.
+
+    Raises HTTPException(502) on a fetch failure and 413 if the page is too big.
+    """
+    try:
+        title, content = await jina_reader.fetch_url(url, no_cache=no_cache)
+    except JinaReaderError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    data = content.encode("utf-8")
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413, detail="The page is too large to ingest (over 10 MB)."
+        )
+    return title, data
+
+
 @router.get("/documents", response_model=list[DocumentOut])
 async def list_documents(
     session: AsyncSession = Depends(get_session),
-    profile: AssistantProfile = Depends(get_current_profile),
+    profile: AssistantProfile = Depends(get_selected_site),
 ) -> list[DocumentOut]:
     rows = await KnowledgeRepository(session).list_documents(profile.id)
     return [_to_out(doc, count) for doc, count in rows]
@@ -43,7 +70,7 @@ async def list_documents(
 async def upload_document(
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_session),
-    profile: AssistantProfile = Depends(get_current_profile),
+    profile: AssistantProfile = Depends(get_selected_site),
 ) -> DocumentOut:
     data = await file.read()
     if not data:
@@ -113,11 +140,145 @@ async def upload_document(
     return _to_out(document, 0)
 
 
+@router.post("/links", response_model=DocumentOut, status_code=202)
+async def add_link(
+    body: LinkRequest,
+    session: AsyncSession = Depends(get_session),
+    profile: AssistantProfile = Depends(get_selected_site),
+) -> DocumentOut:
+    url = str(body.url)
+    if not aws_ingestion.is_configured():
+        raise HTTPException(
+            status_code=503, detail="Document ingestion is not configured."
+        )
+
+    repo = KnowledgeRepository(session)
+    if await repo.get_by_source_url(profile.id, url) is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="This page is already in the knowledge base. Use Rescan to refresh it.",
+        )
+
+    title, data = await _fetch_link(url, no_cache=False)
+
+    storage_key = _link_storage_key(profile.id)
+    try:
+        await aws_ingestion.upload_source(storage_key, data, "text/plain; charset=utf-8")
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503, detail="Could not store the page for processing."
+        ) from exc
+
+    try:
+        document = await repo.create_document(
+            profile_id=profile.id,
+            title=title[:255],
+            type="url",
+            source_url=url,
+            content="",
+            is_active=False,
+            processing_status="queued",
+            storage_key=storage_key,
+        )
+        await session.commit()
+        await aws_ingestion.enqueue(
+            {
+                "document_id": document.id,
+                "profile_id": profile.id,
+                "filename": LINK_STORAGE_FILENAME,
+                "storage_key": storage_key,
+            }
+        )
+    except Exception as exc:
+        await session.rollback()
+        if "document" in locals():
+            persisted = await repo.get_document(profile.id, document.id)
+            if persisted is not None:
+                persisted.processing_status = "failed"
+                persisted.processing_error = "The ingestion job could not be queued."
+                await session.commit()
+        try:
+            await aws_ingestion.delete_source(storage_key)
+        except Exception:
+            pass
+        raise HTTPException(
+            status_code=503, detail="Could not queue the page for processing."
+        ) from exc
+
+    return _to_out(document, 0)
+
+
+@router.post("/documents/{document_id}/rescan", response_model=DocumentOut, status_code=202)
+async def rescan_document(
+    document_id: int,
+    session: AsyncSession = Depends(get_session),
+    profile: AssistantProfile = Depends(get_selected_site),
+) -> DocumentOut:
+    repo = KnowledgeRepository(session)
+    document = await repo.get_document(profile.id, document_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    if document.type != "url" or not document.source_url:
+        raise HTTPException(
+            status_code=409, detail="Only web page links can be rescanned."
+        )
+    if not aws_ingestion.is_configured():
+        raise HTTPException(
+            status_code=503, detail="Document ingestion is not configured."
+        )
+
+    # Force a live fetch so a stale cached copy is never re-ingested.
+    title, data = await _fetch_link(document.source_url, no_cache=True)
+
+    storage_key = _link_storage_key(profile.id)
+    try:
+        await aws_ingestion.upload_source(storage_key, data, "text/plain; charset=utf-8")
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503, detail="Could not store the page for processing."
+        ) from exc
+
+    try:
+        # Re-queue: flipping status off "ready" defeats the Lambda's idempotency
+        # skip, and the fresh storage_key matches the message it will receive.
+        document.title = title[:255]
+        document.storage_key = storage_key
+        document.processing_status = "queued"
+        document.processing_error = None
+        await session.commit()
+        await aws_ingestion.enqueue(
+            {
+                "document_id": document.id,
+                "profile_id": profile.id,
+                "filename": LINK_STORAGE_FILENAME,
+                "storage_key": storage_key,
+                # Keep the entry's current enable/disable state across the refresh.
+                "preserve_active": True,
+            }
+        )
+    except Exception as exc:
+        await session.rollback()
+        persisted = await repo.get_document(profile.id, document.id)
+        if persisted is not None:
+            persisted.processing_status = "failed"
+            persisted.processing_error = "The ingestion job could not be queued."
+            await session.commit()
+        try:
+            await aws_ingestion.delete_source(storage_key)
+        except Exception:
+            pass
+        raise HTTPException(
+            status_code=503, detail="Could not queue the page for processing."
+        ) from exc
+
+    return _to_out(document, 0)
+
+
 @router.get("/documents/{document_id}/chunks", response_model=list[ChunkOut])
 async def preview_chunks(
     document_id: int,
     session: AsyncSession = Depends(get_session),
-    profile: AssistantProfile = Depends(get_current_profile),
+    profile: AssistantProfile = Depends(get_selected_site),
 ) -> list[ChunkOut]:
     repo = KnowledgeRepository(session)
     document = await repo.get_document(profile.id, document_id)
@@ -134,7 +295,7 @@ async def toggle_document(
     document_id: int,
     body: ToggleRequest,
     session: AsyncSession = Depends(get_session),
-    profile: AssistantProfile = Depends(get_current_profile),
+    profile: AssistantProfile = Depends(get_selected_site),
 ) -> DocumentOut:
     repo = KnowledgeRepository(session)
     document = await repo.get_document(profile.id, document_id)
@@ -152,7 +313,7 @@ async def toggle_document(
 async def delete_document(
     document_id: int,
     session: AsyncSession = Depends(get_session),
-    profile: AssistantProfile = Depends(get_current_profile),
+    profile: AssistantProfile = Depends(get_selected_site),
 ) -> None:
     repo = KnowledgeRepository(session)
     document = await repo.get_document(profile.id, document_id)

@@ -22,7 +22,9 @@ const { title, description, path, schema } = Astro.props;
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="icon" href="/favicon-16.png" type="image/png" sizes="16x16" />
+    <link rel="apple-touch-icon" href="/logo-icon-full-color-192.png" />
     <meta name="generator" content={Astro.generator} />
     <SEO title={title} description={description} path={path} schema={schema} />
     <Analytics />
