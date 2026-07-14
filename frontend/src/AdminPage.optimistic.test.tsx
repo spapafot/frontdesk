@@ -138,7 +138,8 @@ describe("AdminPage optimistic knowledge-base actions", () => {
     await waitFor(() =>
       expect(
         calls.some(
-          (c) => c.url.includes("/knowledge/links") && c.init?.method === "POST",
+          (c) =>
+            c.url.includes("/knowledge/links") && c.init?.method === "POST",
         ),
       ).toBe(true),
     );
@@ -185,7 +186,7 @@ describe("AdminPage optimistic knowledge-base actions", () => {
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
         if (/\/sites($|\?|\/)/.test(url)) return json([SITE]);
-        // Must precede the /knowledge/documents check — the chunks URL contains both.
+        // Must precede the /knowledge/documents check - the chunks URL contains both.
         if (url.includes("/chunks"))
           return json([
             { id: 10, content: "First chunk text" },

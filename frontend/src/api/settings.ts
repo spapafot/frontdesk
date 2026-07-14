@@ -19,6 +19,8 @@ export interface Settings {
   greeting: string;
   launcher_label: string | null;
   show_branding: boolean;
+  live_human_escalation_enabled: boolean;
+  live_human_escalation_available: boolean;
 }
 
 export const settingsKey = (siteId: number) => `${API_BASE}/settings?site_id=${siteId}`;
@@ -49,6 +51,7 @@ export async function updateSettings(
     custom_instructions: string;
     widget_origin: string;
     widget_enabled: boolean;
+    live_human_escalation_enabled: boolean;
     accent_color: string;
     launcher_icon: string;
     launcher_position: LauncherPosition;

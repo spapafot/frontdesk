@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_selected_site
 from app.core.db import get_session
+from app.core.config import settings
 from app.core.origins import normalize_origin
 from app.models.profile import AssistantProfile
 from app.repositories.profile_repository import ProfileRepository
@@ -46,6 +47,8 @@ async def _to_out(profile: AssistantProfile, session: AsyncSession) -> SettingsO
         greeting=installation.greeting,
         launcher_label=installation.launcher_label,
         show_branding=installation.show_branding,
+        live_human_escalation_enabled=profile.live_human_escalation_enabled,
+        live_human_escalation_available=settings.live_human_escalation_enabled,
     )
 
 
@@ -68,6 +71,7 @@ async def update_settings(
         name=body.business_name,
         assistant_name=body.assistant_name,
         custom_instructions=body.custom_instructions,
+        live_human_escalation_enabled=body.live_human_escalation_enabled,
     )
     installation = await WidgetRepository(session).get_for_profile(profile.id)
     if installation is None:

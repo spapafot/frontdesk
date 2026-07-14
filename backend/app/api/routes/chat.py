@@ -8,10 +8,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth import require_admin
 from app.core.db import get_session
 from app.repositories.profile_repository import ProfileRepository
+from app.repositories.conversation_repository import ConversationRepository
 from app.repositories.widget_repository import WidgetRepository
 from app.schemas.chat import ChatRequest
 from app.services.chat_service import stream_chat
 from app.services.widget_auth import decode_widget_token
+from app.services.live_auth import (
+    conversation_token_matches,
+    new_visitor_session_id,
+)
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -28,6 +33,8 @@ async def chat_stream(
     session: AsyncSession = Depends(get_session),
 ) -> StreamingResponse:
     is_widget = bool(body.widget_token)
+    visitor_session_id = None
+    installation_id = None
     if body.widget_token:
         profile_id, installation_id, public_key = decode_widget_token(body.widget_token)
         installation = await WidgetRepository(session).get_for_profile(profile_id)
@@ -41,6 +48,20 @@ async def chat_stream(
         if not await WidgetRepository(session).reserve_message(installation, _period()):
             await session.rollback()
             raise HTTPException(status_code=429, detail="Monthly widget message quota exceeded.")
+        if body.conversation_id is not None:
+            conversation = await ConversationRepository(session).get(body.conversation_id)
+            if conversation is None or conversation.profile_id != profile_id:
+                raise HTTPException(status_code=404, detail="Conversation not found.")
+            if not body.conversation_token:
+                raise HTTPException(status_code=401, detail="Conversation session is required.")
+            conversation_token_matches(
+                body.conversation_token,
+                profile_id=profile_id,
+                conversation_id=conversation.id,
+                stored_hash=conversation.visitor_session_id_hash,
+            )
+        else:
+            visitor_session_id = new_visitor_session_id()
         await session.commit()
     else:
         authorization = request.headers.get("authorization", "")
@@ -66,6 +87,8 @@ async def chat_stream(
             profile_id=profile_id,
             conversation_id=body.conversation_id,
             include_sources=not is_widget,
+            installation_id=installation_id,
+            visitor_session_id=visitor_session_id,
         ),
         media_type="text/event-stream",
         headers={

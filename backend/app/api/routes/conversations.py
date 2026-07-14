@@ -23,6 +23,12 @@ def _to_out(conversation) -> ConversationOut:
         started_at=conversation.started_at,
         rating=conversation.rating,
         summary=conversation.summary,
+        mode=conversation.mode,
+        assigned_user_id=conversation.assigned_user_id,
+        escalation_requested_at=conversation.escalation_requested_at,
+        accepted_at=conversation.accepted_at,
+        closed_at=conversation.closed_at,
+        last_message_at=conversation.last_message_at,
     )
 
 
@@ -114,7 +120,14 @@ async def get_conversation_messages(
         raise HTTPException(status_code=404, detail="Conversation not found.")
     messages = await repo.get_messages(conversation_id)
     return [
-        MessageOut(role=m.role, content=m.content)
+        MessageOut(
+            id=m.id,
+            role=m.role,
+            content=m.content,
+            sender_type=m.sender_type,
+            sender_display_name=m.sender_display_name,
+            created_at=m.created_at,
+        )
         for m in messages
         if m.role in ("user", "assistant") and m.content
     ]

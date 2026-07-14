@@ -65,7 +65,7 @@ export const LEGAL_PAGES: Record<string, LegalPage> = {
       {
         heading: "Your content and responsibilities",
         body: [
-          "You are solely responsible for all content you add to your assistant's knowledge base — uploaded documents, instructions, and any web page you ingest by its URL — and you must hold all rights, licences, and permissions necessary to use that content for this purpose.",
+          "You are solely responsible for all content you add to your assistant's knowledge base - uploaded documents, instructions, and any web page you ingest by its URL - and you must hold all rights, licences, and permissions necessary to use that content for this purpose.",
           "When you add a web page by its URL, the service fetches that page through a third-party reader and stores the extracted text in your workspace knowledge base. By adding a URL you confirm that you are authorised to ingest and use that page's content and that doing so does not infringe any third party's rights or the source website's terms. Plug & Play is not responsible for content you choose to ingest and may remove content or suspend access if it receives a credible report of infringement or misuse.",
           "You should review your assistant's configuration and the information it makes available to website visitors, and remove any content you are not authorised to use.",
         ],

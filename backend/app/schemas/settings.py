@@ -26,6 +26,8 @@ class SettingsOut(BaseModel):
     greeting: str = "Hi! How can I help you today?"
     launcher_label: str | None = None
     show_branding: bool = True
+    live_human_escalation_enabled: bool = False
+    live_human_escalation_available: bool = False
 
 
 class SettingsUpdate(BaseModel):
@@ -34,6 +36,7 @@ class SettingsUpdate(BaseModel):
     custom_instructions: str | None = Field(default=None, max_length=4000)
     widget_origin: str | None = Field(default=None, max_length=255)
     widget_enabled: bool | None = None
+    live_human_escalation_enabled: bool | None = None
     # Appearance
     accent_color: str | None = Field(default=None, pattern=_HEX_COLOR)
     launcher_icon: str | None = Field(default=None, max_length=32)

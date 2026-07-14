@@ -1,4 +1,9 @@
-from app.models.conversation import Conversation, ConversationMessage
+from app.models.conversation import (
+    Conversation,
+    ConversationEvent,
+    ConversationMessage,
+    EscalationTicket,
+)
 from app.models.knowledge import KnowledgeChunk, KnowledgeDocument
 from app.models.profile import AssistantProfile
 from app.models.widget import WidgetInstallation, WidgetUsage
@@ -6,7 +11,9 @@ from app.models.widget import WidgetInstallation, WidgetUsage
 __all__ = [
     "AssistantProfile",
     "Conversation",
+    "ConversationEvent",
     "ConversationMessage",
+    "EscalationTicket",
     "KnowledgeChunk",
     "KnowledgeDocument",
     "WidgetInstallation",

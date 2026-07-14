@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import useSWR from "swr";
 import { analyticsKey, getAnalytics } from "./api/analytics";
@@ -10,6 +10,8 @@ import {
   Rating,
   renameConversation,
 } from "./api/conversations";
+import { LiveState } from "./api/live";
+import { getSettings, settingsKey } from "./api/settings";
 import { Sidebar, View } from "./components/Sidebar";
 import { SiteProvider, useSite } from "./components/SiteProvider";
 import { ToastProvider, useToast } from "./components/Toast";
@@ -18,11 +20,13 @@ import { AnalyticsPage } from "./pages/AnalyticsPage";
 import { ChatPage } from "./pages/ChatPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { WidgetDocsPage } from "./pages/WidgetDocsPage";
+import { useLiveInbox } from "./hooks/useLiveSupport";
 
 // Each view is a real URL so refresh restores it and the browser Back/Forward
 // buttons move between views instead of leaving the app.
 const VIEW_PATHS: Record<View, string> = {
-  chat: "/",
+  live: "/live",
+  history: "/history",
   analytics: "/analytics",
   admin: "/knowledge",
   settings: "/settings",
@@ -30,11 +34,18 @@ const VIEW_PATHS: Record<View, string> = {
 };
 
 function viewFromPath(pathname: string): View {
+  if (pathname.startsWith("/live")) return "live";
+  if (pathname.startsWith("/history")) return "history";
   if (pathname.startsWith("/analytics")) return "analytics";
   if (pathname.startsWith("/knowledge")) return "admin";
   if (pathname.startsWith("/settings")) return "settings";
   if (pathname.startsWith("/widget-guide")) return "widgetDocs";
-  return "chat";
+  return "history";
+}
+
+function conversationIdFromPath(pathname: string): number | null {
+  const match = pathname.match(/^\/(?:live|history)\/(\d+)\/?$/);
+  return match ? Number(match[1]) : null;
 }
 
 export default function App() {
@@ -53,20 +64,13 @@ function AppShell() {
   const view = viewFromPath(location.pathname);
   const { sites, selectedSiteId, current, isLoading, createSite } = useSite();
   const { showToast } = useToast();
-  const [selectedConversationId, setSelectedConversationId] = useState<number | null>(
-    null
-  );
+  const selectedConversationId = conversationIdFromPath(location.pathname);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Collapse the mobile drawer whenever the route changes.
   useEffect(() => {
     setSidebarOpen(false);
   }, [location.pathname]);
-
-  // Conversations belong to one site; drop any selection when the site changes.
-  useEffect(() => {
-    setSelectedConversationId(null);
-  }, [selectedSiteId]);
 
   const { data: conversations, mutate: mutateConversations } = useSWR(
     selectedSiteId != null ? conversationsKey(selectedSiteId) : null,
@@ -76,32 +80,71 @@ function AppShell() {
     selectedSiteId != null ? analyticsKey(selectedSiteId) : null,
     () => getAnalytics(selectedSiteId as number)
   );
+  const { data: settings } = useSWR(
+    selectedSiteId != null ? settingsKey(selectedSiteId) : null,
+    () => getSettings(selectedSiteId as number),
+  );
+  const liveEnabled = Boolean(
+    settings?.live_human_escalation_available && settings.live_human_escalation_enabled,
+  );
+
+  const onInboxWaiting = useCallback((id: number) => {
+    void mutateConversations(
+      (current) => current?.map((conversation) => (
+        conversation.id === id ? { ...conversation, mode: "waiting" as const } : conversation
+      )),
+      { revalidate: true },
+    );
+  }, [mutateConversations]);
+  const onInboxTransition = useCallback((state: Partial<LiveState> & {
+    conversation_id: number;
+  }) => {
+    void mutateConversations(
+      (current) => current?.map((conversation) => (
+        conversation.id === state.conversation_id ? {
+          ...conversation,
+          ...(state.mode ? { mode: state.mode } : {}),
+          ...(state.assigned_user_id !== undefined
+            ? { assigned_user_id: state.assigned_user_id }
+            : {}),
+          ...(state.closed_at !== undefined ? { closed_at: state.closed_at } : {}),
+        } : conversation
+      )),
+      { revalidate: true },
+    );
+  }, [mutateConversations]);
+  const inbox = useLiveInbox(
+    selectedSiteId,
+    liveEnabled,
+    onInboxWaiting,
+    onInboxTransition,
+  );
 
   const selectedConversation = conversations?.find(
     (c) => c.id === selectedConversationId
   );
 
-  // If the selected conversation no longer exists, clear the selection.
+  // Keep route membership aligned with the live/history state partition.
   useEffect(() => {
-    if (
-      selectedConversationId !== null &&
-      conversations &&
-      !conversations.some((c) => c.id === selectedConversationId)
-    ) {
-      setSelectedConversationId(null);
+    if (selectedConversationId === null || !conversations) return;
+    const selected = conversations.find((conversation) => conversation.id === selectedConversationId);
+    if (!selected) {
+      navigate(view === "live" ? "/live" : "/history", { replace: true });
+      return;
     }
-  }, [conversations, selectedConversationId]);
+    const active = selected.mode === "waiting" || selected.mode === "human";
+    if (view === "live" && !active) navigate(`/history/${selected.id}`, { replace: true });
+    if (view === "history" && active) navigate(`/live/${selected.id}`, { replace: true });
+  }, [conversations, navigate, selectedConversationId, view]);
 
   const onNewChat = () => {
-    setSelectedConversationId(null);
     setSidebarOpen(false);
-    navigate("/");
+    navigate("/history");
   };
 
-  const onSelectConversation = (id: number) => {
-    setSelectedConversationId(id);
+  const onSelectConversation = (id: number, section: "live" | "history") => {
     setSidebarOpen(false);
-    navigate("/");
+    navigate(`/${section}/${id}`);
   };
 
   const onConversationCreated = (id: number) => {
@@ -117,13 +160,19 @@ function AppShell() {
                 started_at: new Date().toISOString(),
                 rating: null,
                 summary: null,
+                mode: "ai",
+                assigned_user_id: null,
+                escalation_requested_at: null,
+                accepted_at: null,
+                closed_at: null,
+                last_message_at: null,
               },
               ...prev,
             ]
           : prev,
       { revalidate: true }
     );
-    setSelectedConversationId(id);
+    navigate(`/history/${id}`);
   };
 
   const onRenameConversation = async (id: number, title: string) => {
@@ -148,7 +197,7 @@ function AppShell() {
 
   const onDeleteConversation = async (id: number) => {
     if (selectedSiteId == null) return;
-    if (id === selectedConversationId) setSelectedConversationId(null);
+    if (id === selectedConversationId) navigate("/history");
     try {
       await mutateConversations(
         async (list) => {
@@ -189,9 +238,27 @@ function AppShell() {
   };
 
   const onOpenConversation = (id: number) => {
-    setSelectedConversationId(id);
-    navigate("/");
+    navigate(`/history/${id}`);
   };
+
+  const onLiveStateChange = useCallback((state: LiveState) => {
+    void mutateConversations(
+      (current) => current?.map((conversation) => conversation.id === state.conversation_id ? {
+        ...conversation,
+        mode: state.mode,
+        assigned_user_id: state.assigned_user_id,
+        escalation_requested_at: state.escalation_requested_at,
+        accepted_at: state.accepted_at,
+        closed_at: state.closed_at,
+      } : conversation),
+      { revalidate: true },
+    );
+    if (conversationIdFromPath(location.pathname) === state.conversation_id) {
+      const section = state.mode === "waiting" || state.mode === "human" ? "live" : "history";
+      const target = `/${section}/${state.conversation_id}`;
+      if (location.pathname !== target) navigate(target, { replace: true });
+    }
+  }, [location.pathname, mutateConversations, navigate]);
 
   if (!isLoading && sites && sites.length === 0) {
     return <FirstRunPanel onCreate={createSite} />;
@@ -203,12 +270,17 @@ function AppShell() {
         conversations={conversations}
         selectedConversationId={selectedConversationId}
         view={view}
+        liveEnabled={liveEnabled}
+        liveOnline={inbox.online}
+        liveConnected={inbox.connected}
+        liveError={inbox.error}
         businessName={current?.name}
         assistantName={current?.assistant_name}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         onNewChat={onNewChat}
         onSelectConversation={onSelectConversation}
+        onSetLiveOnline={inbox.setOnline}
         onNavigate={(next) => navigate(VIEW_PATHS[next])}
         onRenameConversation={onRenameConversation}
         onDeleteConversation={onDeleteConversation}
@@ -250,12 +322,35 @@ function AppShell() {
         <Routes>
           <Route
             path="/"
-            element={
+            element={settings === undefined ? <div /> : <Navigate to={liveEnabled ? "/live" : "/history"} replace />}
+          />
+          <Route
+            path="/live/:conversationId?"
+            element={liveEnabled ? (
               <ChatPage
+                section="live"
                 selectedConversationId={selectedConversationId}
-                rating={selectedConversation?.rating ?? null}
+                selectedConversation={selectedConversation}
+                settings={settings}
+                liveEnabled={liveEnabled}
                 onConversationCreated={onConversationCreated}
                 onRate={onRate}
+                onLiveStateChange={onLiveStateChange}
+              />
+            ) : <Navigate to="/history" replace />}
+          />
+          <Route
+            path="/history/:conversationId?"
+            element={
+              <ChatPage
+                section="history"
+                selectedConversationId={selectedConversationId}
+                selectedConversation={selectedConversation}
+                settings={settings}
+                liveEnabled={liveEnabled}
+                onConversationCreated={onConversationCreated}
+                onRate={onRate}
+                onLiveStateChange={onLiveStateChange}
               />
             }
           />

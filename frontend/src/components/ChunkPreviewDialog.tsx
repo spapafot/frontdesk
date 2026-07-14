@@ -29,7 +29,11 @@ export function ChunkPreviewDialog({ open, siteId, doc, onClose }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  const { data: chunks, error, isLoading } = useSWR<KnowledgeChunk[]>(
+  const {
+    data: chunks,
+    error,
+    isLoading,
+  } = useSWR<KnowledgeChunk[]>(
     open && doc ? chunksKey(siteId, doc.id) : null,
     () => fetchChunks(siteId, (doc as KnowledgeDocument).id),
   );
@@ -72,7 +76,9 @@ export function ChunkPreviewDialog({ open, siteId, doc, onClose }: Props) {
         </div>
 
         <div className="mt-4 min-h-0 flex-1 overflow-y-auto">
-          {isLoading && <p className="text-sm text-slate-500">Loading preview…</p>}
+          {isLoading && (
+            <p className="text-sm text-slate-500">Loading preview…</p>
+          )}
           {error && (
             <p className="text-sm text-red-600">Couldn't load the preview.</p>
           )}
@@ -102,8 +108,8 @@ export function ChunkPreviewDialog({ open, siteId, doc, onClose }: Props) {
 
         {chunks && chunks.length > 0 && (
           <p className="mt-3 shrink-0 text-xs text-slate-400">
-            {chunks.length} chunk{chunks.length === 1 ? "" : "s"} — these are what
-            the assistant retrieves from.
+            {chunks.length} chunk{chunks.length === 1 ? "" : "s"} - these are
+            what the assistant retrieves from.
           </p>
         )}
       </div>

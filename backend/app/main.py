@@ -7,6 +7,7 @@ from app.api.routes import (
     conversations,
     health,
     knowledge,
+    live,
     settings as settings_routes,
     sites,
     widget,
@@ -37,6 +38,7 @@ app.add_middleware(EdgeSecretMiddleware)
 app.include_router(health.router)
 app.include_router(chat.router)
 app.include_router(widget.router)
+app.include_router(live.router)
 
 # Admin routes: require a valid Supabase JWT (no-op when auth is disabled in
 # local dev). See app.core.auth.require_admin.

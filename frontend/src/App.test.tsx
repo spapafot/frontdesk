@@ -5,6 +5,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import App from "./App";
 
+vi.mock("./hooks/useLiveSupport", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./hooks/useLiveSupport")>()),
+  useLiveInbox: () => ({
+    online: false,
+    connected: true,
+    waiting: [],
+    error: null,
+    setOnline: vi.fn(),
+    clearWaiting: vi.fn(),
+  }),
+}));
+
 const SETTINGS = {
   business_name: "Acme Support",
   assistant_name: "Aria",
@@ -16,6 +28,8 @@ const SETTINGS = {
   greeting: "Hi! How can I help you today?",
   launcher_label: null,
   show_branding: true,
+  live_human_escalation_enabled: false,
+  live_human_escalation_available: false,
 };
 
 const SITES = [
@@ -89,6 +103,110 @@ describe("App shell", () => {
     expect(screen.getByText(/settings/i)).toBeInTheDocument();
     expect(screen.getByText(/widget guide/i)).toBeInTheDocument();
     expect(screen.queryByText(/^voice$/i)).not.toBeInTheDocument();
+  });
+
+  it("defaults to Live support when enabled and separates active work from history", async () => {
+    const waiting = {
+      id: 11,
+      title: "Waiting request",
+      started_at: "2026-07-14T08:00:00Z",
+      rating: null,
+      summary: null,
+      mode: "waiting",
+      assigned_user_id: null,
+      escalation_requested_at: "2026-07-14T08:01:00Z",
+      accepted_at: null,
+      closed_at: null,
+      last_message_at: "2026-07-14T08:01:00Z",
+    };
+    const closed = {
+      ...waiting,
+      id: 12,
+      title: "Closed request",
+      mode: "closed",
+      closed_at: "2026-07-14T08:02:00Z",
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      let body: unknown = {};
+      if (/\/sites($|\?|\/)/.test(url)) body = SITES;
+      else if (url.includes("/settings")) body = {
+        ...SETTINGS,
+        live_human_escalation_enabled: true,
+        live_human_escalation_available: true,
+      };
+      else if (url.includes("/conversations")) body = [waiting, closed];
+      else if (url.includes("/live/callbacks")) body = [];
+      else if (url.includes("/analytics")) body = {
+        total_conversations: 0,
+        last_7_days: 0,
+        ratings: {},
+        unanswered: [],
+      };
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }));
+
+    renderApp();
+
+    expect(await screen.findByText("Waiting request")).toBeInTheDocument();
+    expect(screen.queryByText("Closed request")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /new chat/i })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Chat history" }));
+    expect(await screen.findByText("Closed request")).toBeInTheDocument();
+    expect(screen.queryByText("Waiting request")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /new chat/i })).toBeInTheDocument();
+  });
+
+  it("shows a closed conversation transcript when live support is disabled", async () => {
+    const closed = {
+      id: 21,
+      title: "Closed chat",
+      started_at: "2026-07-14T08:00:00Z",
+      rating: null,
+      summary: null,
+      mode: "closed",
+      assigned_user_id: null,
+      escalation_requested_at: null,
+      accepted_at: "2026-07-14T08:01:30Z",
+      closed_at: "2026-07-14T08:05:00Z",
+      last_message_at: "2026-07-14T08:05:00Z",
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      let body: unknown = {};
+      if (/\/sites($|\?|\/)/.test(url)) body = SITES;
+      // SETTINGS keeps live support disabled, matching the toggle being off.
+      else if (url.includes("/settings")) body = SETTINGS;
+      // Match the transcript endpoint before the conversations list.
+      else if (url.includes("/messages")) body = [
+        { id: 1, role: "user", content: "I need a human", sender_type: "visitor", sender_display_name: null, created_at: "2026-07-14T08:01:00Z" },
+        { id: 2, role: "assistant", content: "Hi, this is Sam from support", sender_type: "operator", sender_display_name: "Sam", created_at: "2026-07-14T08:02:00Z" },
+      ];
+      else if (url.includes("/conversations")) body = [closed];
+      else if (url.includes("/analytics")) body = {
+        total_conversations: 0,
+        last_7_days: 0,
+        ratings: {},
+        unanswered: [],
+      };
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }));
+
+    renderApp();
+
+    await userEvent.click(await screen.findByText("Closed chat"));
+    // The stored transcript renders (operator name + both messages) rather than
+    // hanging on the live-conversation loading skeleton.
+    expect(await screen.findByText("Hi, this is Sam from support")).toBeInTheDocument();
+    expect(screen.getByText("I need a human")).toBeInTheDocument();
+    expect(screen.getByText("Sam")).toBeInTheDocument();
+    expect(screen.getByText("Conversation ended")).toBeInTheDocument();
   });
 
   it("shows widget installation documentation and supported attributes", async () => {

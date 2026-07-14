@@ -38,6 +38,7 @@ export function SettingsPage() {
   const [customInstructions, setCustomInstructions] = useState("");
   const [widgetOrigin, setWidgetOrigin] = useState("");
   const [widgetEnabled, setWidgetEnabled] = useState(true);
+  const [liveHumanEscalationEnabled, setLiveHumanEscalationEnabled] = useState(false);
   const [appearance, setAppearance] = useState<AppearanceState>(DEFAULT_APPEARANCE);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -50,6 +51,7 @@ export function SettingsPage() {
       setCustomInstructions(data.custom_instructions ?? "");
       setWidgetOrigin(data.widget_origin ?? "");
       setWidgetEnabled(data.widget_enabled ?? true);
+      setLiveHumanEscalationEnabled(data.live_human_escalation_enabled ?? false);
       setAppearance({
         accentColor: data.accent_color,
         launcherIcon: data.launcher_icon,
@@ -72,6 +74,7 @@ export function SettingsPage() {
         custom_instructions: customInstructions,
         widget_origin: widgetOrigin,
         widget_enabled: widgetEnabled,
+        live_human_escalation_enabled: liveHumanEscalationEnabled,
         accent_color: appearance.accentColor.trim(),
         launcher_icon: appearance.launcherIcon,
         launcher_position: appearance.launcherPosition,
@@ -190,6 +193,21 @@ export function SettingsPage() {
                 />
                 Widget enabled
               </label>
+              <label className="mt-3 flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={liveHumanEscalationEnabled}
+                  disabled={!data.live_human_escalation_available}
+                  onChange={(e) => setLiveHumanEscalationEnabled(e.target.checked)}
+                />
+                Allow visitors to talk to a person
+              </label>
+              {!data.live_human_escalation_available && (
+                <p className="mt-1 text-xs text-slate-400">
+                  Live support is disabled for this deployment. Enable the global flag after
+                  deploying the Lambda migration and Durable Objects.
+                </p>
+              )}
               <p className="mt-2 text-xs text-slate-500">
                 {(data.widget_monthly_usage ?? 0).toLocaleString()} of{" "}
                 {(data.widget_monthly_limit ?? 0).toLocaleString()} messages used this month

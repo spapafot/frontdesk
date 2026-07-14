@@ -96,7 +96,7 @@ export function AdminPage() {
       await mutate().catch(() => undefined);
       setLinkUrl("");
       setLinkNotice(
-        "We're reading that page now. It'll be ready in a minute or two — check back shortly!",
+        "We're reading that page now. It'll be ready in a minute or two - check back shortly!",
       );
     } catch (err) {
       setLinkError((err as Error).message);
@@ -257,7 +257,7 @@ export function AdminPage() {
       <section className="mt-8">
         <h3 className="text-sm font-semibold text-slate-700">Web pages</h3>
         <p className="mt-0.5 text-xs text-slate-400">
-          Add a page by its URL. We read and keep its text — use Rescan to
+          Add a page by its URL. We read and keep its text - use Rescan to
           refresh it later.
         </p>
 
@@ -287,7 +287,9 @@ export function AdminPage() {
               {addingLink ? "Adding…" : "Add link"}
             </button>
           </div>
-          {linkError && <p className="mt-2 text-sm text-red-600">{linkError}</p>}
+          {linkError && (
+            <p className="mt-2 text-sm text-red-600">{linkError}</p>
+          )}
           {linkNotice && (
             <p className="mt-2 text-sm text-sky-700" role="status">
               {linkNotice}
