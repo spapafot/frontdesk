@@ -8,6 +8,7 @@ from app.core.db import get_session
 from app.core.origins import normalize_origin
 from app.models.profile import AssistantProfile
 from app.repositories.profile_repository import ProfileRepository
+from app.repositories.team_repository import TeamRepository
 from app.repositories.widget_repository import WidgetRepository
 from app.schemas.site import SiteCreate, SiteSummaryOut, SiteUpdate
 
@@ -20,7 +21,10 @@ def _period() -> date:
 
 
 async def _to_summary(
-    profile: AssistantProfile, session: AsyncSession, period: date
+    profile: AssistantProfile,
+    session: AsyncSession,
+    period: date,
+    role: str = "owner",
 ) -> SiteSummaryOut:
     repo = WidgetRepository(session)
     installation = await repo.get_for_profile(profile.id)
@@ -36,6 +40,7 @@ async def _to_summary(
         widget_monthly_usage=(
             await repo.usage(installation.id, period) if installation else 0
         ),
+        role=role,
         created_at=profile.created_at,
     )
 
@@ -45,9 +50,22 @@ async def list_sites(
     session: AsyncSession = Depends(get_session),
     user: AdminUser = Depends(require_admin),
 ) -> list[SiteSummaryOut]:
-    profiles = await ProfileRepository(session).list_for_owner(user.id)
+    repo = ProfileRepository(session)
     period = _period()
-    return [await _to_summary(p, session, period) for p in profiles]
+    summaries = [
+        await _to_summary(p, session, period)
+        for p in await repo.list_for_owner(user.id)
+    ]
+    # Team memberships expose every site of each team's owner as "member".
+    for team in await TeamRepository(session).list_teams_for_user(
+        user.id, user.email
+    ):
+        for profile in await repo.list_for_owner(team.owner_user_id):
+            summaries.append(await _to_summary(profile, session, period, role="member"))
+    # This is the app's first call after login, so it also persists any lazy
+    # invite activation done by list_teams_for_user.
+    await session.commit()
+    return summaries
 
 
 @router.post("", response_model=SiteSummaryOut, status_code=201)
@@ -63,6 +81,7 @@ async def create_site(
         type=body.type,
         assistant_name=body.assistant_name,
         allowed_origin=allowed_origin,
+        notification_email=user.email,
     )
     await session.commit()
     return await _to_summary(profile, session, _period())

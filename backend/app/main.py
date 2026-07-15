@@ -7,8 +7,10 @@ from app.api.routes import (
     conversations,
     health,
     knowledge,
+    live,
     settings as settings_routes,
     sites,
+    team,
     widget,
 )
 from app.core.auth import EdgeSecretMiddleware, require_admin
@@ -37,12 +39,16 @@ app.add_middleware(EdgeSecretMiddleware)
 app.include_router(health.router)
 app.include_router(chat.router)
 app.include_router(widget.router)
+app.include_router(live.router)
 
 # Admin routes: require a valid Supabase JWT (no-op when auth is disabled in
 # local dev). See app.core.auth.require_admin.
 _admin = [Depends(require_admin)]
 app.include_router(sites.router, dependencies=_admin)
 app.include_router(knowledge.router, dependencies=_admin)
+# Settings reads stay team-readable (the app shell needs them); the router's
+# mutating endpoints are owner-gated individually via require_site_owner.
 app.include_router(settings_routes.router, dependencies=_admin)
 app.include_router(conversations.router, dependencies=_admin)
 app.include_router(analytics.router, dependencies=_admin)
+app.include_router(team.router, dependencies=_admin)

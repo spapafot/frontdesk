@@ -12,10 +12,10 @@ export function MessageBubble({ message, showDebug }: Props) {
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
       <div className={`max-w-[80%] ${isUser ? "items-end" : "items-start"}`}>
         <div
-          className={`whitespace-pre-wrap break-words rounded-2xl px-4 py-2 text-sm shadow-sm ${
+          className={`whitespace-pre-wrap break-words rounded-2xl px-4 py-3 text-sm leading-relaxed ${
             isUser
-              ? "bg-sky-600 text-white"
-              : "bg-white text-slate-800 border border-slate-200"
+              ? "rounded-br-sm bg-sky-600 text-white"
+              : "rounded-bl-sm border border-slate-200 bg-white text-slate-800 shadow-sm"
           }`}
         >
           {message.content || (

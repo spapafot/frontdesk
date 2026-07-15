@@ -60,9 +60,11 @@ async def test_create_site_returns_summary(client, settings, monkeypatch):
     captured: dict = {}
 
     async def _create_site(
-        _self, owner_user_id, name, type="general", assistant_name=None, allowed_origin=None
+        _self, owner_user_id, name, type="general", assistant_name=None,
+        allowed_origin=None, notification_email=None,
     ):
         captured["allowed_origin"] = allowed_origin
+        captured["notification_email"] = notification_email
         return profile
 
     monkeypatch.setattr(
@@ -82,6 +84,8 @@ async def test_create_site_returns_summary(client, settings, monkeypatch):
     assert body["widget_monthly_usage"] == 3
     # The submitted URL is normalized and handed to the repository.
     assert captured["allowed_origin"] == "https://acme.example"
+    # New sites default their ticket notifications to the owner's login email.
+    assert captured["notification_email"] == "admin@example.com"
 
 
 async def test_create_site_rejects_invalid_origin(client, settings, monkeypatch):
@@ -94,6 +98,16 @@ async def test_create_site_rejects_invalid_origin(client, settings, monkeypatch)
         headers=_auth(),
     )
     assert r.status_code == 422
+
+
+def _patch_teams(monkeypatch, teams=None):
+    async def _list_teams(_self, _user_id, _email=None):
+        return teams or []
+
+    monkeypatch.setattr(
+        "app.repositories.team_repository.TeamRepository.list_teams_for_user",
+        _list_teams,
+    )
 
 
 async def test_list_sites_returns_summaries(client, settings, monkeypatch):
@@ -117,11 +131,37 @@ async def test_list_sites_returns_summaries(client, settings, monkeypatch):
     monkeypatch.setattr(
         "app.repositories.profile_repository.ProfileRepository.list_for_owner", _list
     )
+    _patch_teams(monkeypatch)
     _patch_widget(monkeypatch, _installation())
 
     r = await client.get("/sites", headers=_auth())
     assert r.status_code == 200
     assert [s["id"] for s in r.json()] == [1, 2]
+    assert all(s["role"] == "owner" for s in r.json())
+
+
+async def test_list_sites_includes_team_sites_as_member(client, settings, monkeypatch):
+    monkeypatch.setattr(settings, "edge_shared_secret", "")
+    monkeypatch.setattr(settings, "supabase_jwt_secret", JWT_SECRET)
+
+    team_site = SimpleNamespace(
+        id=9, name="Boss Co", assistant_name="Bo", type="general",
+        created_at=datetime.now(timezone.utc),
+    )
+
+    async def _list(_self, owner):
+        # The caller owns nothing; the team owner has one site.
+        return [team_site] if owner == "boss-user" else []
+
+    monkeypatch.setattr(
+        "app.repositories.profile_repository.ProfileRepository.list_for_owner", _list
+    )
+    _patch_teams(monkeypatch, [SimpleNamespace(owner_user_id="boss-user")])
+    _patch_widget(monkeypatch, _installation())
+
+    r = await client.get("/sites", headers=_auth())
+    assert r.status_code == 200
+    assert [(s["id"], s["role"]) for s in r.json()] == [(9, "member")]
 
 
 async def test_rename_site_updates_name(client, settings, monkeypatch):
@@ -210,15 +250,16 @@ async def test_create_site_requires_auth(client, settings, monkeypatch):
 
 async def test_get_selected_site_rejects_foreign_site_id(client, settings, monkeypatch):
     # get_selected_site (used by every admin router) 404s on a site the caller
-    # does not own, before any downstream work.
+    # can neither own nor access via a team, before any downstream work.
     monkeypatch.setattr(settings, "edge_shared_secret", "")
     monkeypatch.setattr(settings, "supabase_jwt_secret", JWT_SECRET)
 
-    async def _get_owned(_self, _site_id, _owner):
+    async def _get_accessible(_self, _site_id, _user_id, _email=None):
         return None
 
     monkeypatch.setattr(
-        "app.repositories.profile_repository.ProfileRepository.get_owned", _get_owned
+        "app.repositories.profile_repository.ProfileRepository.get_accessible",
+        _get_accessible,
     )
 
     r = await client.get("/analytics?site_id=999", headers=_auth())

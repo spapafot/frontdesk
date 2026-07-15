@@ -37,7 +37,14 @@ async def main() -> None:
                     KnowledgeChunk.document_id == document.id
                 )
             )
-            chunks = chunk_text(document.content)
+            # FAQ entries store only the answer in `content`; the question
+            # (title) must stay in the indexed text so retrieval matches it.
+            text = (
+                f"{document.title}\n\n{document.content}"
+                if document.type == "faq"
+                else document.content
+            )
+            chunks = chunk_text(text)
             for chunk in chunks:
                 await repo.add_chunk(
                     profile_id=document.profile_id,

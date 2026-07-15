@@ -8,11 +8,21 @@ export interface ConversationSummary {
   started_at: string;
   rating: Rating | null;
   summary: string | null;
+  mode: "ai" | "waiting" | "human" | "pending_ticket" | "closed";
+  assigned_user_id: string | null;
+  escalation_requested_at: string | null;
+  accepted_at: string | null;
+  closed_at: string | null;
+  last_message_at: string | null;
 }
 
 export interface StoredMessage {
+  id: number;
   role: "user" | "assistant";
   content: string;
+  sender_type: "visitor" | "operator" | "ai" | "system";
+  sender_display_name: string | null;
+  created_at: string;
 }
 
 const base = `${API_BASE}/conversations`;

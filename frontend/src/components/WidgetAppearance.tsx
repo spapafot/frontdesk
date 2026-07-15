@@ -56,7 +56,7 @@ export function WidgetAppearance({ value, onChange }: Props) {
             aria-label="Accent hex"
             value={value.accentColor}
             onChange={(e) => set({ accentColor: e.target.value })}
-            className={`w-28 rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-100 ${
+            className={`w-28 rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 ${
               HEX.test(value.accentColor)
                 ? "border-slate-300 focus:border-sky-500"
                 : "border-red-400 focus:border-red-500"
@@ -151,7 +151,7 @@ export function WidgetAppearance({ value, onChange }: Props) {
           value={value.greeting}
           maxLength={500}
           onChange={(e) => set({ greeting: e.target.value })}
-          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+          className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-sky-500"
         />
       </div>
 
@@ -170,7 +170,7 @@ export function WidgetAppearance({ value, onChange }: Props) {
           maxLength={60}
           placeholder="Chat with us"
           onChange={(e) => set({ launcherLabel: e.target.value })}
-          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+          className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-sky-500"
         />
       </div>
 

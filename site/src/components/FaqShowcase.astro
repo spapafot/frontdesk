@@ -1,0 +1,49 @@
+---
+import DeviceFrame from "./DeviceFrame.astro";
+
+// Static reimplementation of the Knowledge page's FAQs section (question/answer pairs).
+const faqs = [
+  {
+    q: "Do you offer a student discount?",
+    a: "Yes- 20% off with a valid student ID at checkout.",
+  },
+  {
+    q: "Can I change my plan mid-month?",
+    a: "Yes. Switch anytime and only pay the prorated difference.",
+  },
+];
+---
+
+<DeviceFrame label="Knowledge base · FAQs">
+  <div class="space-y-3 p-5">
+    <div class="flex items-center justify-between">
+      <p class="text-sm font-semibold text-slate-800">Frequently asked questions</p>
+      <span class="rounded-full bg-sky-600 px-3 py-1.5 text-xs font-medium text-white">
+        + Add FAQ
+      </span>
+    </div>
+
+    {
+      faqs.map((faq) => (
+        <div class="rounded-xl border border-slate-200 bg-white p-3">
+          <div class="flex items-start gap-2">
+            <span class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-sky-100 text-xs font-bold text-sky-700">
+              Q
+            </span>
+            <p class="text-sm font-medium text-slate-800">{faq.q}</p>
+          </div>
+          <div class="mt-2 flex items-start gap-2">
+            <span class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-500">
+              A
+            </span>
+            <p class="text-sm leading-6 text-slate-600">{faq.a}</p>
+          </div>
+          <div class="mt-2 flex items-center justify-end gap-2 text-xs">
+            <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-emerald-700">Active</span>
+            <span class="text-sky-600">Edit</span>
+          </div>
+        </div>
+      ))
+    }
+  </div>
+</DeviceFrame>

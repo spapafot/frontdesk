@@ -6,6 +6,8 @@ export interface KnowledgeDocument {
   type: string;
   /** Set for link entries (type === "url"); null for uploaded files. */
   source_url: string | null;
+  /** FAQ answer text (type === "faq"); null/absent for every other type. */
+  content?: string | null;
   is_active: boolean;
   processing_status: "queued" | "processing" | "ready" | "failed";
   chunk_count: number;
@@ -59,6 +61,35 @@ export async function addLink(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url }),
+    })
+  );
+}
+
+export async function addFaq(
+  siteId: number,
+  question: string,
+  answer: string
+): Promise<KnowledgeDocument> {
+  return handle(
+    await fetch(`${API_BASE}/knowledge/faqs?site_id=${siteId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question, answer }),
+    })
+  );
+}
+
+export async function updateFaq(
+  siteId: number,
+  id: number,
+  question: string,
+  answer: string
+): Promise<KnowledgeDocument> {
+  return handle(
+    await fetch(`${API_BASE}/knowledge/faqs/${id}?site_id=${siteId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question, answer }),
     })
   );
 }

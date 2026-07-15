@@ -19,6 +19,9 @@ export interface Settings {
   greeting: string;
   launcher_label: string | null;
   show_branding: boolean;
+  live_human_escalation_enabled: boolean;
+  live_human_escalation_available: boolean;
+  notification_email: string | null;
 }
 
 export const settingsKey = (siteId: number) => `${API_BASE}/settings?site_id=${siteId}`;
@@ -49,6 +52,10 @@ export async function updateSettings(
     custom_instructions: string;
     widget_origin: string;
     widget_enabled: boolean;
+    live_human_escalation_enabled: boolean;
+    // Omitted (undefined) when empty: the backend rejects a blank email and
+    // treats an absent field as "leave unchanged".
+    notification_email?: string;
     accent_color: string;
     launcher_icon: string;
     launcher_position: LauncherPosition;

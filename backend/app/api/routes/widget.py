@@ -4,9 +4,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.db import get_session
+from app.repositories.conversation_repository import ConversationRepository
 from app.repositories.profile_repository import ProfileRepository
 from app.repositories.widget_repository import WidgetRepository
-from app.services.widget_auth import create_widget_token
+from app.schemas.conversation import WidgetRatingRequest
+from app.services.live_auth import conversation_token_matches
+from app.services.widget_auth import create_widget_token, decode_widget_token
 
 router = APIRouter(prefix="/widget", tags=["widget"])
 
@@ -39,6 +42,7 @@ class WidgetSession(BaseModel):
     origin: str
     assistant_name: str
     business_name: str
+    live_human_escalation_enabled: bool = False
 
 
 @router.post("/session", response_model=WidgetSession)
@@ -84,4 +88,43 @@ async def create_session(
         origin=origin,
         assistant_name=profile.assistant_name,
         business_name=profile.name,
+        live_human_escalation_enabled=(
+            settings.live_human_escalation_enabled
+            and profile.live_human_escalation_enabled
+        ),
     )
+
+
+@router.post("/rating", status_code=204)
+async def rate_conversation(
+    body: WidgetRatingRequest,
+    session: AsyncSession = Depends(get_session),
+) -> Response:
+    """Let a widget visitor rate their own conversation.
+
+    Authorized exactly like ``/chat/stream`` and ``/live/visitor/socket-ticket``:
+    the widget token proves the installation and the conversation token proves
+    the visitor owns this conversation. Not gated by the live-escalation flag -
+    a plain AI conversation can be rated too.
+    """
+    profile_id, installation_id, public_key = decode_widget_token(body.widget_token)
+    installation = await WidgetRepository(session).get_for_profile(profile_id)
+    if (
+        installation is None
+        or installation.id != installation_id
+        or installation.public_key != public_key
+        or not installation.is_enabled
+    ):
+        raise HTTPException(status_code=401, detail="Widget installation is unavailable.")
+    conversation = await ConversationRepository(session).get(body.conversation_id)
+    if conversation is None or conversation.profile_id != profile_id:
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+    conversation_token_matches(
+        body.conversation_token,
+        profile_id=profile_id,
+        conversation_id=conversation.id,
+        stored_hash=conversation.visitor_session_id_hash,
+    )
+    await ConversationRepository(session).set_rating(conversation, body.rating)
+    await session.commit()
+    return Response(status_code=204)

@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 from fastapi import Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -7,22 +9,56 @@ from app.models.profile import AssistantProfile
 from app.repositories.profile_repository import ProfileRepository
 
 
-async def get_selected_site(
+@dataclass
+class SiteAccess:
+    profile: AssistantProfile
+    role: str  # "owner" | "member"
+
+    @property
+    def is_owner(self) -> bool:
+        return self.role == "owner"
+
+
+async def get_site_access(
     site_id: int | None = Query(default=None),
     user: AdminUser = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
-) -> AssistantProfile:
-    """Resolve which of the owner's sites (profiles) a request targets.
+) -> SiteAccess:
+    """Resolve which site a request targets and the caller's role on it.
 
-    ``?site_id=`` omitted falls back to the owner's default site (bootstrapping
-    a first one on first login), so an un-updated client keeps working. A
-    ``site_id`` the caller does not own yields 404 (don't leak existence)."""
+    ``?site_id=`` omitted falls back to the caller's default site (an owner's
+    first site — bootstrapping one on first login — else the first site of a
+    team they belong to), so an un-updated client keeps working. A ``site_id``
+    the caller cannot access yields 404 (don't leak existence). Team
+    memberships pending on the caller's email are activated as a side effect
+    of resolution (committed below)."""
     repo = ProfileRepository(session)
     if site_id is None:
-        profile = await repo.get_or_create_default(user.id, user.email)
-        await session.commit()
-        return profile
-    profile = await repo.get_owned(site_id, user.id)
-    if profile is None:
-        raise HTTPException(status_code=404, detail="Site not found.")
-    return profile
+        profile, role = await repo.resolve_default_access(user.id, user.email)
+    else:
+        result = await repo.get_accessible(site_id, user.id, user.email)
+        if result is None:
+            raise HTTPException(status_code=404, detail="Site not found.")
+        profile, role = result
+    if role == "owner" and profile.notification_email is None and user.email:
+        # One-time backfill for sites created before migration 0020. Owner-only:
+        # a member's login email must never become the site's ticket recipient.
+        profile.notification_email = user.email
+    await session.commit()
+    return SiteAccess(profile=profile, role=role)
+
+
+async def get_selected_site(
+    access: SiteAccess = Depends(get_site_access),
+) -> AssistantProfile:
+    return access.profile
+
+
+async def require_site_owner(
+    access: SiteAccess = Depends(get_site_access),
+) -> AssistantProfile:
+    if not access.is_owner:
+        raise HTTPException(
+            status_code=403, detail="Only the site owner can manage settings."
+        )
+    return access.profile

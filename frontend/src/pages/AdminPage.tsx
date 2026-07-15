@@ -1,23 +1,28 @@
 import { FormEvent, useRef, useState } from "react";
+import { FileText, Globe, HelpCircle, Link2, Plus, Upload } from "lucide-react";
 import useSWR from "swr";
 import {
   KnowledgeDocument,
+  addFaq,
   addLink,
   deleteDocument,
   documentsKey,
   fetchDocuments,
   rescanDocument,
   toggleDocument,
+  updateFaq,
   uploadDocument,
 } from "../api/knowledge";
 import { TERMS_URL } from "../api/client";
 import { ChunkPreviewDialog } from "../components/ChunkPreviewDialog";
+import { FaqDialog } from "../components/FaqDialog";
 import { LinkDisclaimerDialog } from "../components/LinkDisclaimerDialog";
 import { useSite } from "../components/SiteProvider";
 import { Skeleton } from "../components/Skeleton";
 import { useToast } from "../components/Toast";
 
 const ACCEPT = ".txt,.pdf,.doc,.docx,.xls,.xlsx";
+type KnowledgeTab = "documents" | "web-pages" | "faqs";
 
 export function AdminPage() {
   const { selectedSiteId } = useSite();
@@ -42,6 +47,7 @@ export function AdminPage() {
     },
   );
   const [uploading, setUploading] = useState(false);
+  const [activeTab, setActiveTab] = useState<KnowledgeTab>("documents");
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadNotice, setUploadNotice] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -51,30 +57,78 @@ export function AdminPage() {
   const [linkNotice, setLinkNotice] = useState<string | null>(null);
   const [showLinkDisclaimer, setShowLinkDisclaimer] = useState(false);
   const [previewDoc, setPreviewDoc] = useState<KnowledgeDocument | null>(null);
+  // null = closed; { doc: null } = add mode; { doc } = edit mode.
+  const [faqDialog, setFaqDialog] = useState<{ doc: KnowledgeDocument | null } | null>(
+    null,
+  );
+  const nextOptimisticId = useRef(-1);
+  const [pendingAdds, setPendingAdds] = useState<KnowledgeDocument[]>([]);
+  const [pendingEdits, setPendingEdits] = useState<
+    Record<number, KnowledgeDocument>
+  >({});
+
+  const queuedDocument = (
+    title: string,
+    type: string,
+    options: { sourceUrl?: string; content?: string } = {},
+  ): KnowledgeDocument => ({
+    id: nextOptimisticId.current--,
+    title,
+    type,
+    source_url: options.sourceUrl ?? null,
+    content: options.content ?? null,
+    is_active: false,
+    processing_status: "queued",
+    chunk_count: 0,
+    created_at: new Date().toISOString(),
+    processed_at: null,
+  });
+
+  const removePendingAdd = (id: number) => {
+    setPendingAdds((pending) => pending.filter((doc) => doc.id !== id));
+  };
 
   const onFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
+    const selectedFiles = Array.from(files);
+    const optimistic = selectedFiles.map((file) => {
+      const extension = file.name.split(".").pop()?.toLowerCase() || "file";
+      return queuedDocument(file.name, extension);
+    });
     setUploadError(null);
     setUploadNotice(null);
     setUploading(true);
-    let queuedAny = false;
-    try {
-      for (const file of Array.from(files)) {
-        await uploadDocument(selectedSiteId as number, file);
-        queuedAny = true;
-      }
-    } catch (err) {
-      setUploadError((err as Error).message);
-    } finally {
-      if (queuedAny) {
-        await mutate().catch(() => undefined);
-        setUploadNotice(
-          "Your document will be ready soon, after that you can start using our widget, check again in a minute or two!",
-        );
-      }
-      setUploading(false);
-      if (fileInput.current) fileInput.current.value = "";
+    setPendingAdds((pending) => [...optimistic, ...pending]);
+
+    const results = await Promise.allSettled(
+      selectedFiles.map(async (file, index) => {
+        const pending = optimistic[index];
+        try {
+          const created = await uploadDocument(selectedSiteId as number, file);
+          await mutate(
+            (docs) => [created, ...(docs ?? [])],
+            { revalidate: false },
+          );
+          return created;
+        } finally {
+          removePendingAdd(pending.id);
+        }
+      }),
+    );
+
+    const firstFailure = results.find(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    if (firstFailure) {
+      setUploadError((firstFailure.reason as Error).message);
     }
+    if (results.some((result) => result.status === "fulfilled")) {
+      setUploadNotice(
+        "Your document is queued and will be ready soon. Check again in a minute or two.",
+      );
+    }
+    setUploading(false);
+    if (fileInput.current) fileInput.current.value = "";
   };
 
   const onAddLink = (e: FormEvent) => {
@@ -90,17 +144,24 @@ export function AdminPage() {
     setShowLinkDisclaimer(false);
     const url = linkUrl.trim();
     if (!url) return;
+    const pending = queuedDocument(url, "url", { sourceUrl: url });
     setAddingLink(true);
+    setPendingAdds((docs) => [pending, ...docs]);
+    setLinkUrl("");
     try {
-      await addLink(selectedSiteId as number, url);
-      await mutate().catch(() => undefined);
-      setLinkUrl("");
+      const created = await addLink(selectedSiteId as number, url);
+      await mutate(
+        (docs) => [created, ...(docs ?? [])],
+        { revalidate: false },
+      );
       setLinkNotice(
-        "We're reading that page now. It'll be ready in a minute or two — check back shortly!",
+        "That page is queued and will be ready in a minute or two.",
       );
     } catch (err) {
       setLinkError((err as Error).message);
+      setLinkUrl((current) => current || url);
     } finally {
+      removePendingAdd(pending.id);
       setAddingLink(false);
     }
   };
@@ -169,16 +230,103 @@ export function AdminPage() {
     }
   };
 
-  const fileDocs = documents?.filter((d) => d.type !== "url") ?? [];
-  const urlDocs = documents?.filter((d) => d.type === "url") ?? [];
+  // FAQ indexing is synchronous server-side, but the UI still closes and
+  // renders a queued row immediately while that request is in flight.
+  const onSaveFaq = (question: string, answer: string) => {
+    const siteId = selectedSiteId as number;
+    const editing = faqDialog?.doc ?? null;
+    setFaqDialog(null);
+
+    if (editing) {
+      setPendingEdits((pending) => ({
+        ...pending,
+        [editing.id]: {
+          ...editing,
+          title: question,
+          content: answer,
+          processing_status: "queued",
+          chunk_count: 0,
+          processed_at: null,
+        },
+      }));
+      void (async () => {
+        try {
+          const updated = await updateFaq(
+            siteId,
+            editing.id,
+            question,
+            answer,
+          );
+          await mutate(
+            (docs) =>
+              docs?.map((doc) => (doc.id === updated.id ? updated : doc)) ?? [
+                updated,
+              ],
+            { revalidate: false },
+          );
+        } catch (err) {
+          showToast((err as Error).message || "Couldn't update the FAQ. Restored.");
+        } finally {
+          setPendingEdits((pending) => {
+            const next = { ...pending };
+            delete next[editing.id];
+            return next;
+          });
+        }
+      })();
+      return;
+    }
+
+    const pending = queuedDocument(question, "faq", { content: answer });
+    setPendingAdds((docs) => [pending, ...docs]);
+    void (async () => {
+      try {
+        const created = await addFaq(siteId, question, answer);
+        await mutate(
+          (docs) => [created, ...(docs ?? [])],
+          { revalidate: false },
+        );
+      } catch (err) {
+        showToast((err as Error).message || "Couldn't add the FAQ. Try again.");
+      } finally {
+        removePendingAdd(pending.id);
+      }
+    })();
+  };
+
+  const visibleDocuments =
+    documents === undefined && pendingAdds.length === 0
+      ? undefined
+      : [
+          ...pendingAdds,
+          ...(documents ?? []).map((doc) => pendingEdits[doc.id] ?? doc),
+        ];
+  const fileDocs =
+    visibleDocuments?.filter((d) => d.type !== "url" && d.type !== "faq") ?? [];
+  const urlDocs = visibleDocuments?.filter((d) => d.type === "url") ?? [];
+  const faqDocs = visibleDocuments?.filter((d) => d.type === "faq") ?? [];
+
+  const tabs: {
+    id: KnowledgeTab;
+    label: string;
+    count: number;
+    icon: typeof FileText;
+  }[] = [
+    { id: "documents", label: "Documents", count: fileDocs.length, icon: FileText },
+    { id: "web-pages", label: "Web pages", count: urlDocs.length, icon: Globe },
+    { id: "faqs", label: "FAQs", count: faqDocs.length, icon: HelpCircle },
+  ];
 
   return (
-    <div className="mx-auto h-full max-w-3xl overflow-y-auto p-4">
-      <h2 className="text-lg font-semibold text-slate-800">Knowledge base</h2>
-      <p className="mt-1 text-sm text-slate-500">
-        Everything the assistant is allowed to answer from. Add files or web
-        pages below.
-      </p>
+    <div className="flex h-full flex-col overflow-hidden">
+      <header className="shrink-0 border-b border-slate-200 bg-white px-6 py-5">
+        <h1 className="text-lg font-semibold text-slate-900">Knowledge base</h1>
+        <p className="mt-0.5 text-sm text-slate-500">
+          Everything the assistant is allowed to answer from. Add files, web pages, or FAQs below.
+        </p>
+      </header>
+      <div className="flex-1 overflow-y-auto p-6">
+      <div className="mx-auto max-w-5xl">
 
       {error && (
         <p className="mt-4 text-sm text-red-600">
@@ -186,14 +334,59 @@ export function AdminPage() {
         </p>
       )}
 
-      {/* Documents ------------------------------------------------------- */}
-      <section className="mt-6">
-        <h3 className="text-sm font-semibold text-slate-700">Documents</h3>
-        <p className="mt-0.5 text-xs text-slate-400">
-          Upload files: TXT, PDF, DOC, DOCX, XLS, XLSX.
-        </p>
+      <div
+        className="mt-6 flex gap-1 overflow-x-auto overflow-y-hidden border-b border-slate-200"
+        role="tablist"
+        aria-label="Knowledge sources"
+      >
+        {tabs.map((tab) => {
+          const Icon = tab.icon;
+          const selected = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              id={`knowledge-tab-${tab.id}`}
+              aria-selected={selected}
+              aria-controls={`knowledge-panel-${tab.id}`}
+              onClick={() => setActiveTab(tab.id)}
+              className={`relative flex shrink-0 items-center gap-2 px-4 py-3 text-sm font-medium transition ${
+                selected
+                  ? "text-sky-700 after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full after:bg-sky-600"
+                  : "text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              <Icon className="h-4 w-4" aria-hidden="true" />
+              <span>{tab.label}</span>
+              <span
+                className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                  selected ? "bg-sky-100 text-sky-700" : "bg-slate-100 text-slate-500"
+                }`}
+              >
+                {tab.count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
 
-        <div className="mt-3 rounded-xl border-2 border-dashed border-slate-300 bg-white p-6 text-center">
+      {/* Documents ------------------------------------------------------- */}
+      {activeTab === "documents" && (
+      <section
+        className="pt-6"
+        role="tabpanel"
+        id="knowledge-panel-documents"
+        aria-labelledby="knowledge-tab-documents"
+      >
+        <div className="mb-4">
+          <h2 className="text-base font-semibold text-slate-900">Documents</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Upload TXT, PDF, DOC, DOCX, XLS, or XLSX files for the assistant to use.
+          </p>
+        </div>
+
+        <div className="rounded-2xl border-2 border-dashed border-slate-300 bg-white p-8 text-center">
           <input
             ref={fileInput}
             type="file"
@@ -202,11 +395,14 @@ export function AdminPage() {
             className="hidden"
             onChange={(e) => onFiles(e.target.files)}
           />
+          <div className="mx-auto mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-sky-50 text-sky-600">
+            <Upload className="h-5 w-5" aria-hidden="true" />
+          </div>
           <button
             type="button"
             onClick={() => fileInput.current?.click()}
             disabled={uploading}
-            className="rounded-full bg-sky-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-sky-700 disabled:opacity-50"
+            className="rounded-full bg-sky-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-sky-700 disabled:opacity-50"
           >
             {uploading ? "Uploading..." : "Choose files to upload"}
           </button>
@@ -236,7 +432,7 @@ export function AdminPage() {
 
         <div className="mt-4">
           {isLoading && <DocumentsSkeleton />}
-          {documents &&
+          {visibleDocuments &&
             (fileDocs.length === 0 ? (
               <p className="text-sm text-slate-500">
                 No documents yet. Upload a file above.
@@ -252,19 +448,36 @@ export function AdminPage() {
             ))}
         </div>
       </section>
+      )}
 
       {/* Web pages ------------------------------------------------------- */}
-      <section className="mt-8">
-        <h3 className="text-sm font-semibold text-slate-700">Web pages</h3>
-        <p className="mt-0.5 text-xs text-slate-400">
-          Add a page by its URL. We read and keep its text — use Rescan to
-          refresh it later.
-        </p>
+      {activeTab === "web-pages" && (
+      <section
+        className="pt-6"
+        role="tabpanel"
+        id="knowledge-panel-web-pages"
+        aria-labelledby="knowledge-tab-web-pages"
+      >
+        <div className="mb-4">
+          <h2 className="text-base font-semibold text-slate-900">Web pages</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Add one page at a time. Use Rescan whenever its content changes.
+          </p>
+        </div>
 
         <form
           onSubmit={onAddLink}
-          className="mt-3 rounded-xl border border-slate-200 bg-white p-4"
+          className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
         >
+          <div className="mb-4 flex items-start gap-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-50 text-sky-600">
+              <Link2 className="h-4 w-4" aria-hidden="true" />
+            </span>
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900">Add a web page</h3>
+              <p className="mt-0.5 text-xs text-slate-500">Enter the exact URL you want the assistant to read.</p>
+            </div>
+          </div>
           <label htmlFor="knowledge-link-url" className="sr-only">
             Web page URL
           </label>
@@ -277,17 +490,19 @@ export function AdminPage() {
               value={linkUrl}
               onChange={(e) => setLinkUrl(e.target.value)}
               placeholder="https://example.com/pricing"
-              className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+              className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-sky-500"
             />
             <button
               type="submit"
               disabled={addingLink}
-              className="shrink-0 rounded-full bg-sky-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-sky-700 disabled:opacity-50"
+              className="shrink-0 rounded-full bg-sky-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-sky-700 disabled:opacity-50"
             >
               {addingLink ? "Adding…" : "Add link"}
             </button>
           </div>
-          {linkError && <p className="mt-2 text-sm text-red-600">{linkError}</p>}
+          {linkError && (
+            <p className="mt-2 text-sm text-red-600">{linkError}</p>
+          )}
           {linkNotice && (
             <p className="mt-2 text-sm text-sky-700" role="status">
               {linkNotice}
@@ -296,7 +511,7 @@ export function AdminPage() {
         </form>
 
         <div className="mt-4">
-          {documents &&
+          {visibleDocuments &&
             (urlDocs.length === 0 ? (
               <p className="text-sm text-slate-500">
                 No web pages yet. Paste a URL above to add one.
@@ -312,6 +527,51 @@ export function AdminPage() {
             ))}
         </div>
       </section>
+      )}
+
+      {/* FAQs ------------------------------------------------------------ */}
+      {activeTab === "faqs" && (
+      <section
+        className="pt-6"
+        role="tabpanel"
+        id="knowledge-panel-faqs"
+        aria-labelledby="knowledge-tab-faqs"
+      >
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold text-slate-900">FAQs</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Add common questions with the exact answers the assistant should give.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setFaqDialog({ doc: null })}
+            className="inline-flex items-center gap-2 rounded-full bg-sky-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-sky-700"
+          >
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            Add FAQ
+          </button>
+        </div>
+
+        <div>
+          {visibleDocuments &&
+            (faqDocs.length === 0 ? (
+              <p className="text-sm text-slate-500">
+                No FAQs yet. Add your first question and answer.
+              </p>
+            ) : (
+              <DocumentTable
+                docs={faqDocs}
+                onPreview={setPreviewDoc}
+                onEdit={(doc) => setFaqDialog({ doc })}
+                onToggle={onToggle}
+                onDelete={onDelete}
+              />
+            ))}
+        </div>
+      </section>
+      )}
 
       <LinkDisclaimerDialog
         open={showLinkDisclaimer}
@@ -320,12 +580,21 @@ export function AdminPage() {
         onCancel={() => setShowLinkDisclaimer(false)}
       />
 
+      <FaqDialog
+        open={faqDialog !== null}
+        doc={faqDialog?.doc ?? null}
+        onSubmit={onSaveFaq}
+        onClose={() => setFaqDialog(null)}
+      />
+
       <ChunkPreviewDialog
         open={previewDoc !== null}
         siteId={selectedSiteId as number}
         doc={previewDoc}
         onClose={() => setPreviewDoc(null)}
       />
+      </div>
+      </div>
     </div>
   );
 }
@@ -335,6 +604,7 @@ function DocumentTable({
   showType,
   onPreview,
   onRescan,
+  onEdit,
   onToggle,
   onDelete,
 }: {
@@ -342,6 +612,7 @@ function DocumentTable({
   showType?: boolean;
   onPreview: (doc: KnowledgeDocument) => void;
   onRescan?: (doc: KnowledgeDocument) => void;
+  onEdit?: (doc: KnowledgeDocument) => void;
   onToggle: (doc: KnowledgeDocument) => void;
   onDelete: (id: number) => void;
 }) {
@@ -436,6 +707,16 @@ function DocumentTable({
                     Rescan
                   </button>
                 )}
+                {onEdit && doc.type === "faq" && (
+                  <button
+                    type="button"
+                    onClick={() => onEdit(doc)}
+                    disabled={doc.processing_status !== "ready"}
+                    className="mr-3 text-xs font-medium text-sky-600 hover:underline disabled:cursor-not-allowed disabled:text-slate-300 disabled:no-underline"
+                  >
+                    Edit
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => onToggle(doc)}
@@ -447,7 +728,8 @@ function DocumentTable({
                 <button
                   type="button"
                   onClick={() => onDelete(doc.id)}
-                  className="text-xs font-medium text-red-600 hover:underline"
+                  disabled={doc.id < 0}
+                  className="text-xs font-medium text-red-600 hover:underline disabled:cursor-not-allowed disabled:text-slate-300 disabled:no-underline"
                 >
                   Delete
                 </button>

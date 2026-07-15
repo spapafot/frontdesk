@@ -16,6 +16,10 @@ from app.prompts.system_prompt import build_system_prompt
 from app.repositories.profile_repository import ProfileRepository
 from app.repositories.conversation_repository import ConversationRepository
 from app.services.rag_service import search_knowledge
+from app.services.live_auth import (
+    create_conversation_token,
+    visitor_session_hash,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +84,7 @@ async def _stream_completion(
         model=settings.deepseek_model,
         messages=messages,
         stream=True,
+        temperature=0,
         extra_body=extra_body,
     )
     async for chunk in stream:
@@ -110,11 +115,20 @@ async def _load_history(repo: ConversationRepository, conversation_id: int) -> l
 
 
 async def _resolve_conversation(
-    repo: ConversationRepository, profile_id: int, conversation_id: int | None
+    repo: ConversationRepository,
+    profile_id: int,
+    conversation_id: int | None,
+    visitor_session_id: str | None = None,
 ):
     conversation = await repo.get(conversation_id) if conversation_id else None
     if conversation is None or conversation.profile_id != profile_id:
-        conversation = await repo.create(profile_id)
+        if visitor_session_id:
+            conversation = await repo.create(
+                profile_id,
+                visitor_session_id_hash=visitor_session_hash(visitor_session_id),
+            )
+        else:
+            conversation = await repo.create(profile_id)
     return conversation
 
 
@@ -123,6 +137,8 @@ async def run_turn(
     profile_id: int,
     conversation_id: int | None = None,
     include_sources: bool = False,
+    installation_id: int | None = None,
+    visitor_session_id: str | None = None,
 ) -> AsyncGenerator[dict, None]:
     """Run one assistant turn, yielding structured events.
 
@@ -141,13 +157,34 @@ async def run_turn(
             return
 
         conversation = await _resolve_conversation(
-            conversation_repo, profile.id, conversation_id
+            conversation_repo,
+            profile.id,
+            conversation_id,
+            visitor_session_id=visitor_session_id,
         )
+        if conversation.mode != "ai":
+            yield {
+                "type": "mode_changed",
+                "mode": conversation.mode,
+                "conversation_id": conversation.id,
+            }
+            return
         if not conversation.title:
             conversation.title = message.strip()[:120] or None
         await session.commit()
 
-        yield {"type": "conversation", "conversation_id": conversation.id}
+        conversation_event = {
+            "type": "conversation",
+            "conversation_id": conversation.id,
+        }
+        if installation_id is not None and visitor_session_id is not None:
+            conversation_event["conversation_token"] = create_conversation_token(
+                profile.id,
+                installation_id,
+                conversation.id,
+                visitor_session_id,
+            )
+        yield conversation_event
 
         tz = ZoneInfo(profile.timezone)
         now = datetime.now(tz)
@@ -225,6 +262,15 @@ async def run_turn(
                     conversation.id,
                 )
 
+            await session.refresh(conversation, attribute_names=["mode"])
+            if conversation.mode != "ai":
+                yield {
+                    "type": "interrupted",
+                    "mode": conversation.mode,
+                    "conversation_id": conversation.id,
+                }
+                return
+
             await conversation_repo.add_message(
                 conversation.id,
                 "assistant",
@@ -248,9 +294,16 @@ async def stream_chat(
     profile_id: int,
     conversation_id: int | None = None,
     include_sources: bool = False,
+    installation_id: int | None = None,
+    visitor_session_id: str | None = None,
 ) -> AsyncGenerator[str, None]:
     """SSE wrapper over ``run_turn`` for the HTTP chat endpoint."""
     async for event in run_turn(
-        message, profile_id, conversation_id, include_sources=include_sources
+        message,
+        profile_id,
+        conversation_id,
+        include_sources=include_sources,
+        installation_id=installation_id,
+        visitor_session_id=visitor_session_id,
     ):
         yield _sse(event)

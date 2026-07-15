@@ -41,6 +41,9 @@ deploy/aws/lambda.env
 .DS_Store
 *.log
 
+# --- Fetched log dumps ---
+logs/out/
+
 # llms
 AGENTS.md
 CLAUDE.md

@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -24,4 +25,6 @@ class SiteSummaryOut(BaseModel):
     widget_enabled: bool = True
     widget_monthly_limit: int = 5000
     widget_monthly_usage: int = 0
+    # The caller's relationship to the site: team members see it as "member".
+    role: Literal["owner", "member"] = "owner"
     created_at: datetime

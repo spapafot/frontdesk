@@ -72,6 +72,12 @@ function renderAdmin() {
   );
 }
 
+async function openKnowledgeTab(name: "Documents" | "Web pages" | "FAQs") {
+  await userEvent.click(
+    await screen.findByRole("tab", { name: new RegExp(`^${name}`, "i") }),
+  );
+}
+
 beforeEach(() => {
   localStorage.clear();
 });
@@ -122,6 +128,8 @@ describe("AdminPage optimistic knowledge-base actions", () => {
     );
     renderAdmin();
 
+    await openKnowledgeTab("Web pages");
+
     const input = await screen.findByPlaceholderText(/example\.com/i);
     await userEvent.type(input, "https://acme.com/pricing");
     await userEvent.click(screen.getByRole("button", { name: "Add link" }));
@@ -138,7 +146,8 @@ describe("AdminPage optimistic knowledge-base actions", () => {
     await waitFor(() =>
       expect(
         calls.some(
-          (c) => c.url.includes("/knowledge/links") && c.init?.method === "POST",
+          (c) =>
+            c.url.includes("/knowledge/links") && c.init?.method === "POST",
         ),
       ).toBe(true),
     );
@@ -146,7 +155,63 @@ describe("AdminPage optimistic knowledge-base actions", () => {
     expect(JSON.parse(String(linkCall?.init?.body))).toEqual({
       url: "https://acme.com/pricing",
     });
-    expect(await screen.findByText(/reading that page/i)).toBeInTheDocument();
+    expect(await screen.findByText(/page is queued/i)).toBeInTheDocument();
+  });
+
+  it("shows a queued file row before the upload request resolves", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (/\/sites($|\?|\/)/.test(url)) return json([SITE]);
+        if (url.includes("/knowledge/documents") && init?.method === "POST") {
+          return new Promise<Response>(() => {});
+        }
+        if (url.includes("/knowledge/documents")) return json([]);
+        return json({});
+      }),
+    );
+    const { container } = renderAdmin();
+
+    await screen.findByText(/no documents yet/i);
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(input).not.toBeNull();
+    await userEvent.upload(
+      input as HTMLInputElement,
+      new File(["hello"], "guide.txt", { type: "text/plain" }),
+    );
+
+    expect(await screen.findByText("guide.txt")).toBeInTheDocument();
+    expect(screen.getByText("Queued")).toBeInTheDocument();
+  });
+
+  it("closes the link disclaimer and shows a queued row immediately", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (/\/sites($|\?|\/)/.test(url)) return json([SITE]);
+        if (url.includes("/knowledge/links") && init?.method === "POST") {
+          return new Promise<Response>(() => {});
+        }
+        if (url.includes("/knowledge/documents")) return json([]);
+        return json({});
+      }),
+    );
+    renderAdmin();
+
+    await openKnowledgeTab("Web pages");
+
+    const input = await screen.findByPlaceholderText(/example\.com/i);
+    await userEvent.type(input, "https://acme.com/help");
+    await userEvent.click(screen.getByRole("button", { name: "Add link" }));
+    await userEvent.click(screen.getByRole("checkbox"));
+    await userEvent.click(screen.getByRole("button", { name: /add page/i }));
+
+    expect(screen.queryByRole("button", { name: /add page/i })).not.toBeInTheDocument();
+    expect(input).toHaveValue("");
+    expect(await screen.findAllByText("https://acme.com/help")).toHaveLength(2);
+    expect(screen.getByText("Queued")).toBeInTheDocument();
   });
 
   it("rescans a link document on click", async () => {
@@ -164,6 +229,8 @@ describe("AdminPage optimistic knowledge-base actions", () => {
       }),
     );
     renderAdmin();
+
+    await openKnowledgeTab("Web pages");
 
     await screen.findByText("Pricing");
     await userEvent.click(screen.getByRole("button", { name: "Rescan" }));
@@ -185,7 +252,7 @@ describe("AdminPage optimistic knowledge-base actions", () => {
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
         if (/\/sites($|\?|\/)/.test(url)) return json([SITE]);
-        // Must precede the /knowledge/documents check — the chunks URL contains both.
+        // Must precede the /knowledge/documents check - the chunks URL contains both.
         if (url.includes("/chunks"))
           return json([
             { id: 10, content: "First chunk text" },
@@ -223,3 +290,223 @@ describe("AdminPage optimistic knowledge-base actions", () => {
     ).toBeInTheDocument();
   });
 });
+
+const FAQ_DOC = {
+  ...DOC,
+  id: 3,
+  title: "What are your opening hours?",
+  type: "faq",
+  chunk_count: 1,
+  content: "We are open 9-5, Monday to Friday.",
+};
+
+describe("AdminPage FAQ entries", () => {
+  it("lists FAQs in their own section with Edit but no Rescan", async () => {
+    stubFetchDocs([DOC, FAQ_DOC]);
+    renderAdmin();
+
+    await openKnowledgeTab("FAQs");
+
+    // Rendered exactly once: the Documents filter must exclude type "faq".
+    await screen.findByText(FAQ_DOC.title);
+    expect(screen.getAllByText(FAQ_DOC.title)).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Rescan" })).not.toBeInTheDocument();
+  });
+
+  it("adds an FAQ via the dialog and renders the saved row without refetching", async () => {
+    const calls: { url: string; init?: RequestInit }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        calls.push({ url, init });
+        if (/\/sites($|\?|\/)/.test(url)) return json([SITE]);
+        if (url.includes("/knowledge/faqs")) return json(FAQ_DOC, 201);
+        if (url.includes("/knowledge/documents")) return json([]);
+        return json({});
+      }),
+    );
+    renderAdmin();
+
+    await openKnowledgeTab("FAQs");
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Add FAQ" }),
+    );
+    await userEvent.type(
+      screen.getByLabelText(/question/i),
+      FAQ_DOC.title,
+    );
+    await userEvent.type(screen.getByLabelText(/answer/i), FAQ_DOC.content);
+    await userEvent.click(screen.getByRole("button", { name: "Save FAQ" }));
+
+    await waitFor(() =>
+      expect(
+        calls.some(
+          (c) => c.url.includes("/knowledge/faqs") && c.init?.method === "POST",
+        ),
+      ).toBe(true),
+    );
+    const faqCall = calls.find((c) => c.url.includes("/knowledge/faqs"));
+    expect(JSON.parse(String(faqCall?.init?.body))).toEqual({
+      question: FAQ_DOC.title,
+      answer: FAQ_DOC.content,
+    });
+    // The row comes straight from the response via the cache patch.
+    expect(await screen.findByText(FAQ_DOC.title)).toBeInTheDocument();
+  });
+
+  it("closes the FAQ dialog and shows a queued row before indexing finishes", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (/\/sites($|\?|\/)/.test(url)) return json([SITE]);
+        if (url.includes("/knowledge/faqs") && init?.method === "POST") {
+          return new Promise<Response>(() => {});
+        }
+        if (url.includes("/knowledge/documents")) return json([]);
+        return json({});
+      }),
+    );
+    renderAdmin();
+
+    await openKnowledgeTab("FAQs");
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Add FAQ" }),
+    );
+    await userEvent.type(screen.getByLabelText(/question/i), FAQ_DOC.title);
+    await userEvent.type(screen.getByLabelText(/answer/i), FAQ_DOC.content);
+    await userEvent.click(screen.getByRole("button", { name: "Save FAQ" }));
+
+    expect(screen.queryByRole("button", { name: "Save FAQ" })).not.toBeInTheDocument();
+    expect(await screen.findByText(FAQ_DOC.title)).toBeInTheDocument();
+    expect(screen.getByText("Queued")).toBeInTheDocument();
+  });
+
+  it("prefills the dialog when editing and saves via PUT", async () => {
+    const calls: { url: string; init?: RequestInit }[] = [];
+    const updated = { ...FAQ_DOC, content: "We are open 24/7 now." };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        calls.push({ url, init });
+        if (/\/sites($|\?|\/)/.test(url)) return json([SITE]);
+        if (url.includes(`/knowledge/faqs/${FAQ_DOC.id}`)) return json(updated);
+        if (url.includes("/knowledge/documents")) return json([FAQ_DOC]);
+        return json({});
+      }),
+    );
+    renderAdmin();
+
+    await openKnowledgeTab("FAQs");
+
+    await screen.findByText(FAQ_DOC.title);
+    await userEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    expect(screen.getByLabelText(/question/i)).toHaveValue(FAQ_DOC.title);
+    expect(screen.getByLabelText(/answer/i)).toHaveValue(FAQ_DOC.content);
+
+    await userEvent.clear(screen.getByLabelText(/answer/i));
+    await userEvent.type(screen.getByLabelText(/answer/i), updated.content);
+    await userEvent.click(screen.getByRole("button", { name: "Save FAQ" }));
+
+    await waitFor(() =>
+      expect(
+        calls.some(
+          (c) =>
+            c.url.includes(`/knowledge/faqs/${FAQ_DOC.id}`) &&
+            c.init?.method === "PUT",
+        ),
+      ).toBe(true),
+    );
+    const putCall = calls.find((c) => c.init?.method === "PUT");
+    expect(JSON.parse(String(putCall?.init?.body))).toEqual({
+      question: FAQ_DOC.title,
+      answer: updated.content,
+    });
+    // Dialog closes after a successful save.
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Save FAQ" }),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
+  it("closes the dialog, rolls back the queued row, and shows a toast on failure", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (/\/sites($|\?|\/)/.test(url)) return json([SITE]);
+        if (url.includes("/knowledge/faqs"))
+          return json(
+            { detail: "Could not index the FAQ entry. Please try again." },
+            502,
+          );
+        if (url.includes("/knowledge/documents")) return json([]);
+        return json({});
+      }),
+    );
+    renderAdmin();
+
+    await openKnowledgeTab("FAQs");
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Add FAQ" }),
+    );
+    await userEvent.type(screen.getByLabelText(/question/i), FAQ_DOC.title);
+    await userEvent.type(screen.getByLabelText(/answer/i), FAQ_DOC.content);
+    await userEvent.click(screen.getByRole("button", { name: "Save FAQ" }));
+
+    expect(await screen.findByText(/could not index the faq entry/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save FAQ" })).not.toBeInTheDocument();
+    expect(screen.queryByText(FAQ_DOC.title)).not.toBeInTheDocument();
+  });
+
+  it("previews the stored chunks for an FAQ entry", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (/\/sites($|\?|\/)/.test(url)) return json([SITE]);
+        // Must precede the /knowledge/documents check - the chunks URL contains both.
+        if (url.includes("/chunks"))
+          return json([
+            {
+              id: 20,
+              content: `${FAQ_DOC.title}\n\n${FAQ_DOC.content}`,
+            },
+          ]);
+        if (url.includes("/knowledge/documents")) return json([FAQ_DOC]);
+        return json({});
+      }),
+    );
+    renderAdmin();
+
+    await openKnowledgeTab("FAQs");
+
+    await screen.findByText(FAQ_DOC.title);
+    await userEvent.click(screen.getByRole("button", { name: "Preview" }));
+
+    expect(
+      await screen.findByText(new RegExp(FAQ_DOC.content)),
+    ).toBeInTheDocument();
+  });
+});
+
+/** Route reads to canned JSON with a fixed documents payload. */
+function stubFetchDocs(docs: unknown[]) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (/\/sites($|\?|\/)/.test(url)) return json([SITE]);
+      if (url.includes("/knowledge/documents")) return json(docs);
+      return json({});
+    }),
+  );
+}

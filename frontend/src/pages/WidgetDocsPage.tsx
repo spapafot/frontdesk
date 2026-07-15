@@ -105,8 +105,8 @@ export function WidgetDocsPage() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <article className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-8">
-        <div className="rounded-2xl bg-gradient-to-br from-sky-700 to-cyan-600 px-6 py-7 text-white shadow-sm sm:px-8">
+        <div className="bg-gradient-to-br from-sky-700 via-sky-600 to-cyan-500 px-6 py-10 text-white">
+          <div className="mx-auto max-w-4xl">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-100">
             Installation guide
           </p>
@@ -117,7 +117,9 @@ export function WidgetDocsPage() {
             Install one script before the closing body tag. The launcher is isolated
             from your website styles and the full chat loads only when a visitor opens it.
           </p>
+          </div>
         </div>
+      <article className="mx-auto max-w-4xl px-6 py-6">
 
         <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
           <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">

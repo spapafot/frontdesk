@@ -1,0 +1,98 @@
+---
+import DeviceFrame from "./DeviceFrame.astro";
+
+// Static reimplementation of the Settings · Appearance controls with a live
+// launcher preview. Options mirror the real accent/icon/position settings.
+const swatches = [
+  { color: "#0284c7", selected: true },
+  { color: "#7c3aed", selected: false },
+  { color: "#db2777", selected: false },
+  { color: "#059669", selected: false },
+  { color: "#ea580c", selected: false },
+];
+---
+
+<DeviceFrame label="Settings · Appearance">
+  <div class="p-5">
+    <div class="grid gap-5 sm:grid-cols-2">
+      <!-- controls -->
+      <div class="space-y-4">
+        <div>
+          <p class="text-xs font-medium text-slate-600">Accent color</p>
+          <div class="mt-2 flex gap-2">
+            {
+              swatches.map((swatch) => (
+                <span
+                  class={`h-6 w-6 rounded-full ${swatch.selected ? "ring-2 ring-slate-900 ring-offset-2" : ""}`}
+                  style={`background-color:${swatch.color}`}
+                />
+              ))
+            }
+          </div>
+        </div>
+
+        <div>
+          <p class="text-xs font-medium text-slate-600">Position</p>
+          <div class="mt-2 flex gap-2">
+            <span
+              class="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white"
+            >
+              Bottom-right
+            </span>
+            <span
+              class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600"
+            >
+              Bottom-left
+            </span>
+          </div>
+        </div>
+
+        <div>
+          <p class="text-xs font-medium text-slate-600">Greeting</p>
+          <div
+            class="mt-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700"
+          >
+            Hi! How can I help you today?
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between">
+          <p class="text-xs font-medium text-slate-600">Show branding</p>
+          <span class="flex h-5 w-9 items-center rounded-full bg-sky-600 px-0.5">
+            <span class="ml-auto h-4 w-4 rounded-full bg-white"></span>
+          </span>
+        </div>
+      </div>
+
+      <!-- launcher preview -->
+      <div
+        class="relative min-h-[190px] overflow-hidden rounded-xl border border-slate-200 bg-slate-50"
+      >
+        <span
+          class="absolute left-3 top-3 rounded bg-slate-200 px-2 py-0.5 text-[10px] font-medium text-slate-500"
+        >
+          Preview
+        </span>
+
+        <!-- greeting bubble -->
+        <div
+          class="absolute bottom-16 right-4 max-w-[80%] rounded-2xl rounded-br-sm border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 shadow-sm"
+        >
+          Hi! How can I help you today?
+        </div>
+
+        <!-- launcher button -->
+        <span
+          class="absolute bottom-4 right-4 flex h-12 w-12 items-center justify-center rounded-full text-white shadow-lg"
+          style="background-color:#0284c7"
+        >
+          <svg viewBox="0 0 24 24" fill="currentColor" class="h-6 w-6" aria-hidden="true">
+            <path
+              d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4V6a2 2 0 0 1 2-2z"
+            ></path>
+          </svg>
+        </span>
+      </div>
+    </div>
+  </div>
+</DeviceFrame>

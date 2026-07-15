@@ -24,6 +24,10 @@ interface SiteContextValue {
   selectedSiteId: number | null;
   current: Site | undefined;
   isLoading: boolean;
+  /** The caller owns the currently selected site (vs. team-member access). */
+  isOwner: boolean;
+  /** The caller owns at least one site (or could create their first one). */
+  ownsAnySite: boolean;
   selectSite: (id: number) => void;
   createSite: (name: string, widgetOrigin?: string) => Promise<Site>;
   renameSite: (id: number, name: string) => Promise<void>;
@@ -35,6 +39,8 @@ const SiteContext = createContext<SiteContextValue>({
   selectedSiteId: null,
   current: undefined,
   isLoading: true,
+  isOwner: true,
+  ownsAnySite: true,
   selectSite: () => {},
   createSite: async () => {
     throw new Error("SiteProvider missing");
@@ -147,6 +153,11 @@ export function SiteProvider({ children }: { children: ReactNode }) {
   );
 
   const current = sites?.find((s) => s.id === selectedSiteId);
+  // An absent role (older API) means owner. While sites are still loading,
+  // stay permissive so owner UI doesn't flicker away on every reload.
+  const isOwner = current ? current.role !== "member" : true;
+  const ownsAnySite =
+    !sites || sites.length === 0 || sites.some((s) => s.role !== "member");
 
   return (
     <SiteContext.Provider
@@ -155,6 +166,8 @@ export function SiteProvider({ children }: { children: ReactNode }) {
         selectedSiteId,
         current,
         isLoading: sites === undefined,
+        isOwner,
+        ownsAnySite,
         selectSite,
         createSite,
         renameSite,

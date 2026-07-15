@@ -30,11 +30,12 @@ async def test_admin_chat_honors_site_id(client, settings, monkeypatch):
     record: dict = {}
     monkeypatch.setattr("app.api.routes.chat.stream_chat", make_fake_stream(record))
 
-    async def _get_owned(_self, site_id, _owner):
-        return SimpleNamespace(id=site_id) if site_id == 42 else None
+    async def _get_accessible(_self, site_id, _user_id, _email=None):
+        return (SimpleNamespace(id=site_id), "owner") if site_id == 42 else None
 
     monkeypatch.setattr(
-        "app.repositories.profile_repository.ProfileRepository.get_owned", _get_owned
+        "app.repositories.profile_repository.ProfileRepository.get_accessible",
+        _get_accessible,
     )
 
     response = await client.post(
@@ -51,11 +52,12 @@ async def test_admin_chat_rejects_foreign_site_id(client, settings, monkeypatch)
     monkeypatch.setattr(settings, "edge_shared_secret", "")
     monkeypatch.setattr(settings, "supabase_jwt_secret", JWT_SECRET)
 
-    async def _get_owned(_self, _site_id, _owner):
+    async def _get_accessible(_self, _site_id, _user_id, _email=None):
         return None
 
     monkeypatch.setattr(
-        "app.repositories.profile_repository.ProfileRepository.get_owned", _get_owned
+        "app.repositories.profile_repository.ProfileRepository.get_accessible",
+        _get_accessible,
     )
 
     response = await client.post(

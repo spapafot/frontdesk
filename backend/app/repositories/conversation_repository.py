@@ -1,5 +1,7 @@
 from typing import Any
 
+from datetime import datetime, timezone
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,8 +24,17 @@ class ConversationRepository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
-    async def create(self, profile_id: int, channel: str = "chat") -> Conversation:
-        conversation = Conversation(profile_id=profile_id, channel=channel)
+    async def create(
+        self,
+        profile_id: int,
+        channel: str = "chat",
+        visitor_session_id_hash: str | None = None,
+    ) -> Conversation:
+        conversation = Conversation(
+            profile_id=profile_id,
+            channel=channel,
+            visitor_session_id_hash=visitor_session_id_hash,
+        )
         self.session.add(conversation)
         await self.session.flush()
         return conversation
@@ -54,6 +65,10 @@ class ConversationRepository:
         content: str = "",
         tool_name: str | None = None,
         meta: dict[str, Any] | None = None,
+        client_message_id: str | None = None,
+        sender_type: str | None = None,
+        sender_user_id: str | None = None,
+        sender_display_name: str | None = None,
     ) -> ConversationMessage:
         message = ConversationMessage(
             conversation_id=conversation_id,
@@ -61,8 +76,15 @@ class ConversationRepository:
             content=content,
             tool_name=tool_name,
             meta=meta or {},
+            client_message_id=client_message_id,
+            sender_type=sender_type or ("visitor" if role == "user" else "ai"),
+            sender_user_id=sender_user_id,
+            sender_display_name=sender_display_name,
         )
         self.session.add(message)
+        conversation = await self.get(conversation_id)
+        if conversation is not None:
+            conversation.last_message_at = datetime.now(timezone.utc)
         await self.session.flush()
         return message
 
