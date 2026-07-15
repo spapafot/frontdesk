@@ -246,7 +246,7 @@ describe("App shell", () => {
     expect(await screen.findByText("Waiting request")).toBeInTheDocument();
     expect(screen.queryByText("Closed request")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /new chat/i })).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Chat history" }));
+    await userEvent.click(screen.getByRole("button", { name: "Chat & history" }));
     expect(await screen.findByText("Closed request")).toBeInTheDocument();
     expect(screen.queryByText("Waiting request")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /new chat/i })).toBeInTheDocument();
@@ -339,7 +339,7 @@ describe("App shell", () => {
 
     // Members keep the working views but never see Settings.
     expect(await screen.findByText(/knowledge/i)).toBeInTheDocument();
-    expect(screen.getByText(/chat history/i)).toBeInTheDocument();
+    expect(screen.getByText("Chat & history")).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Settings" })
     ).not.toBeInTheDocument();
