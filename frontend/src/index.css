@@ -11,4 +11,9 @@ body,
 body {
   margin: 0;
   background-color: #f1f5f9;
+  /* The app shell is viewport-sized and scrolls internally; the document
+     itself must never scroll. This also neutralizes stray elements that
+     browser extensions append to <body>, which otherwise add phantom
+     scrollable whitespace below the app. */
+  overflow: hidden;
 }
