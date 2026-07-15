@@ -10,6 +10,7 @@ from app.api.routes import (
     live,
     settings as settings_routes,
     sites,
+    team,
     widget,
 )
 from app.core.auth import EdgeSecretMiddleware, require_admin
@@ -45,6 +46,9 @@ app.include_router(live.router)
 _admin = [Depends(require_admin)]
 app.include_router(sites.router, dependencies=_admin)
 app.include_router(knowledge.router, dependencies=_admin)
+# Settings reads stay team-readable (the app shell needs them); the router's
+# mutating endpoints are owner-gated individually via require_site_owner.
 app.include_router(settings_routes.router, dependencies=_admin)
 app.include_router(conversations.router, dependencies=_admin)
 app.include_router(analytics.router, dependencies=_admin)
+app.include_router(team.router, dependencies=_admin)

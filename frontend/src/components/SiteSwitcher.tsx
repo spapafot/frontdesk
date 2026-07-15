@@ -9,7 +9,8 @@ import { Skeleton } from "./Skeleton";
  * Renaming and deleting a website live on the Settings page.
  */
 export function SiteSwitcher() {
-  const { sites, current, selectedSiteId, selectSite, createSite } = useSite();
+  const { sites, current, selectedSiteId, selectSite, createSite, ownsAnySite } =
+    useSite();
   const [open, setOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
 
@@ -65,18 +66,21 @@ export function SiteSwitcher() {
               ))}
             </ul>
 
-            <div className="border-t border-slate-100 p-1">
-              <button
-                type="button"
-                onClick={() => {
-                  setOpen(false);
-                  setAddOpen(true);
-                }}
-                className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium text-sky-700 transition hover:bg-sky-50"
-              >
-                <span className="text-lg leading-none">+</span> Add website
-              </button>
-            </div>
+            {/* Members work on someone else's sites; don't offer site creation. */}
+            {ownsAnySite && (
+              <div className="border-t border-slate-100 p-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpen(false);
+                    setAddOpen(true);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium text-sky-700 transition hover:bg-sky-50"
+                >
+                  <span className="text-lg leading-none">+</span> Add website
+                </button>
+              </div>
+            )}
           </div>
         </>
       )}

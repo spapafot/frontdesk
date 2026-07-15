@@ -103,6 +103,80 @@ describe("App shell", () => {
     expect(screen.getByText(/settings/i)).toBeInTheDocument();
     expect(screen.getByText(/widget guide/i)).toBeInTheDocument();
     expect(screen.queryByText(/^voice$/i)).not.toBeInTheDocument();
+    // Tickets only exist for live-support sites; SETTINGS keeps it disabled.
+    expect(screen.queryByText(/^tickets$/i)).not.toBeInTheDocument();
+  });
+
+  it("surfaces pending tickets in the sidebar and resolves them from the Tickets page", async () => {
+    const pendingTicket = {
+      id: 1,
+      conversation_id: 11,
+      customer_name: "Vis Itor",
+      customer_email: "vis@example.com",
+      customer_message: "Please call me back.",
+      status: "pending",
+      created_at: "2026-07-14T08:00:00Z",
+      resolved_at: null,
+    };
+    const resolvedTicket = {
+      ...pendingTicket,
+      id: 2,
+      customer_name: null,
+      customer_email: "old@example.com",
+      customer_message: null,
+      status: "resolved",
+      resolved_at: "2026-07-13T10:00:00Z",
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      let body: unknown = {};
+      if (/\/sites($|\?|\/)/.test(url)) body = SITES;
+      else if (url.includes("/settings")) body = {
+        ...SETTINGS,
+        live_human_escalation_enabled: true,
+        live_human_escalation_available: true,
+      };
+      // The resolve POST must match before the callbacks list.
+      else if (url.includes("/live/callbacks/1/resolve") && init?.method === "POST") {
+        body = { ...pendingTicket, status: "resolved", resolved_at: "2026-07-14T09:00:00Z" };
+      }
+      else if (url.includes("/live/callbacks")) body = [pendingTicket, resolvedTicket];
+      else if (url.includes("/conversations")) body = [];
+      else if (url.includes("/analytics")) body = {
+        total_conversations: 0,
+        last_7_days: 0,
+        ratings: {},
+        unanswered: [],
+      };
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+
+    // The nav item carries the pending count as an amber badge.
+    const ticketsNav = await screen.findByRole("button", { name: /tickets/i });
+    expect(ticketsNav.textContent).toContain("1");
+    await userEvent.click(ticketsNav);
+
+    expect(await screen.findByText("Pending (1)")).toBeInTheDocument();
+    expect(screen.getByText("Vis Itor")).toBeInTheDocument();
+    expect(screen.getByText("vis@example.com")).toBeInTheDocument();
+    expect(screen.getByText("Please call me back.")).toBeInTheDocument();
+    expect(screen.getByText("Resolved (1)")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Resolve" }));
+
+    expect(await screen.findByText("Resolved (2)")).toBeInTheDocument();
+    expect(screen.queryByText("Pending (1)")).not.toBeInTheDocument();
+    const resolveCall = fetchMock.mock.calls.find(([input]) =>
+      String(input).includes("/live/callbacks/1/resolve"),
+    );
+    expect(resolveCall).toBeDefined();
+    expect((resolveCall?.[1] as RequestInit).method).toBe("POST");
   });
 
   it("defaults to Live support when enabled and separates active work from history", async () => {
@@ -222,6 +296,35 @@ describe("App shell", () => {
     renderApp();
     await userEvent.click(await screen.findByRole("button", { name: "Settings" }));
     expect(await screen.findByText("0 of 0 messages used this month")).toBeInTheDocument();
+  });
+
+  it("hides owner-only navigation for team members", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        let body: unknown = {};
+        if (/\/sites($|\?|\/)/.test(url)) {
+          body = [{ ...SITES[0], role: "member" }];
+        } else if (url.includes("/settings")) body = SETTINGS;
+        else if (url.includes("/conversations")) body = [];
+        else if (url.includes("/analytics")) {
+          body = { total_conversations: 0, last_7_days: 0, ratings: {}, unanswered: [] };
+        }
+        return new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      })
+    );
+    renderApp();
+
+    // Members keep the working views but never see Settings.
+    expect(await screen.findByText(/knowledge/i)).toBeInTheDocument();
+    expect(screen.getByText(/chat history/i)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Settings" })
+    ).not.toBeInTheDocument();
   });
 
   it("shows a first-run panel with name and URL fields when there are no sites", async () => {

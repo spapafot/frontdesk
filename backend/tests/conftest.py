@@ -52,11 +52,22 @@ def settings(monkeypatch):
 def no_database_profile(monkeypatch):
     """HTTP/auth tests should not require a migrated local Postgres database."""
     async def _profile(self, owner_user_id, email=None):
-        return SimpleNamespace(id=7, owner_user_id=owner_user_id)
+        return SimpleNamespace(
+            id=7,
+            owner_user_id=owner_user_id,
+            notification_email=email or "admin@example.com",
+        )
+
+    async def _default_access(self, user_id, email=None):
+        return await _profile(self, user_id, email), "owner"
 
     monkeypatch.setattr(
         "app.repositories.profile_repository.ProfileRepository.get_or_create_default",
         _profile,
+    )
+    monkeypatch.setattr(
+        "app.repositories.profile_repository.ProfileRepository.resolve_default_access",
+        _default_access,
     )
 
 

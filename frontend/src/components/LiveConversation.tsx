@@ -88,7 +88,7 @@ export function LiveConversation({
             const label = senderLabel(item.sender_type, item.sender_display_name);
             return (
               <div key={item.id} className={`flex ${visitor ? "justify-start" : "justify-end"}`}>
-                <div className={`max-w-[75%] rounded-xl px-3 py-2 text-sm ${visitor ? "bg-slate-100 text-slate-800" : item.sender_type === "operator" ? "bg-sky-600 text-white" : "border border-sky-200 bg-sky-50 text-sky-950"}`}>
+                <div className={`max-w-[75%] rounded-xl px-3 py-2 text-sm shadow-sm ${visitor ? "border border-slate-200 bg-white text-slate-800" : item.sender_type === "operator" ? "bg-sky-600 text-white" : "border border-sky-200 bg-sky-50 text-sky-950"}`}>
                   {label && <div className="mb-0.5 text-[11px] font-medium opacity-70">{label}</div>}
                   {item.content}
                 </div>

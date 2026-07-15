@@ -224,3 +224,185 @@ describe("AdminPage optimistic knowledge-base actions", () => {
     ).toBeInTheDocument();
   });
 });
+
+const FAQ_DOC = {
+  ...DOC,
+  id: 3,
+  title: "What are your opening hours?",
+  type: "faq",
+  chunk_count: 1,
+  content: "We are open 9-5, Monday to Friday.",
+};
+
+describe("AdminPage FAQ entries", () => {
+  it("lists FAQs in their own section with Edit but no Rescan", async () => {
+    stubFetchDocs([DOC, FAQ_DOC]);
+    renderAdmin();
+
+    // Rendered exactly once: the Documents filter must exclude type "faq".
+    await screen.findByText(FAQ_DOC.title);
+    expect(screen.getAllByText(FAQ_DOC.title)).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Rescan" })).not.toBeInTheDocument();
+  });
+
+  it("adds an FAQ via the dialog and renders the saved row without refetching", async () => {
+    const calls: { url: string; init?: RequestInit }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        calls.push({ url, init });
+        if (/\/sites($|\?|\/)/.test(url)) return json([SITE]);
+        if (url.includes("/knowledge/faqs")) return json(FAQ_DOC, 201);
+        if (url.includes("/knowledge/documents")) return json([]);
+        return json({});
+      }),
+    );
+    renderAdmin();
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Add FAQ" }),
+    );
+    await userEvent.type(
+      screen.getByLabelText(/question/i),
+      FAQ_DOC.title,
+    );
+    await userEvent.type(screen.getByLabelText(/answer/i), FAQ_DOC.content);
+    await userEvent.click(screen.getByRole("button", { name: "Save FAQ" }));
+
+    await waitFor(() =>
+      expect(
+        calls.some(
+          (c) => c.url.includes("/knowledge/faqs") && c.init?.method === "POST",
+        ),
+      ).toBe(true),
+    );
+    const faqCall = calls.find((c) => c.url.includes("/knowledge/faqs"));
+    expect(JSON.parse(String(faqCall?.init?.body))).toEqual({
+      question: FAQ_DOC.title,
+      answer: FAQ_DOC.content,
+    });
+    // The row comes straight from the response via the cache patch.
+    expect(await screen.findByText(FAQ_DOC.title)).toBeInTheDocument();
+  });
+
+  it("prefills the dialog when editing and saves via PUT", async () => {
+    const calls: { url: string; init?: RequestInit }[] = [];
+    const updated = { ...FAQ_DOC, content: "We are open 24/7 now." };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        calls.push({ url, init });
+        if (/\/sites($|\?|\/)/.test(url)) return json([SITE]);
+        if (url.includes(`/knowledge/faqs/${FAQ_DOC.id}`)) return json(updated);
+        if (url.includes("/knowledge/documents")) return json([FAQ_DOC]);
+        return json({});
+      }),
+    );
+    renderAdmin();
+
+    await screen.findByText(FAQ_DOC.title);
+    await userEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    expect(screen.getByLabelText(/question/i)).toHaveValue(FAQ_DOC.title);
+    expect(screen.getByLabelText(/answer/i)).toHaveValue(FAQ_DOC.content);
+
+    await userEvent.clear(screen.getByLabelText(/answer/i));
+    await userEvent.type(screen.getByLabelText(/answer/i), updated.content);
+    await userEvent.click(screen.getByRole("button", { name: "Save FAQ" }));
+
+    await waitFor(() =>
+      expect(
+        calls.some(
+          (c) =>
+            c.url.includes(`/knowledge/faqs/${FAQ_DOC.id}`) &&
+            c.init?.method === "PUT",
+        ),
+      ).toBe(true),
+    );
+    const putCall = calls.find((c) => c.init?.method === "PUT");
+    expect(JSON.parse(String(putCall?.init?.body))).toEqual({
+      question: FAQ_DOC.title,
+      answer: updated.content,
+    });
+    // Dialog closes after a successful save.
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Save FAQ" }),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
+  it("keeps the dialog open and surfaces the server error detail on failure", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (/\/sites($|\?|\/)/.test(url)) return json([SITE]);
+        if (url.includes("/knowledge/faqs"))
+          return json(
+            { detail: "Could not index the FAQ entry. Please try again." },
+            502,
+          );
+        if (url.includes("/knowledge/documents")) return json([]);
+        return json({});
+      }),
+    );
+    renderAdmin();
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Add FAQ" }),
+    );
+    await userEvent.type(screen.getByLabelText(/question/i), FAQ_DOC.title);
+    await userEvent.type(screen.getByLabelText(/answer/i), FAQ_DOC.content);
+    await userEvent.click(screen.getByRole("button", { name: "Save FAQ" }));
+
+    expect(
+      await screen.findByText(/could not index the faq entry/i),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save FAQ" })).toBeInTheDocument();
+  });
+
+  it("previews the stored chunks for an FAQ entry", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (/\/sites($|\?|\/)/.test(url)) return json([SITE]);
+        // Must precede the /knowledge/documents check - the chunks URL contains both.
+        if (url.includes("/chunks"))
+          return json([
+            {
+              id: 20,
+              content: `${FAQ_DOC.title}\n\n${FAQ_DOC.content}`,
+            },
+          ]);
+        if (url.includes("/knowledge/documents")) return json([FAQ_DOC]);
+        return json({});
+      }),
+    );
+    renderAdmin();
+
+    await screen.findByText(FAQ_DOC.title);
+    await userEvent.click(screen.getByRole("button", { name: "Preview" }));
+
+    expect(
+      await screen.findByText(new RegExp(FAQ_DOC.content)),
+    ).toBeInTheDocument();
+  });
+});
+
+/** Route reads to canned JSON with a fixed documents payload. */
+function stubFetchDocs(docs: unknown[]) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (/\/sites($|\?|\/)/.test(url)) return json([SITE]);
+      if (url.includes("/knowledge/documents")) return json(docs);
+      return json({});
+    }),
+  );
+}

@@ -3,7 +3,7 @@ from datetime import date, datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import get_selected_site
+from app.api.dependencies import get_selected_site, require_site_owner
 from app.core.db import get_session
 from app.core.config import settings
 from app.core.origins import normalize_origin
@@ -49,6 +49,7 @@ async def _to_out(profile: AssistantProfile, session: AsyncSession) -> SettingsO
         show_branding=installation.show_branding,
         live_human_escalation_enabled=profile.live_human_escalation_enabled,
         live_human_escalation_available=settings.live_human_escalation_enabled,
+        notification_email=profile.notification_email,
     )
 
 
@@ -64,7 +65,8 @@ async def get_settings(
 async def update_settings(
     body: SettingsUpdate,
     session: AsyncSession = Depends(get_session),
-    profile: AssistantProfile = Depends(get_selected_site),
+    # Reads are team-readable (the app shell needs them); writes are owner-only.
+    profile: AssistantProfile = Depends(require_site_owner),
 ) -> SettingsOut:
     await ProfileRepository(session).update_settings(
         profile,
@@ -72,6 +74,7 @@ async def update_settings(
         assistant_name=body.assistant_name,
         custom_instructions=body.custom_instructions,
         live_human_escalation_enabled=body.live_human_escalation_enabled,
+        notification_email=body.notification_email,
     )
     installation = await WidgetRepository(session).get_for_profile(profile.id)
     if installation is None:
@@ -99,7 +102,7 @@ async def update_settings(
 @router.post("/widget-key/rotate", response_model=SettingsOut)
 async def rotate_widget_key(
     session: AsyncSession = Depends(get_session),
-    profile: AssistantProfile = Depends(get_selected_site),
+    profile: AssistantProfile = Depends(require_site_owner),
 ) -> SettingsOut:
     repo = WidgetRepository(session)
     installation = await repo.get_for_profile(profile.id)

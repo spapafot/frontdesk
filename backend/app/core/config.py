@@ -11,6 +11,7 @@ _REDACTED_SETTINGS = frozenset(
         "widget_session_secret",
         "edge_shared_secret",
         "supabase_jwt_secret",
+        "supabase_service_role_key",
         "ingestion_queue_url",
     }
 )
@@ -143,6 +144,14 @@ class Settings(BaseSettings):
     supabase_jwt_audience: str = "authenticated"
     # Cache lifetime for the fetched JWKS (seconds). Signing keys rotate rarely.
     supabase_jwks_cache_seconds: int = 600
+    # Service-role key for the Supabase Admin API — used only to create invited
+    # team members' accounts (generate_link). Empty disables account creation;
+    # invites still work for people who already have an account.
+    supabase_service_role_key: str = ""
+    # Public URL of the admin app; used as the redirect target for invite links
+    # (must be in Supabase Auth's Redirect URLs allow-list). Empty falls back to
+    # the Supabase project's configured Site URL.
+    app_base_url: str = ""
 
     @property
     def supabase_jwks_url(self) -> str:

@@ -3,15 +3,17 @@ import { ConversationSummary } from "../api/conversations";
 import { useAuth } from "./AuthGate";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Skeleton } from "./Skeleton";
+import { useSite } from "./SiteProvider";
 import { SiteSwitcher } from "./SiteSwitcher";
 
-export type View = "live" | "history" | "admin" | "settings" | "analytics" | "widgetDocs";
+export type View = "live" | "history" | "tickets" | "admin" | "settings" | "analytics" | "widgetDocs";
 
 interface Props {
   conversations: ConversationSummary[] | undefined;
   selectedConversationId: number | null;
   view: View;
   liveEnabled: boolean;
+  ticketsPendingCount: number;
   liveOnline: boolean;
   liveConnected: boolean;
   liveError: string | null;
@@ -43,6 +45,7 @@ export function Sidebar({
   selectedConversationId,
   view,
   liveEnabled,
+  ticketsPendingCount,
   liveOnline,
   liveConnected,
   liveError,
@@ -58,6 +61,7 @@ export function Sidebar({
   onDeleteConversation,
 }: Props) {
   const { canSignOut, signOut } = useAuth();
+  const { isOwner } = useSite();
   const [editingId, setEditingId] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
   const [pendingDelete, setPendingDelete] = useState<ConversationSummary | null>(null);
@@ -172,7 +176,10 @@ export function Sidebar({
         {([
           ["settings", "Settings"],
           ["admin", "Knowledge base"],
-        ] as const).map(([target, label]) => (
+        ] as const)
+          // Site settings are owner-only; members never see the entry.
+          .filter(([target]) => target !== "settings" || isOwner)
+          .map(([target, label]) => (
           <button key={target} type="button" onClick={() => onNavigate(target)} className={`mb-1 flex w-full rounded-lg px-3 py-2 text-left text-sm ${view === target ? "bg-sky-100 text-sky-800" : "text-slate-600 hover:bg-slate-200"}`}>{label}</button>
         ))}
         <div className="mt-2 border-t border-slate-200 pt-2">
@@ -183,6 +190,14 @@ export function Sidebar({
           ] as const).map(([target, label]) => (
             <button key={target} type="button" onClick={() => onNavigate(target)} className={`mb-1 flex w-full rounded-lg px-3 py-2 text-left text-sm ${view === target ? "bg-sky-100 text-sky-800" : "text-slate-600 hover:bg-slate-200"}`}>{label}</button>
           ))}
+          {liveEnabled && (
+            <button type="button" onClick={() => onNavigate("tickets")} className={`mb-1 flex w-full items-center rounded-lg px-3 py-2 text-left text-sm ${view === "tickets" ? "bg-sky-100 text-sky-800" : "text-slate-600 hover:bg-slate-200"}`}>
+              <span className="flex-1">Tickets</span>
+              {ticketsPendingCount > 0 && (
+                <span className="rounded-full bg-amber-500 px-2 py-0.5 text-[11px] font-semibold text-white">{ticketsPendingCount}</span>
+              )}
+            </button>
+          )}
         </div>
         <div className="mt-2 flex items-center gap-2 px-3 py-2">
           <div className="flex h-7 w-7 items-center justify-center rounded-full bg-sky-600 text-xs font-semibold text-white">{(businessName ?? "?").charAt(0).toUpperCase()}</div>

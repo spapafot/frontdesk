@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.profile import AssistantProfile
 from app.models.widget import WidgetInstallation
 from app.core.config import settings
+from app.repositories.team_repository import TeamRepository
 
 
 def generate_public_key() -> str:
@@ -70,11 +71,13 @@ class ProfileRepository:
         type: str = "general",
         assistant_name: str | None = None,
         allowed_origin: str | None = None,
+        notification_email: str | None = None,
     ) -> AssistantProfile:
         profile = AssistantProfile(
             owner_user_id=owner_user_id,
             name=name,
             type=type,
+            notification_email=notification_email,
         )
         if assistant_name:
             profile.assistant_name = assistant_name
@@ -102,7 +105,47 @@ class ProfileRepository:
         return await self.create_site(
             owner_user_id,
             name=email.split("@", 1)[0] if email else "My Business",
+            notification_email=email,
         )
+
+    async def get_accessible(
+        self, profile_id: int, user_id: str, email: str | None = None
+    ) -> tuple[AssistantProfile, str] | None:
+        """Resolve a site the caller may access, with their role.
+
+        Owners resolve without any team query; otherwise a team membership in
+        the site owner's team grants ``member`` access. ``None`` (a 404
+        upstream) both for unknown sites and sites the caller can't see, so
+        existence is never leaked."""
+        profile = await self.get_owned(profile_id, user_id)
+        if profile is not None:
+            return profile, "owner"
+        profile = await self.get(profile_id)
+        if profile is None:
+            return None
+        membership = await TeamRepository(self.session).get_membership(
+            profile.owner_user_id, user_id, email
+        )
+        if membership is None:
+            return None
+        return profile, "member"
+
+    async def resolve_default_access(
+        self, user_id: str, email: str | None = None
+    ) -> tuple[AssistantProfile, str]:
+        """Pick a site when ``?site_id=`` is omitted: first owned site, else the
+        first site of the caller's first team, else bootstrap a fresh owner's
+        default site (existing first-login behavior)."""
+        owned = await self.list_for_owner(user_id)
+        if owned:
+            return owned[0], "owner"
+        for team in await TeamRepository(self.session).list_teams_for_user(
+            user_id, email
+        ):
+            sites = await self.list_for_owner(team.owner_user_id)
+            if sites:
+                return sites[0], "member"
+        return await self.get_or_create_default(user_id, email), "owner"
 
     async def delete_site(self, profile: AssistantProfile) -> None:
         """Delete a site. FK ``ON DELETE CASCADE`` removes its installation,

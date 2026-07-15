@@ -57,3 +57,22 @@ def test_appearance_all_optional():
     body = SettingsUpdate(business_name="Acme")
     assert "accent_color" not in body.model_fields_set
     assert body.launcher_icon is None
+
+
+def test_notification_email_accepted_and_stripped():
+    body = SettingsUpdate(notification_email="  owner@acme.com  ")
+    assert body.notification_email == "owner@acme.com"
+
+
+@pytest.mark.parametrize("bad", ["", "   ", "not-an-email", "a @b.com", "x@" + "y" * 260])
+def test_notification_email_rejects_invalid_values(bad):
+    # An empty value is invalid too: clearing the address (and silently killing
+    # ticket notifications) is deliberately impossible.
+    with pytest.raises(ValidationError):
+        SettingsUpdate(notification_email=bad)
+
+
+def test_notification_email_optional():
+    body = SettingsUpdate(business_name="Acme")
+    assert body.notification_email is None
+    assert "notification_email" not in body.model_fields_set

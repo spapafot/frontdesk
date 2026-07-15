@@ -14,6 +14,7 @@ import { useSite } from "../components/SiteProvider";
 import { Skeleton } from "../components/Skeleton";
 import { RenameWebsiteDialog } from "../components/RenameWebsiteDialog";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { TeamSection } from "../components/TeamSection";
 
 const DEFAULT_APPEARANCE: AppearanceState = {
   accentColor: "#0284c7",
@@ -39,6 +40,7 @@ export function SettingsPage() {
   const [widgetOrigin, setWidgetOrigin] = useState("");
   const [widgetEnabled, setWidgetEnabled] = useState(true);
   const [liveHumanEscalationEnabled, setLiveHumanEscalationEnabled] = useState(false);
+  const [notificationEmail, setNotificationEmail] = useState("");
   const [appearance, setAppearance] = useState<AppearanceState>(DEFAULT_APPEARANCE);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -52,6 +54,7 @@ export function SettingsPage() {
       setWidgetOrigin(data.widget_origin ?? "");
       setWidgetEnabled(data.widget_enabled ?? true);
       setLiveHumanEscalationEnabled(data.live_human_escalation_enabled ?? false);
+      setNotificationEmail(data.notification_email ?? "");
       setAppearance({
         accentColor: data.accent_color,
         launcherIcon: data.launcher_icon,
@@ -75,6 +78,7 @@ export function SettingsPage() {
         widget_origin: widgetOrigin,
         widget_enabled: widgetEnabled,
         live_human_escalation_enabled: liveHumanEscalationEnabled,
+        notification_email: notificationEmail.trim() || undefined,
         accent_color: appearance.accentColor.trim(),
         launcher_icon: appearance.launcherIcon,
         launcher_position: appearance.launcherPosition,
@@ -208,6 +212,22 @@ export function SettingsPage() {
                   deploying the Lambda migration and Durable Objects.
                 </p>
               )}
+              <div className="mt-4">
+                <label className="block text-sm font-medium text-slate-700">
+                  Notification email
+                </label>
+                <p className="text-xs text-slate-400">
+                  Support-request tickets are emailed here. Defaults to your login email.
+                </p>
+                <input
+                  type="email"
+                  value={notificationEmail}
+                  onChange={(e) => setNotificationEmail(e.target.value)}
+                  maxLength={254}
+                  placeholder="support@example.com"
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+                />
+              </div>
               <p className="mt-2 text-xs text-slate-500">
                 {(data.widget_monthly_usage ?? 0).toLocaleString()} of{" "}
                 {(data.widget_monthly_limit ?? 0).toLocaleString()} messages used this month
@@ -270,6 +290,8 @@ export function SettingsPage() {
             </div>
           </section>
         )}
+
+        <TeamSection />
       </div>
 
       <RenameWebsiteDialog

@@ -20,6 +20,7 @@ def test_settings_repr_redacts_every_sensitive_value():
         "widget_session_secret": "widget-sentinel-secret",
         "edge_shared_secret": "edge-sentinel-secret",
         "supabase_jwt_secret": "supabase-sentinel-secret",
+        "supabase_service_role_key": "service-role-sentinel-secret",
     }
     rendered = repr(Settings(_env_file=None, **secrets))
 

@@ -61,6 +61,8 @@ export function openLiveSocket(ticket: SocketTicket): WebSocket {
   return new WebSocket(url, ["live-v1", `ticket.${ticket.ticket}`]);
 }
 
+export const callbacksKey = (siteId: number) => `live-callbacks:${siteId}`;
+
 export interface CallbackTicket {
   id: number;
   conversation_id: number;

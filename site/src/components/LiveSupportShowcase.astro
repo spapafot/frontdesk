@@ -1,0 +1,66 @@
+---
+import DeviceFrame from "./DeviceFrame.astro";
+
+// Static illustration of the live human handoff plus the email ticket fallback.
+---
+
+<DeviceFrame label="Live support">
+  <div class="space-y-3 bg-slate-50 p-4">
+    <!-- handoff banner -->
+    <div
+      class="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2"
+    >
+      <span class="h-2 w-2 rounded-full bg-emerald-500"></span>
+      <span class="text-xs font-medium text-emerald-800">Live · Sam joined the chat</span>
+    </div>
+
+    <!-- visitor message -->
+    <div class="flex justify-end">
+      <div
+        class="max-w-[80%] rounded-2xl bg-sky-600 px-4 py-2 text-sm text-white shadow-sm"
+      >
+        Can I talk to a real person, please?
+      </div>
+    </div>
+
+    <!-- operator message -->
+    <div class="flex justify-start">
+      <div class="max-w-[80%]">
+        <p class="mb-1 ml-1 text-xs font-medium text-slate-400">Sam · Acme</p>
+        <div
+          class="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-800 shadow-sm"
+        >
+          Hi, I'm Sam- happy to take it from here.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- email fallback -->
+  <div class="border-t border-slate-200 bg-white p-4">
+    <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">
+      If no one's available
+    </p>
+    <div
+      class="mt-2 flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5"
+    >
+      <span class="mt-0.5 shrink-0 rounded-md bg-sky-100 p-1.5 text-sky-700">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.6"
+          class="h-4 w-4"
+          aria-hidden="true"
+        >
+          <rect x="3" y="5" width="18" height="14" rx="2"></rect>
+          <path d="m3 7 9 6 9-6"></path>
+        </svg>
+      </span>
+      <div class="min-w-0">
+        <p class="text-sm font-medium text-slate-800">New support request</p>
+        <p class="truncate text-xs text-slate-500">acme.com · full transcript included</p>
+      </div>
+    </div>
+  </div>
+</DeviceFrame>

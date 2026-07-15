@@ -28,6 +28,7 @@ class SettingsOut(BaseModel):
     show_branding: bool = True
     live_human_escalation_enabled: bool = False
     live_human_escalation_available: bool = False
+    notification_email: str | None = None
 
 
 class SettingsUpdate(BaseModel):
@@ -37,6 +38,7 @@ class SettingsUpdate(BaseModel):
     widget_origin: str | None = Field(default=None, max_length=255)
     widget_enabled: bool | None = None
     live_human_escalation_enabled: bool | None = None
+    notification_email: str | None = Field(default=None, max_length=254)
     # Appearance
     accent_color: str | None = Field(default=None, pattern=_HEX_COLOR)
     launcher_icon: str | None = Field(default=None, max_length=32)
@@ -44,6 +46,16 @@ class SettingsUpdate(BaseModel):
     greeting: str | None = Field(default=None, min_length=1, max_length=500)
     launcher_label: str | None = Field(default=None, max_length=60)
     show_branding: bool | None = None
+
+    @field_validator("notification_email")
+    @classmethod
+    def _valid_notification_email(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if "@" not in value or " " in value or len(value) < 3:
+            raise ValueError("notification_email must be a valid email address")
+        return value
 
     @field_validator("launcher_icon")
     @classmethod

@@ -2,16 +2,19 @@ import { FormEvent, useRef, useState } from "react";
 import useSWR from "swr";
 import {
   KnowledgeDocument,
+  addFaq,
   addLink,
   deleteDocument,
   documentsKey,
   fetchDocuments,
   rescanDocument,
   toggleDocument,
+  updateFaq,
   uploadDocument,
 } from "../api/knowledge";
 import { TERMS_URL } from "../api/client";
 import { ChunkPreviewDialog } from "../components/ChunkPreviewDialog";
+import { FaqDialog } from "../components/FaqDialog";
 import { LinkDisclaimerDialog } from "../components/LinkDisclaimerDialog";
 import { useSite } from "../components/SiteProvider";
 import { Skeleton } from "../components/Skeleton";
@@ -51,6 +54,10 @@ export function AdminPage() {
   const [linkNotice, setLinkNotice] = useState<string | null>(null);
   const [showLinkDisclaimer, setShowLinkDisclaimer] = useState(false);
   const [previewDoc, setPreviewDoc] = useState<KnowledgeDocument | null>(null);
+  // null = closed; { doc: null } = add mode; { doc } = edit mode.
+  const [faqDialog, setFaqDialog] = useState<{ doc: KnowledgeDocument | null } | null>(
+    null,
+  );
 
   const onFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -169,15 +176,35 @@ export function AdminPage() {
     }
   };
 
-  const fileDocs = documents?.filter((d) => d.type !== "url") ?? [];
+  // FAQ entries are indexed synchronously, so the saved row comes back
+  // already "ready" - patch the cache from the response, no refetch needed.
+  const onSaveFaq = async (question: string, answer: string) => {
+    const siteId = selectedSiteId as number;
+    const editing = faqDialog?.doc ?? null;
+    if (editing) {
+      const updated = await updateFaq(siteId, editing.id, question, answer);
+      await mutate(
+        (docs) => docs?.map((d) => (d.id === updated.id ? updated : d)) ?? [updated],
+        { revalidate: false },
+      );
+    } else {
+      const created = await addFaq(siteId, question, answer);
+      // The list is newest-first, so prepend to match server order.
+      await mutate((docs) => [created, ...(docs ?? [])], { revalidate: false });
+    }
+  };
+
+  const fileDocs =
+    documents?.filter((d) => d.type !== "url" && d.type !== "faq") ?? [];
   const urlDocs = documents?.filter((d) => d.type === "url") ?? [];
+  const faqDocs = documents?.filter((d) => d.type === "faq") ?? [];
 
   return (
     <div className="mx-auto h-full max-w-3xl overflow-y-auto p-4">
       <h2 className="text-lg font-semibold text-slate-800">Knowledge base</h2>
       <p className="mt-1 text-sm text-slate-500">
-        Everything the assistant is allowed to answer from. Add files or web
-        pages below.
+        Everything the assistant is allowed to answer from. Add files, web
+        pages, or FAQs below.
       </p>
 
       {error && (
@@ -315,11 +342,54 @@ export function AdminPage() {
         </div>
       </section>
 
+      {/* FAQs ------------------------------------------------------------ */}
+      <section className="mt-8">
+        <h3 className="text-sm font-semibold text-slate-700">FAQs</h3>
+        <p className="mt-0.5 text-xs text-slate-400">
+          Add common questions with the exact answers you want the assistant to
+          give. Ready to use instantly.
+        </p>
+
+        <div className="mt-3 rounded-xl border border-slate-200 bg-white p-4">
+          <button
+            type="button"
+            onClick={() => setFaqDialog({ doc: null })}
+            className="rounded-full bg-sky-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-sky-700"
+          >
+            Add FAQ
+          </button>
+        </div>
+
+        <div className="mt-4">
+          {documents &&
+            (faqDocs.length === 0 ? (
+              <p className="text-sm text-slate-500">
+                No FAQs yet. Add your first question and answer.
+              </p>
+            ) : (
+              <DocumentTable
+                docs={faqDocs}
+                onPreview={setPreviewDoc}
+                onEdit={(doc) => setFaqDialog({ doc })}
+                onToggle={onToggle}
+                onDelete={onDelete}
+              />
+            ))}
+        </div>
+      </section>
+
       <LinkDisclaimerDialog
         open={showLinkDisclaimer}
         url={linkUrl.trim()}
         onConfirm={confirmAddLink}
         onCancel={() => setShowLinkDisclaimer(false)}
+      />
+
+      <FaqDialog
+        open={faqDialog !== null}
+        doc={faqDialog?.doc ?? null}
+        onSubmit={onSaveFaq}
+        onClose={() => setFaqDialog(null)}
       />
 
       <ChunkPreviewDialog
@@ -337,6 +407,7 @@ function DocumentTable({
   showType,
   onPreview,
   onRescan,
+  onEdit,
   onToggle,
   onDelete,
 }: {
@@ -344,6 +415,7 @@ function DocumentTable({
   showType?: boolean;
   onPreview: (doc: KnowledgeDocument) => void;
   onRescan?: (doc: KnowledgeDocument) => void;
+  onEdit?: (doc: KnowledgeDocument) => void;
   onToggle: (doc: KnowledgeDocument) => void;
   onDelete: (id: number) => void;
 }) {
@@ -436,6 +508,16 @@ function DocumentTable({
                     className="mr-3 text-xs font-medium text-sky-600 hover:underline disabled:cursor-not-allowed disabled:text-slate-300 disabled:no-underline"
                   >
                     Rescan
+                  </button>
+                )}
+                {onEdit && doc.type === "faq" && (
+                  <button
+                    type="button"
+                    onClick={() => onEdit(doc)}
+                    disabled={doc.processing_status !== "ready"}
+                    className="mr-3 text-xs font-medium text-sky-600 hover:underline disabled:cursor-not-allowed disabled:text-slate-300 disabled:no-underline"
+                  >
+                    Edit
                   </button>
                 )}
                 <button

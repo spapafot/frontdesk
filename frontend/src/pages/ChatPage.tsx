@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import useSWR from "swr";
 import { ConversationSummary, getConversationMessages, Rating } from "../api/conversations";
-import { LiveMessage, LiveState, listCallbacks, resolveCallback } from "../api/live";
+import { LiveMessage, LiveState } from "../api/live";
 import { Settings } from "../api/settings";
 import { ChatInput } from "../components/ChatInput";
 import { ChatWindow } from "../components/ChatWindow";
@@ -85,15 +85,6 @@ export function ChatPage({
           })),
         }
       : null;
-  const callbacksKey = liveEnabled && selectedSiteId != null && section === "history"
-    ? `live-callbacks:${selectedSiteId}`
-    : null;
-  const { data: callbacks, mutate: mutateCallbacks } = useSWR(
-    callbacksKey,
-    () => listCallbacks(selectedSiteId as number),
-    { refreshInterval: 5000 },
-  );
-
   useEffect(() => {
     setConversation(isAiConversation ? selectedConversationId : null);
   }, [isAiConversation, selectedConversationId, setConversation]);
@@ -136,21 +127,6 @@ export function ChatPage({
           </div>
         </div>
       </header>
-
-      {callbacks?.some((item) => item.status === "pending") && (
-        <div className="mx-auto mt-2 flex w-full max-w-2xl flex-wrap gap-2 px-4">
-          {callbacks.filter((item) => item.status === "pending").map((item) => (
-            <div key={item.id} className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-              <span>Callback: {item.customer_name || item.customer_email}</span>
-              <button className="font-semibold underline" onClick={() => void navigator.clipboard.writeText(item.customer_email)}>Copy email</button>
-              <button className="font-semibold underline" onClick={async () => {
-                await resolveCallback(selectedSiteId as number, item.id);
-                await mutateCallbacks();
-              }}>Resolve</button>
-            </div>
-          ))}
-        </div>
-      )}
 
       {selectedConversationId === null && section === "live" ? (
         <div className="mx-auto flex w-full max-w-2xl flex-1 items-center justify-center px-4 text-center text-sm text-slate-500">

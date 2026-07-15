@@ -11,6 +11,8 @@ export interface Site {
   widget_enabled: boolean;
   widget_monthly_limit: number;
   widget_monthly_usage: number;
+  /** The caller's relationship to the site; absent (older API) means owner. */
+  role?: "owner" | "member";
   created_at: string;
 }
 

@@ -1,0 +1,66 @@
+---
+import DeviceFrame from "./DeviceFrame.astro";
+
+// Static reimplementation of the Knowledge page's "Add a web page" URL ingestion.
+const pages = [
+  { url: "acme.com/pricing", chunks: 18, status: "Ready" },
+  { url: "acme.com/shipping", chunks: 24, status: "Ready" },
+  { url: "acme.com/returns", chunks: 9, status: "Processing" },
+];
+---
+
+<DeviceFrame label="Knowledge base · Web pages">
+  <div class="space-y-4 p-5">
+    <div>
+      <label class="block text-xs font-medium text-slate-600">Add a web page</label>
+      <div class="mt-1 flex gap-2">
+        <div
+          class="flex flex-1 items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-500"
+        >
+          https://acme.com/faq
+        </div>
+        <span class="shrink-0 rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white">
+          Fetch page
+        </span>
+      </div>
+      <p class="mt-1.5 text-xs text-slate-400">
+        We read the page, clean it up, and index it like any document.
+      </p>
+    </div>
+
+    <ul class="space-y-2">
+      {
+        pages.map((page) => (
+          <li class="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2">
+            <div class="flex min-w-0 items-center gap-2">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.6"
+                class="h-4 w-4 shrink-0 text-slate-400"
+                aria-hidden="true"
+              >
+                <circle cx="12" cy="12" r="9" />
+                <path d="M3 12h18M12 3c2.5 2.7 2.5 15.3 0 18M12 3c-2.5 2.7-2.5 15.3 0 18" />
+              </svg>
+              <span class="truncate text-sm font-medium text-slate-800">{page.url}</span>
+            </div>
+            <div class="ml-3 flex shrink-0 items-center gap-3">
+              <span class="text-xs text-slate-500">{page.chunks} chunks</span>
+              <span
+                class={`rounded-full px-2 py-0.5 text-xs ${
+                  page.status === "Ready"
+                    ? "bg-emerald-100 text-emerald-700"
+                    : "bg-amber-100 text-amber-700"
+                }`}
+              >
+                {page.status}
+              </span>
+            </div>
+          </li>
+        ))
+      }
+    </ul>
+  </div>
+</DeviceFrame>

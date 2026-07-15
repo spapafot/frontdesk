@@ -15,6 +15,7 @@ from app.models.profile import AssistantProfile
 from app.repositories.conversation_repository import ConversationRepository
 from app.repositories.live_repository import LiveRepository
 from app.repositories.profile_repository import ProfileRepository
+from app.repositories.team_repository import TeamRepository
 from app.repositories.widget_repository import WidgetRepository
 from app.schemas.live import (
     CallbackTicketOut,
@@ -49,6 +50,22 @@ def _require_profile(profile: AssistantProfile | None) -> AssistantProfile:
 
 def _ticket_out(ticket: EscalationTicket) -> CallbackTicketOut:
     return CallbackTicketOut.model_validate(ticket, from_attributes=True)
+
+
+async def _operator_can_access(
+    profile: AssistantProfile, user_id: str | None, session: AsyncSession
+) -> bool:
+    """Owner or activated team member. Socket-ticket claims carry only the
+    user id (no email) — correct, because a member must have made a REST call
+    (which activates their membership) to obtain a socket ticket at all."""
+    if not user_id:
+        return False
+    if profile.owner_user_id == user_id:
+        return True
+    membership = await TeamRepository(session).get_membership(
+        profile.owner_user_id, user_id
+    )
+    return membership is not None
 
 
 def _conversation_state(conversation: Conversation, messages: list[Any] | None = None) -> dict[str, Any]:
@@ -125,9 +142,11 @@ async def operator_socket_ticket(
     user: AdminUser = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ) -> SocketTicketOut:
-    profile = _require_profile(
-        await ProfileRepository(session).get_owned(body.site_id, user.id)
+    access = await ProfileRepository(session).get_accessible(
+        body.site_id, user.id, user.email
     )
+    profile = _require_profile(access[0] if access else None)
+    await session.commit()  # persist a lazy invite activation, if any
     if body.channel == "conversation":
         if body.conversation_id is None:
             raise HTTPException(status_code=422, detail="conversation_id is required.")
@@ -142,7 +161,7 @@ async def operator_socket_ticket(
         "profile_id": profile.id,
         "conversation_id": body.conversation_id,
         "user_id": user.id,
-        "display_name": user.email or "Owner",
+        "display_name": user.email or "Support agent",
         "channel": body.channel,
     }
     return SocketTicketOut(
@@ -162,8 +181,12 @@ async def internal_authorize(
     claims = decode_socket_ticket(body.ticket)
     actor = LiveActor.model_validate(claims)
     profile = _require_profile(await ProfileRepository(session).get(actor.profile_id))
-    if actor.actor_type == "operator" and profile.owner_user_id != actor.user_id:
-        raise HTTPException(status_code=403, detail="Operator no longer owns this site.")
+    if actor.actor_type == "operator" and not await _operator_can_access(
+        profile, actor.user_id, session
+    ):
+        raise HTTPException(
+            status_code=403, detail="Operator no longer has access to this site."
+        )
     if actor.channel == "conversation":
         conversation = await ConversationRepository(session).get(actor.conversation_id or 0)
         if conversation is None or conversation.profile_id != profile.id:
@@ -175,8 +198,12 @@ async def _authorized_conversation(
     actor: LiveActor, session: AsyncSession
 ) -> tuple[AssistantProfile, Conversation, ConversationRepository, LiveRepository]:
     profile = _require_profile(await ProfileRepository(session).get(actor.profile_id))
-    if actor.actor_type == "operator" and profile.owner_user_id != actor.user_id:
-        raise HTTPException(status_code=403, detail="Operator no longer owns this site.")
+    if actor.actor_type == "operator" and not await _operator_can_access(
+        profile, actor.user_id, session
+    ):
+        raise HTTPException(
+            status_code=403, detail="Operator no longer has access to this site."
+        )
     conversation_repo = ConversationRepository(session)
     conversation = await conversation_repo.get(actor.conversation_id or 0)
     if conversation is None or conversation.profile_id != profile.id:
@@ -190,7 +217,7 @@ async def internal_action(
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     actor = body.actor
-    _, conversation, conversation_repo, live_repo = await _authorized_conversation(actor, session)
+    profile, conversation, conversation_repo, live_repo = await _authorized_conversation(actor, session)
     now = datetime.now(timezone.utc)
 
     if body.action == "state":
@@ -320,7 +347,15 @@ async def internal_action(
         conversation.closed_at = now
         await live_repo.add_event(conversation.id, "callback_requested", "visitor")
         await session.commit()
-        return {"ticket": _ticket_out(ticket), **_conversation_state(conversation)}
+        result: dict[str, Any] = {"ticket": _ticket_out(ticket), **_conversation_state(conversation)}
+        if profile.notification_email:
+            # Owner-only routing data: the Worker consumes this to send the
+            # ticket notification email and strips it before any broadcast.
+            result["notify"] = {
+                "email": profile.notification_email,
+                "site_name": profile.name,
+            }
+        return result
 
     await session.commit()
     return _conversation_state(conversation)

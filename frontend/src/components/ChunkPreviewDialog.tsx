@@ -62,8 +62,11 @@ export function ChunkPreviewDialog({ open, siteId, doc, onClose }: Props) {
               {doc.title}
             </h2>
             <p className="mt-0.5 text-xs text-slate-500">
-              The exact text stored and searched for answers
-              {doc.source_url ? ", extracted from the page." : "."}
+              {doc.type === "faq"
+                ? "The exact text stored and searched for this FAQ."
+                : `The exact text stored and searched for answers${
+                    doc.source_url ? ", extracted from the page." : "."
+                  }`}
             </p>
           </div>
           <button

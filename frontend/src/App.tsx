@@ -10,7 +10,7 @@ import {
   Rating,
   renameConversation,
 } from "./api/conversations";
-import { LiveState } from "./api/live";
+import { callbacksKey, listCallbacks, LiveState, resolveCallback } from "./api/live";
 import { getSettings, settingsKey } from "./api/settings";
 import { Sidebar, View } from "./components/Sidebar";
 import { SiteProvider, useSite } from "./components/SiteProvider";
@@ -19,6 +19,7 @@ import { AdminPage } from "./pages/AdminPage";
 import { AnalyticsPage } from "./pages/AnalyticsPage";
 import { ChatPage } from "./pages/ChatPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { TicketsPage } from "./pages/TicketsPage";
 import { WidgetDocsPage } from "./pages/WidgetDocsPage";
 import { useLiveInbox } from "./hooks/useLiveSupport";
 
@@ -27,6 +28,7 @@ import { useLiveInbox } from "./hooks/useLiveSupport";
 const VIEW_PATHS: Record<View, string> = {
   live: "/live",
   history: "/history",
+  tickets: "/tickets",
   analytics: "/analytics",
   admin: "/knowledge",
   settings: "/settings",
@@ -36,6 +38,7 @@ const VIEW_PATHS: Record<View, string> = {
 function viewFromPath(pathname: string): View {
   if (pathname.startsWith("/live")) return "live";
   if (pathname.startsWith("/history")) return "history";
+  if (pathname.startsWith("/tickets")) return "tickets";
   if (pathname.startsWith("/analytics")) return "analytics";
   if (pathname.startsWith("/knowledge")) return "admin";
   if (pathname.startsWith("/settings")) return "settings";
@@ -62,7 +65,8 @@ function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
   const view = viewFromPath(location.pathname);
-  const { sites, selectedSiteId, current, isLoading, createSite } = useSite();
+  const { sites, selectedSiteId, current, isLoading, createSite, isOwner } =
+    useSite();
   const { showToast } = useToast();
   const selectedConversationId = conversationIdFromPath(location.pathname);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -87,6 +91,37 @@ function AppShell() {
   const liveEnabled = Boolean(
     settings?.live_human_escalation_available && settings.live_human_escalation_enabled,
   );
+
+  // Tickets are shared between the sidebar badge and the Tickets page so the
+  // two can never disagree.
+  const { data: callbacks, mutate: mutateCallbacks } = useSWR(
+    liveEnabled && selectedSiteId != null ? callbacksKey(selectedSiteId) : null,
+    () => listCallbacks(selectedSiteId as number),
+    { refreshInterval: 5000 },
+  );
+  const pendingTicketCount = callbacks?.filter((item) => item.status === "pending").length ?? 0;
+
+  const onResolveTicket = async (id: number) => {
+    if (selectedSiteId == null) return;
+    try {
+      await mutateCallbacks(
+        async (list) => {
+          const updated = await resolveCallback(selectedSiteId, id);
+          return list?.map((item) => (item.id === updated.id ? updated : item)) ?? [];
+        },
+        {
+          optimisticData: (list) =>
+            list?.map((item) =>
+              item.id === id ? { ...item, status: "resolved" as const } : item
+            ) ?? [],
+          rollbackOnError: true,
+          revalidate: false,
+        }
+      );
+    } catch {
+      showToast("Couldn't resolve the ticket. Restored.");
+    }
+  };
 
   const onInboxWaiting = useCallback((id: number) => {
     void mutateConversations(
@@ -265,12 +300,13 @@ function AppShell() {
   }
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full overflow-hidden">
       <Sidebar
         conversations={conversations}
         selectedConversationId={selectedConversationId}
         view={view}
         liveEnabled={liveEnabled}
+        ticketsPendingCount={pendingTicketCount}
         liveOnline={inbox.online}
         liveConnected={inbox.connected}
         liveError={inbox.error}
@@ -295,7 +331,7 @@ function AppShell() {
         />
       )}
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {/* Mobile top bar with the menu toggle. */}
         <header className="flex items-center gap-2 border-b border-slate-200 bg-white px-3 py-2 md:hidden">
           <button
@@ -354,8 +390,18 @@ function AppShell() {
               />
             }
           />
+          <Route
+            path="/tickets"
+            element={liveEnabled ? (
+              <TicketsPage callbacks={callbacks} onResolve={onResolveTicket} />
+            ) : <Navigate to="/history" replace />}
+          />
           <Route path="/knowledge" element={<AdminPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
+          {/* Site settings are owner-only; members are bounced to history. */}
+          <Route
+            path="/settings"
+            element={isOwner ? <SettingsPage /> : <Navigate to="/history" replace />}
+          />
           <Route path="/widget-guide" element={<WidgetDocsPage />} />
           <Route
             path="/analytics"

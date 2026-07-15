@@ -12,7 +12,14 @@ from app.core.auth import AdminUser, require_admin
 from tests.conftest import make_es256_jwt, make_es256_keypair, make_jwt
 
 JWT_SECRET = "supabase-jwt-secret"
-ADMIN_PATHS = ["/knowledge/documents", "/settings", "/conversations", "/analytics", "/sites"]
+ADMIN_PATHS = [
+    "/knowledge/documents",
+    "/settings",
+    "/conversations",
+    "/analytics",
+    "/sites",
+    "/team/members",
+]
 
 
 def _creds(token: str) -> HTTPAuthorizationCredentials:

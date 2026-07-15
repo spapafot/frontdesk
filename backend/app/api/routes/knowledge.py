@@ -8,9 +8,20 @@ from app.core.db import get_session
 from app.api.dependencies import get_selected_site
 from app.models.profile import AssistantProfile
 from app.repositories.knowledge_repository import KnowledgeRepository
-from app.schemas.knowledge import ChunkOut, DocumentOut, LinkRequest, ToggleRequest
+from app.schemas.knowledge import (
+    ChunkOut,
+    DocumentOut,
+    FaqRequest,
+    LinkRequest,
+    ToggleRequest,
+)
 from app.services import aws_ingestion, jina_reader
-from app.services.ingestion_service import SUPPORTED_EXTENSIONS
+from app.services.ingestion_service import (
+    SUPPORTED_EXTENSIONS,
+    ExtractionError,
+    ingest_text_document,
+    reingest_text_document,
+)
 from app.services.jina_reader import JinaReaderError
 
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])
@@ -21,6 +32,8 @@ MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
 # reuses the existing text extractor; the filename drives extractor selection.
 LINK_STORAGE_FILENAME = "page.txt"
 
+FAQ_TYPE = "faq"
+
 
 def _to_out(document, chunk_count: int) -> DocumentOut:
     return DocumentOut(
@@ -28,12 +41,18 @@ def _to_out(document, chunk_count: int) -> DocumentOut:
         title=document.title,
         type=document.type,
         source_url=document.source_url,
+        content=document.content if document.type == FAQ_TYPE else None,
         is_active=document.is_active,
         processing_status=document.processing_status,
         chunk_count=chunk_count,
         created_at=document.created_at,
         processed_at=document.processed_at,
     )
+
+
+def _faq_text(question: str, answer: str) -> str:
+    # Question and answer in one text so retrieval matches on either.
+    return f"{question}\n\n{answer}"
 
 
 def _link_storage_key(profile_id: int) -> str:
@@ -206,6 +225,73 @@ async def add_link(
         ) from exc
 
     return _to_out(document, 0)
+
+
+@router.post("/faqs", response_model=DocumentOut, status_code=201)
+async def add_faq(
+    body: FaqRequest,
+    session: AsyncSession = Depends(get_session),
+    profile: AssistantProfile = Depends(get_selected_site),
+) -> DocumentOut:
+    """Store a question/answer pair and index it synchronously.
+
+    No S3/SQS involved — the entry is ready and active when the request
+    returns, so FAQs work even when the async ingestion stack is unconfigured.
+    """
+    try:
+        document, chunk_count = await ingest_text_document(
+            session,
+            profile.id,
+            title=body.question,
+            text=_faq_text(body.question, body.answer),
+            doc_type=FAQ_TYPE,
+            content=body.answer,
+        )
+        await session.commit()
+    except ExtractionError as exc:
+        await session.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        await session.rollback()
+        raise HTTPException(
+            status_code=502,
+            detail="Could not index the FAQ entry. Please try again.",
+        ) from exc
+    return _to_out(document, chunk_count)
+
+
+@router.put("/faqs/{document_id}", response_model=DocumentOut)
+async def update_faq(
+    document_id: int,
+    body: FaqRequest,
+    session: AsyncSession = Depends(get_session),
+    profile: AssistantProfile = Depends(get_selected_site),
+) -> DocumentOut:
+    repo = KnowledgeRepository(session)
+    document = await repo.get_document(profile.id, document_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    if document.type != FAQ_TYPE:
+        raise HTTPException(status_code=409, detail="Only FAQ entries can be edited.")
+    try:
+        chunk_count = await reingest_text_document(
+            session,
+            document,
+            title=body.question,
+            text=_faq_text(body.question, body.answer),
+            content=body.answer,
+        )
+        await session.commit()
+    except ExtractionError as exc:
+        await session.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        await session.rollback()
+        raise HTTPException(
+            status_code=502,
+            detail="Could not index the FAQ entry. Please try again.",
+        ) from exc
+    return _to_out(document, chunk_count)
 
 
 @router.post("/documents/{document_id}/rescan", response_model=DocumentOut, status_code=202)

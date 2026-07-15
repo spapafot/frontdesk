@@ -8,6 +8,7 @@ import {
 } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { authEnabled, supabase } from "../lib/supabase";
+import { SetPasswordPanel } from "./SetPasswordPanel";
 import { Spinner } from "./Spinner";
 
 interface AuthContextValue {
@@ -34,6 +35,14 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   // If auth is disabled we're "ready" immediately.
   const [ready, setReady] = useState(!authEnabled);
+  // A team-invite link lands here with `type=invite` in the URL hash. Capture
+  // it synchronously on first render — supabase-js consumes the hash to create
+  // the session and strips it from the URL. The invitee has no password yet,
+  // so they must set one before entering the app (or they could never sign in
+  // a second time).
+  const [invitePending, setInvitePending] = useState(() =>
+    window.location.hash.includes("type=invite")
+  );
 
   useEffect(() => {
     if (!authEnabled || !supabase) return;
@@ -62,6 +71,9 @@ export function AuthGate({ children }: { children: ReactNode }) {
     );
   }
   if (!session) return <LoginForm />;
+  if (invitePending) {
+    return <SetPasswordPanel onDone={() => setInvitePending(false)} />;
+  }
 
   return (
     <AuthContext.Provider value={{ canSignOut: true, signOut }}>

@@ -226,6 +226,90 @@ async def ingest_document(
     return document, len(chunks)
 
 
+async def _embed_and_add_chunks(
+    repo: KnowledgeRepository,
+    profile_id: int,
+    document_id: int,
+    chunks: list[str],
+    title: str,
+) -> None:
+    for chunk in chunks:
+        embedding = await embed_passage(chunk)
+        await repo.add_chunk(
+            profile_id=profile_id,
+            document_id=document_id,
+            content=chunk,
+            embedding=embedding,
+            meta={"title": title},
+        )
+
+
+async def ingest_text_document(
+    session: AsyncSession,
+    profile_id: int,
+    *,
+    title: str,
+    text: str,
+    doc_type: str,
+    content: str,
+) -> tuple[KnowledgeDocument, int]:
+    """Chunk, embed, and store a small text source synchronously (no S3/SQS).
+
+    Used for sources whose text is already in hand (e.g. FAQ entries), so the
+    document is ``ready`` and active the moment the request returns. Flushes
+    but does not commit — the caller owns the transaction, so an embedding
+    failure mid-way rolls back without leaving an orphan document."""
+    chunks = chunk_text(normalize_text(text))
+    if not chunks:
+        raise ExtractionError(
+            "The text is too short or has too little readable content to index."
+        )
+    repo = KnowledgeRepository(session)
+    document = await repo.create_document(
+        profile_id=profile_id,
+        title=title[:255],
+        type=doc_type,
+        content=content,
+        is_active=True,
+        processing_status="ready",
+        processed_at=datetime.now(timezone.utc),
+    )
+    await _embed_and_add_chunks(repo, profile_id, document.id, chunks, document.title)
+    await session.flush()
+    return document, len(chunks)
+
+
+async def reingest_text_document(
+    session: AsyncSession,
+    document: KnowledgeDocument,
+    *,
+    title: str,
+    text: str,
+    content: str,
+) -> int:
+    """Replace a text document's title/content and rebuild its chunks in place.
+
+    Preserves ``is_active`` (editing a disabled entry must not re-enable it).
+    Flushes but does not commit — the caller owns the transaction."""
+    chunks = chunk_text(normalize_text(text))
+    if not chunks:
+        raise ExtractionError(
+            "The text is too short or has too little readable content to index."
+        )
+    repo = KnowledgeRepository(session)
+    await repo.delete_chunks(document.id)
+    document.title = title[:255]
+    document.content = content
+    await _embed_and_add_chunks(
+        repo, document.profile_id, document.id, chunks, document.title
+    )
+    document.processing_status = "ready"
+    document.processing_error = None
+    document.processed_at = datetime.now(timezone.utc)
+    await session.flush()
+    return len(chunks)
+
+
 async def process_existing_document(
     session: AsyncSession,
     document: KnowledgeDocument,
