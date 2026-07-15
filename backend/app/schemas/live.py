@@ -70,5 +70,26 @@ class CallbackTicketOut(BaseModel):
     customer_message: str | None
     reason: str
     status: str
+    assignee_user_id: str | None
+    archived: bool
     created_at: datetime
     resolved_at: datetime | None
+
+
+class CallbackStatusRequest(BaseModel):
+    status: Literal["pending", "in_progress", "resolved"]
+
+
+class CallbackAssignRequest(BaseModel):
+    # Explicit null unassigns; membership is validated in the route.
+    assignee_user_id: str | None = Field(default=None, max_length=128)
+
+
+class CallbackArchiveRequest(BaseModel):
+    archived: bool
+
+
+class OperatorOut(BaseModel):
+    user_id: str
+    email: str | None
+    is_owner: bool

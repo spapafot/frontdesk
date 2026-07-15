@@ -50,6 +50,8 @@ def _ticket(**over):
         customer_message="Please call me back.",
         reason="no_agent_available",
         status="pending",
+        assignee_user_id=None,
+        archived=False,
         created_at=datetime.now(timezone.utc),
         resolved_at=None,
     )

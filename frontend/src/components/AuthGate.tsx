@@ -15,11 +15,17 @@ interface AuthContextValue {
   /** True only when a real session exists and can be signed out. */
   canSignOut: boolean;
   signOut: () => void;
+  /** Supabase user id (`sub`) — the same value the backend sees as the admin
+   * user id, so it can be compared against e.g. a ticket's assignee. */
+  userId: string | null;
+  userEmail: string | null;
 }
 
 const AuthContext = createContext<AuthContextValue>({
   canSignOut: false,
   signOut: () => {},
+  userId: null,
+  userEmail: null,
 });
 
 /** Lets any descendant (e.g. the sidebar) trigger sign-out. */
@@ -76,7 +82,14 @@ export function AuthGate({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ canSignOut: true, signOut }}>
+    <AuthContext.Provider
+      value={{
+        canSignOut: true,
+        signOut,
+        userId: session.user.id,
+        userEmail: session.user.email ?? null,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

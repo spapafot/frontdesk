@@ -62,6 +62,10 @@ export function openLiveSocket(ticket: SocketTicket): WebSocket {
 }
 
 export const callbacksKey = (siteId: number) => `live-callbacks:${siteId}`;
+export const operatorsKey = (siteId: number) => `live-operators:${siteId}`;
+
+// Stored as "pending" but shown as the board's "New" column.
+export type TicketStatus = "pending" | "in_progress" | "resolved";
 
 export interface CallbackTicket {
   id: number;
@@ -69,19 +73,62 @@ export interface CallbackTicket {
   customer_name: string | null;
   customer_email: string;
   customer_message: string | null;
-  status: "pending" | "resolved";
+  status: TicketStatus;
+  assignee_user_id: string | null;
+  archived: boolean;
   created_at: string;
   resolved_at: string | null;
+}
+
+export interface Operator {
+  user_id: string;
+  email: string | null;
+  is_owner: boolean;
 }
 
 export async function listCallbacks(siteId: number): Promise<CallbackTicket[]> {
   return json(await fetch(`${API_BASE}/live/callbacks?site_id=${siteId}`));
 }
 
-export async function resolveCallback(siteId: number, ticketId: number): Promise<CallbackTicket> {
+export async function listOperators(siteId: number): Promise<Operator[]> {
+  return json(await fetch(`${API_BASE}/live/operators?site_id=${siteId}`));
+}
+
+async function postCallbackAction(
+  siteId: number,
+  ticketId: number,
+  action: string,
+  body: unknown,
+): Promise<CallbackTicket> {
   return json(
-    await fetch(`${API_BASE}/live/callbacks/${ticketId}/resolve?site_id=${siteId}`, {
+    await fetch(`${API_BASE}/live/callbacks/${ticketId}/${action}?site_id=${siteId}`, {
       method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
     }),
   );
+}
+
+export async function setCallbackStatus(
+  siteId: number,
+  ticketId: number,
+  status: TicketStatus,
+): Promise<CallbackTicket> {
+  return postCallbackAction(siteId, ticketId, "status", { status });
+}
+
+export async function assignCallback(
+  siteId: number,
+  ticketId: number,
+  assigneeUserId: string | null,
+): Promise<CallbackTicket> {
+  return postCallbackAction(siteId, ticketId, "assignee", { assignee_user_id: assigneeUserId });
+}
+
+export async function archiveCallback(
+  siteId: number,
+  ticketId: number,
+  archived: boolean,
+): Promise<CallbackTicket> {
+  return postCallbackAction(siteId, ticketId, "archive", { archived });
 }

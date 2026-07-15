@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import get_selected_site
+from app.api.dependencies import SiteAccess, get_selected_site, get_site_access
 from app.core.auth import AdminUser, require_admin
 from app.core.config import settings
 from app.core.db import get_session
@@ -18,10 +18,14 @@ from app.repositories.profile_repository import ProfileRepository
 from app.repositories.team_repository import TeamRepository
 from app.repositories.widget_repository import WidgetRepository
 from app.schemas.live import (
+    CallbackArchiveRequest,
+    CallbackAssignRequest,
+    CallbackStatusRequest,
     CallbackTicketOut,
     InternalActionRequest,
     InternalAuthorizeRequest,
     LiveActor,
+    OperatorOut,
     OperatorSocketTicketRequest,
     SocketTicketOut,
     VisitorSocketTicketRequest,
@@ -370,14 +374,112 @@ async def list_callbacks(
     return [_ticket_out(item) for item in await LiveRepository(session).list_tickets(profile.id)]
 
 
+@router.get("/live/operators", response_model=list[OperatorOut])
+async def list_operators(
+    session: AsyncSession = Depends(get_session),
+    profile: AssistantProfile = Depends(get_selected_site),
+) -> list[OperatorOut]:
+    """Assignable operators: the owner plus activated team members. Unlike
+    /team/members this is member-callable, so any operator can populate the
+    board's assignee picker."""
+    _require_profile(profile)
+    operators = [
+        OperatorOut(
+            user_id=profile.owner_user_id,
+            email=profile.notification_email,
+            is_owner=True,
+        )
+    ]
+    members = await TeamRepository(session).list_members(profile.owner_user_id)
+    operators.extend(
+        OperatorOut(user_id=member.member_user_id, email=member.invited_email, is_owner=False)
+        for member in members
+        if member.status == "active" and member.member_user_id is not None
+    )
+    return operators
+
+
+@router.post("/live/callbacks/{ticket_id}/status", response_model=CallbackTicketOut)
+async def set_callback_status(
+    ticket_id: int,
+    body: CallbackStatusRequest,
+    session: AsyncSession = Depends(get_session),
+    profile: AssistantProfile = Depends(get_selected_site),
+    user: AdminUser = Depends(require_admin),
+) -> CallbackTicketOut:
+    _require_profile(profile)
+    ticket = await LiveRepository(session).set_ticket_status(
+        ticket_id, profile.id, body.status, actor_user_id=user.id
+    )
+    if ticket is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Callback not found.")
+    await session.commit()
+    return _ticket_out(ticket)
+
+
+@router.post("/live/callbacks/{ticket_id}/assignee", response_model=CallbackTicketOut)
+async def assign_callback(
+    ticket_id: int,
+    body: CallbackAssignRequest,
+    session: AsyncSession = Depends(get_session),
+    profile: AssistantProfile = Depends(get_selected_site),
+) -> CallbackTicketOut:
+    _require_profile(profile)
+    if body.assignee_user_id is not None and not await _operator_can_access(
+        profile, body.assignee_user_id, session
+    ):
+        raise HTTPException(
+            status_code=422, detail="Assignee is not a member of this site's team."
+        )
+    ticket = await LiveRepository(session).assign_ticket(
+        ticket_id, profile.id, body.assignee_user_id
+    )
+    if ticket is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Callback not found.")
+    await session.commit()
+    return _ticket_out(ticket)
+
+
+@router.post("/live/callbacks/{ticket_id}/archive", response_model=CallbackTicketOut)
+async def archive_callback(
+    ticket_id: int,
+    body: CallbackArchiveRequest,
+    session: AsyncSession = Depends(get_session),
+    access: SiteAccess = Depends(get_site_access),
+) -> CallbackTicketOut:
+    _require_profile(access.profile)
+    if not access.is_owner:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the site owner can archive tickets.",
+        )
+    repo = LiveRepository(session)
+    ticket = await repo.get_ticket(ticket_id, access.profile.id)
+    if ticket is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Callback not found.")
+    if body.archived and ticket.status != "resolved":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Only resolved tickets can be archived.",
+        )
+    ticket = await repo.set_ticket_archived(ticket_id, access.profile.id, body.archived)
+    await session.commit()
+    return _ticket_out(ticket)
+
+
+# Kept for admin bundles deployed before the board UI; delegates to the
+# status workflow so resolution semantics stay in one place.
 @router.post("/live/callbacks/{ticket_id}/resolve", response_model=CallbackTicketOut)
 async def resolve_callback(
     ticket_id: int,
     session: AsyncSession = Depends(get_session),
     profile: AssistantProfile = Depends(get_selected_site),
+    user: AdminUser = Depends(require_admin),
 ) -> CallbackTicketOut:
     _require_profile(profile)
-    ticket = await LiveRepository(session).resolve_ticket(ticket_id, profile.id)
+    ticket = await LiveRepository(session).set_ticket_status(
+        ticket_id, profile.id, "resolved", actor_user_id=user.id
+    )
     if ticket is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Callback not found.")
     await session.commit()

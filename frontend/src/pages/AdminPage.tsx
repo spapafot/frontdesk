@@ -58,30 +58,74 @@ export function AdminPage() {
   const [faqDialog, setFaqDialog] = useState<{ doc: KnowledgeDocument | null } | null>(
     null,
   );
+  const nextOptimisticId = useRef(-1);
+  const [pendingAdds, setPendingAdds] = useState<KnowledgeDocument[]>([]);
+  const [pendingEdits, setPendingEdits] = useState<
+    Record<number, KnowledgeDocument>
+  >({});
+
+  const queuedDocument = (
+    title: string,
+    type: string,
+    options: { sourceUrl?: string; content?: string } = {},
+  ): KnowledgeDocument => ({
+    id: nextOptimisticId.current--,
+    title,
+    type,
+    source_url: options.sourceUrl ?? null,
+    content: options.content ?? null,
+    is_active: false,
+    processing_status: "queued",
+    chunk_count: 0,
+    created_at: new Date().toISOString(),
+    processed_at: null,
+  });
+
+  const removePendingAdd = (id: number) => {
+    setPendingAdds((pending) => pending.filter((doc) => doc.id !== id));
+  };
 
   const onFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
+    const selectedFiles = Array.from(files);
+    const optimistic = selectedFiles.map((file) => {
+      const extension = file.name.split(".").pop()?.toLowerCase() || "file";
+      return queuedDocument(file.name, extension);
+    });
     setUploadError(null);
     setUploadNotice(null);
     setUploading(true);
-    let queuedAny = false;
-    try {
-      for (const file of Array.from(files)) {
-        await uploadDocument(selectedSiteId as number, file);
-        queuedAny = true;
-      }
-    } catch (err) {
-      setUploadError((err as Error).message);
-    } finally {
-      if (queuedAny) {
-        await mutate().catch(() => undefined);
-        setUploadNotice(
-          "Your document will be ready soon, after that you can start using our widget, check again in a minute or two!",
-        );
-      }
-      setUploading(false);
-      if (fileInput.current) fileInput.current.value = "";
+    setPendingAdds((pending) => [...optimistic, ...pending]);
+
+    const results = await Promise.allSettled(
+      selectedFiles.map(async (file, index) => {
+        const pending = optimistic[index];
+        try {
+          const created = await uploadDocument(selectedSiteId as number, file);
+          await mutate(
+            (docs) => [created, ...(docs ?? [])],
+            { revalidate: false },
+          );
+          return created;
+        } finally {
+          removePendingAdd(pending.id);
+        }
+      }),
+    );
+
+    const firstFailure = results.find(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    if (firstFailure) {
+      setUploadError((firstFailure.reason as Error).message);
     }
+    if (results.some((result) => result.status === "fulfilled")) {
+      setUploadNotice(
+        "Your document is queued and will be ready soon. Check again in a minute or two.",
+      );
+    }
+    setUploading(false);
+    if (fileInput.current) fileInput.current.value = "";
   };
 
   const onAddLink = (e: FormEvent) => {
@@ -97,17 +141,24 @@ export function AdminPage() {
     setShowLinkDisclaimer(false);
     const url = linkUrl.trim();
     if (!url) return;
+    const pending = queuedDocument(url, "url", { sourceUrl: url });
     setAddingLink(true);
+    setPendingAdds((docs) => [pending, ...docs]);
+    setLinkUrl("");
     try {
-      await addLink(selectedSiteId as number, url);
-      await mutate().catch(() => undefined);
-      setLinkUrl("");
+      const created = await addLink(selectedSiteId as number, url);
+      await mutate(
+        (docs) => [created, ...(docs ?? [])],
+        { revalidate: false },
+      );
       setLinkNotice(
-        "We're reading that page now. It'll be ready in a minute or two - check back shortly!",
+        "That page is queued and will be ready in a minute or two.",
       );
     } catch (err) {
       setLinkError((err as Error).message);
+      setLinkUrl((current) => current || url);
     } finally {
+      removePendingAdd(pending.id);
       setAddingLink(false);
     }
   };
@@ -176,28 +227,81 @@ export function AdminPage() {
     }
   };
 
-  // FAQ entries are indexed synchronously, so the saved row comes back
-  // already "ready" - patch the cache from the response, no refetch needed.
-  const onSaveFaq = async (question: string, answer: string) => {
+  // FAQ indexing is synchronous server-side, but the UI still closes and
+  // renders a queued row immediately while that request is in flight.
+  const onSaveFaq = (question: string, answer: string) => {
     const siteId = selectedSiteId as number;
     const editing = faqDialog?.doc ?? null;
+    setFaqDialog(null);
+
     if (editing) {
-      const updated = await updateFaq(siteId, editing.id, question, answer);
-      await mutate(
-        (docs) => docs?.map((d) => (d.id === updated.id ? updated : d)) ?? [updated],
-        { revalidate: false },
-      );
-    } else {
-      const created = await addFaq(siteId, question, answer);
-      // The list is newest-first, so prepend to match server order.
-      await mutate((docs) => [created, ...(docs ?? [])], { revalidate: false });
+      setPendingEdits((pending) => ({
+        ...pending,
+        [editing.id]: {
+          ...editing,
+          title: question,
+          content: answer,
+          processing_status: "queued",
+          chunk_count: 0,
+          processed_at: null,
+        },
+      }));
+      void (async () => {
+        try {
+          const updated = await updateFaq(
+            siteId,
+            editing.id,
+            question,
+            answer,
+          );
+          await mutate(
+            (docs) =>
+              docs?.map((doc) => (doc.id === updated.id ? updated : doc)) ?? [
+                updated,
+              ],
+            { revalidate: false },
+          );
+        } catch (err) {
+          showToast((err as Error).message || "Couldn't update the FAQ. Restored.");
+        } finally {
+          setPendingEdits((pending) => {
+            const next = { ...pending };
+            delete next[editing.id];
+            return next;
+          });
+        }
+      })();
+      return;
     }
+
+    const pending = queuedDocument(question, "faq", { content: answer });
+    setPendingAdds((docs) => [pending, ...docs]);
+    void (async () => {
+      try {
+        const created = await addFaq(siteId, question, answer);
+        await mutate(
+          (docs) => [created, ...(docs ?? [])],
+          { revalidate: false },
+        );
+      } catch (err) {
+        showToast((err as Error).message || "Couldn't add the FAQ. Try again.");
+      } finally {
+        removePendingAdd(pending.id);
+      }
+    })();
   };
 
+  const visibleDocuments =
+    documents === undefined && pendingAdds.length === 0
+      ? undefined
+      : [
+          ...pendingAdds,
+          ...(documents ?? []).map((doc) => pendingEdits[doc.id] ?? doc),
+        ];
   const fileDocs =
-    documents?.filter((d) => d.type !== "url" && d.type !== "faq") ?? [];
-  const urlDocs = documents?.filter((d) => d.type === "url") ?? [];
-  const faqDocs = documents?.filter((d) => d.type === "faq") ?? [];
+    visibleDocuments?.filter((d) => d.type !== "url" && d.type !== "faq") ?? [];
+  const urlDocs = visibleDocuments?.filter((d) => d.type === "url") ?? [];
+  const faqDocs = visibleDocuments?.filter((d) => d.type === "faq") ?? [];
 
   return (
     <div className="mx-auto h-full max-w-3xl overflow-y-auto p-4">
@@ -263,7 +367,7 @@ export function AdminPage() {
 
         <div className="mt-4">
           {isLoading && <DocumentsSkeleton />}
-          {documents &&
+          {visibleDocuments &&
             (fileDocs.length === 0 ? (
               <p className="text-sm text-slate-500">
                 No documents yet. Upload a file above.
@@ -325,7 +429,7 @@ export function AdminPage() {
         </form>
 
         <div className="mt-4">
-          {documents &&
+          {visibleDocuments &&
             (urlDocs.length === 0 ? (
               <p className="text-sm text-slate-500">
                 No web pages yet. Paste a URL above to add one.
@@ -347,7 +451,7 @@ export function AdminPage() {
         <h3 className="text-sm font-semibold text-slate-700">FAQs</h3>
         <p className="mt-0.5 text-xs text-slate-400">
           Add common questions with the exact answers you want the assistant to
-          give. Ready to use instantly.
+          give. They become active as soon as processing finishes.
         </p>
 
         <div className="mt-3 rounded-xl border border-slate-200 bg-white p-4">
@@ -361,7 +465,7 @@ export function AdminPage() {
         </div>
 
         <div className="mt-4">
-          {documents &&
+          {visibleDocuments &&
             (faqDocs.length === 0 ? (
               <p className="text-sm text-slate-500">
                 No FAQs yet. Add your first question and answer.
@@ -531,7 +635,8 @@ function DocumentTable({
                 <button
                   type="button"
                   onClick={() => onDelete(doc.id)}
-                  className="text-xs font-medium text-red-600 hover:underline"
+                  disabled={doc.id < 0}
+                  className="text-xs font-medium text-red-600 hover:underline disabled:cursor-not-allowed disabled:text-slate-300 disabled:no-underline"
                 >
                   Delete
                 </button>

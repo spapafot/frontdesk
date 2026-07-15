@@ -221,6 +221,10 @@ class LiveRepository:
                     "customer_message": customer_message,
                     "status": "pending",
                     "resolved_at": None,
+                    # A re-escalated conversation must resurface on the board
+                    # even if its previous ticket was archived or assigned.
+                    "assignee_user_id": None,
+                    "archived": False,
                 },
             )
             .returning(EscalationTicket)
@@ -231,17 +235,56 @@ class LiveRepository:
         result = await self.session.execute(
             select(EscalationTicket)
             .where(EscalationTicket.profile_id == profile_id)
-            .order_by(EscalationTicket.status, EscalationTicket.created_at.desc())
+            .order_by(EscalationTicket.created_at.desc())
         )
         return list(result.scalars())
 
-    async def resolve_ticket(
+    async def get_ticket(
         self, ticket_id: int, profile_id: int
     ) -> EscalationTicket | None:
         ticket = await self.session.get(EscalationTicket, ticket_id)
         if ticket is None or ticket.profile_id != profile_id:
             return None
-        ticket.status = "resolved"
-        ticket.resolved_at = datetime.now(timezone.utc)
+        return ticket
+
+    async def set_ticket_status(
+        self,
+        ticket_id: int,
+        profile_id: int,
+        status: str,
+        *,
+        actor_user_id: str | None,
+    ) -> EscalationTicket | None:
+        ticket = await self.get_ticket(ticket_id, profile_id)
+        if ticket is None:
+            return None
+        ticket.status = status
+        ticket.resolved_at = (
+            datetime.now(timezone.utc) if status == "resolved" else None
+        )
+        # Picking up a ticket claims it, so the board never shows anonymous
+        # in-progress work; an existing assignee is never overwritten.
+        if status == "in_progress" and ticket.assignee_user_id is None:
+            ticket.assignee_user_id = actor_user_id
+        await self.session.flush()
+        return ticket
+
+    async def assign_ticket(
+        self, ticket_id: int, profile_id: int, assignee_user_id: str | None
+    ) -> EscalationTicket | None:
+        ticket = await self.get_ticket(ticket_id, profile_id)
+        if ticket is None:
+            return None
+        ticket.assignee_user_id = assignee_user_id
+        await self.session.flush()
+        return ticket
+
+    async def set_ticket_archived(
+        self, ticket_id: int, profile_id: int, archived: bool
+    ) -> EscalationTicket | None:
+        ticket = await self.get_ticket(ticket_id, profile_id)
+        if ticket is None:
+            return None
+        ticket.archived = archived
         await self.session.flush()
         return ticket

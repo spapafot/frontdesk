@@ -10,8 +10,20 @@ import {
   Rating,
   renameConversation,
 } from "./api/conversations";
-import { callbacksKey, listCallbacks, LiveState, resolveCallback } from "./api/live";
+import {
+  archiveCallback,
+  assignCallback,
+  CallbackTicket,
+  callbacksKey,
+  listCallbacks,
+  listOperators,
+  LiveState,
+  operatorsKey,
+  setCallbackStatus,
+  TicketStatus,
+} from "./api/live";
 import { getSettings, settingsKey } from "./api/settings";
+import { useAuth } from "./components/AuthGate";
 import { Sidebar, View } from "./components/Sidebar";
 import { SiteProvider, useSite } from "./components/SiteProvider";
 import { ToastProvider, useToast } from "./components/Toast";
@@ -99,28 +111,77 @@ function AppShell() {
     () => listCallbacks(selectedSiteId as number),
     { refreshInterval: 5000 },
   );
-  const pendingTicketCount = callbacks?.filter((item) => item.status === "pending").length ?? 0;
+  const { data: operators } = useSWR(
+    liveEnabled && selectedSiteId != null ? operatorsKey(selectedSiteId) : null,
+    () => listOperators(selectedSiteId as number),
+  );
+  // In-progress tickets already have someone on them; the badge is "needs
+  // attention".
+  const pendingTicketCount =
+    callbacks?.filter((item) => item.status === "pending" && !item.archived).length ?? 0;
+  const { userId } = useAuth();
 
-  const onResolveTicket = async (id: number) => {
-    if (selectedSiteId == null) return;
+  const patchTicket = async (
+    id: number,
+    request: () => Promise<CallbackTicket>,
+    apply: (ticket: CallbackTicket) => CallbackTicket,
+    failMessage: string,
+  ) => {
     try {
       await mutateCallbacks(
         async (list) => {
-          const updated = await resolveCallback(selectedSiteId, id);
+          const updated = await request();
           return list?.map((item) => (item.id === updated.id ? updated : item)) ?? [];
         },
         {
           optimisticData: (list) =>
-            list?.map((item) =>
-              item.id === id ? { ...item, status: "resolved" as const } : item
-            ) ?? [],
+            list?.map((item) => (item.id === id ? apply(item) : item)) ?? [],
           rollbackOnError: true,
           revalidate: false,
         }
       );
     } catch {
-      showToast("Couldn't resolve the ticket. Restored.");
+      showToast(failMessage);
     }
+  };
+
+  const onMoveTicket = async (id: number, status: TicketStatus) => {
+    if (selectedSiteId == null) return;
+    await patchTicket(
+      id,
+      () => setCallbackStatus(selectedSiteId, id, status),
+      (item) => ({
+        ...item,
+        status,
+        resolved_at: status === "resolved" ? new Date().toISOString() : null,
+        // Mirror the server's auto-assign so the chip updates instantly.
+        assignee_user_id:
+          status === "in_progress" && !item.assignee_user_id && userId
+            ? userId
+            : item.assignee_user_id,
+      }),
+      "Couldn't move the ticket. Restored.",
+    );
+  };
+
+  const onAssignTicket = async (id: number, assignee: string | null) => {
+    if (selectedSiteId == null) return;
+    await patchTicket(
+      id,
+      () => assignCallback(selectedSiteId, id, assignee),
+      (item) => ({ ...item, assignee_user_id: assignee }),
+      "Couldn't reassign the ticket. Restored.",
+    );
+  };
+
+  const onSetTicketArchived = async (id: number, archived: boolean) => {
+    if (selectedSiteId == null) return;
+    await patchTicket(
+      id,
+      () => archiveCallback(selectedSiteId, id, archived),
+      (item) => ({ ...item, archived }),
+      archived ? "Couldn't archive the ticket. Restored." : "Couldn't unarchive the ticket. Restored.",
+    );
   };
 
   const onInboxWaiting = useCallback((id: number) => {
@@ -393,7 +454,15 @@ function AppShell() {
           <Route
             path="/tickets"
             element={liveEnabled ? (
-              <TicketsPage callbacks={callbacks} onResolve={onResolveTicket} />
+              <TicketsPage
+                callbacks={callbacks}
+                operators={operators}
+                isOwner={isOwner}
+                currentUserId={userId}
+                onMove={onMoveTicket}
+                onAssign={onAssignTicket}
+                onSetArchived={onSetTicketArchived}
+              />
             ) : <Navigate to="/history" replace />}
           />
           <Route path="/knowledge" element={<AdminPage />} />

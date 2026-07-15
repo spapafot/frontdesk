@@ -107,7 +107,7 @@ class Settings(BaseSettings):
     widget_session_ttl_seconds: int = 900
     widget_monthly_limit: int = 5000
     live_human_escalation_enabled: bool = False
-    live_conversation_token_ttl_seconds: int = 86400
+    live_conversation_token_ttl_seconds: int = 14400
     live_socket_ticket_ttl_seconds: int = 60
     live_accept_timeout_seconds: int = 60
 

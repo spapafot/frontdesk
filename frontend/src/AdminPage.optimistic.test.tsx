@@ -147,7 +147,61 @@ describe("AdminPage optimistic knowledge-base actions", () => {
     expect(JSON.parse(String(linkCall?.init?.body))).toEqual({
       url: "https://acme.com/pricing",
     });
-    expect(await screen.findByText(/reading that page/i)).toBeInTheDocument();
+    expect(await screen.findByText(/page is queued/i)).toBeInTheDocument();
+  });
+
+  it("shows a queued file row before the upload request resolves", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (/\/sites($|\?|\/)/.test(url)) return json([SITE]);
+        if (url.includes("/knowledge/documents") && init?.method === "POST") {
+          return new Promise<Response>(() => {});
+        }
+        if (url.includes("/knowledge/documents")) return json([]);
+        return json({});
+      }),
+    );
+    const { container } = renderAdmin();
+
+    await screen.findByText(/no documents yet/i);
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(input).not.toBeNull();
+    await userEvent.upload(
+      input as HTMLInputElement,
+      new File(["hello"], "guide.txt", { type: "text/plain" }),
+    );
+
+    expect(await screen.findByText("guide.txt")).toBeInTheDocument();
+    expect(screen.getByText("Queued")).toBeInTheDocument();
+  });
+
+  it("closes the link disclaimer and shows a queued row immediately", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (/\/sites($|\?|\/)/.test(url)) return json([SITE]);
+        if (url.includes("/knowledge/links") && init?.method === "POST") {
+          return new Promise<Response>(() => {});
+        }
+        if (url.includes("/knowledge/documents")) return json([]);
+        return json({});
+      }),
+    );
+    renderAdmin();
+
+    const input = await screen.findByPlaceholderText(/example\.com/i);
+    await userEvent.type(input, "https://acme.com/help");
+    await userEvent.click(screen.getByRole("button", { name: "Add link" }));
+    await userEvent.click(screen.getByRole("checkbox"));
+    await userEvent.click(screen.getByRole("button", { name: /add page/i }));
+
+    expect(screen.queryByRole("button", { name: /add page/i })).not.toBeInTheDocument();
+    expect(input).toHaveValue("");
+    expect(await screen.findAllByText("https://acme.com/help")).toHaveLength(2);
+    expect(screen.getByText("Queued")).toBeInTheDocument();
   });
 
   it("rescans a link document on click", async () => {
@@ -287,6 +341,33 @@ describe("AdminPage FAQ entries", () => {
     expect(await screen.findByText(FAQ_DOC.title)).toBeInTheDocument();
   });
 
+  it("closes the FAQ dialog and shows a queued row before indexing finishes", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (/\/sites($|\?|\/)/.test(url)) return json([SITE]);
+        if (url.includes("/knowledge/faqs") && init?.method === "POST") {
+          return new Promise<Response>(() => {});
+        }
+        if (url.includes("/knowledge/documents")) return json([]);
+        return json({});
+      }),
+    );
+    renderAdmin();
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Add FAQ" }),
+    );
+    await userEvent.type(screen.getByLabelText(/question/i), FAQ_DOC.title);
+    await userEvent.type(screen.getByLabelText(/answer/i), FAQ_DOC.content);
+    await userEvent.click(screen.getByRole("button", { name: "Save FAQ" }));
+
+    expect(screen.queryByRole("button", { name: "Save FAQ" })).not.toBeInTheDocument();
+    expect(await screen.findByText(FAQ_DOC.title)).toBeInTheDocument();
+    expect(screen.getByText("Queued")).toBeInTheDocument();
+  });
+
   it("prefills the dialog when editing and saves via PUT", async () => {
     const calls: { url: string; init?: RequestInit }[] = [];
     const updated = { ...FAQ_DOC, content: "We are open 24/7 now." };
@@ -335,7 +416,7 @@ describe("AdminPage FAQ entries", () => {
     );
   });
 
-  it("keeps the dialog open and surfaces the server error detail on failure", async () => {
+  it("closes the dialog, rolls back the queued row, and shows a toast on failure", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
@@ -359,10 +440,9 @@ describe("AdminPage FAQ entries", () => {
     await userEvent.type(screen.getByLabelText(/answer/i), FAQ_DOC.content);
     await userEvent.click(screen.getByRole("button", { name: "Save FAQ" }));
 
-    expect(
-      await screen.findByText(/could not index the faq entry/i),
-    ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save FAQ" })).toBeInTheDocument();
+    expect(await screen.findByText(/could not index the faq entry/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save FAQ" })).not.toBeInTheDocument();
+    expect(screen.queryByText(FAQ_DOC.title)).not.toBeInTheDocument();
   });
 
   it("previews the stored chunks for an FAQ entry", async () => {

@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { SWRConfig } from "swr";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -107,7 +107,7 @@ describe("App shell", () => {
     expect(screen.queryByText(/^tickets$/i)).not.toBeInTheDocument();
   });
 
-  it("surfaces pending tickets in the sidebar and resolves them from the Tickets page", async () => {
+  it("surfaces pending tickets in the sidebar and works them across the board", async () => {
     const pendingTicket = {
       id: 1,
       conversation_id: 11,
@@ -115,6 +115,8 @@ describe("App shell", () => {
       customer_email: "vis@example.com",
       customer_message: "Please call me back.",
       status: "pending",
+      assignee_user_id: null,
+      archived: false,
       created_at: "2026-07-14T08:00:00Z",
       resolved_at: null,
     };
@@ -136,11 +138,19 @@ describe("App shell", () => {
         live_human_escalation_enabled: true,
         live_human_escalation_available: true,
       };
-      // The resolve POST must match before the callbacks list.
-      else if (url.includes("/live/callbacks/1/resolve") && init?.method === "POST") {
-        body = { ...pendingTicket, status: "resolved", resolved_at: "2026-07-14T09:00:00Z" };
+      // The status POST must match before the callbacks list.
+      else if (url.includes("/live/callbacks/1/status") && init?.method === "POST") {
+        const requested = JSON.parse(String(init.body)) as { status: string };
+        body = {
+          ...pendingTicket,
+          status: requested.status,
+          resolved_at: requested.status === "resolved" ? "2026-07-14T09:00:00Z" : null,
+        };
       }
       else if (url.includes("/live/callbacks")) body = [pendingTicket, resolvedTicket];
+      else if (url.includes("/live/operators")) {
+        body = [{ user_id: "owner-1", email: "owner@acme.com", is_owner: true }];
+      }
       else if (url.includes("/conversations")) body = [];
       else if (url.includes("/analytics")) body = {
         total_conversations: 0,
@@ -162,21 +172,29 @@ describe("App shell", () => {
     expect(ticketsNav.textContent).toContain("1");
     await userEvent.click(ticketsNav);
 
-    expect(await screen.findByText("Pending (1)")).toBeInTheDocument();
-    expect(screen.getByText("Vis Itor")).toBeInTheDocument();
-    expect(screen.getByText("vis@example.com")).toBeInTheDocument();
-    expect(screen.getByText("Please call me back.")).toBeInTheDocument();
-    expect(screen.getByText("Resolved (1)")).toBeInTheDocument();
+    // The board renders the three columns with the ticket under "New".
+    const newColumn = await screen.findByRole("region", { name: "New" });
+    expect(within(newColumn).getByText("Vis Itor")).toBeInTheDocument();
+    expect(within(newColumn).getByText("vis@example.com")).toBeInTheDocument();
+    expect(within(newColumn).getByText("Please call me back.")).toBeInTheDocument();
+    const resolvedColumn = screen.getByRole("region", { name: "Resolved" });
+    // A nameless ticket shows its email as the card title and in the email row.
+    expect(within(resolvedColumn).getAllByText("old@example.com").length).toBeGreaterThan(0);
 
-    await userEvent.click(screen.getByRole("button", { name: "Resolve" }));
+    // Start moves the card to In progress, then Resolve completes it.
+    await userEvent.click(within(newColumn).getByRole("button", { name: "Start" }));
+    const inProgressColumn = screen.getByRole("region", { name: "In progress" });
+    expect(await within(inProgressColumn).findByText("Vis Itor")).toBeInTheDocument();
+    await userEvent.click(within(inProgressColumn).getByRole("button", { name: "Resolve" }));
+    expect(await within(resolvedColumn).findByText("Vis Itor")).toBeInTheDocument();
 
-    expect(await screen.findByText("Resolved (2)")).toBeInTheDocument();
-    expect(screen.queryByText("Pending (1)")).not.toBeInTheDocument();
-    const resolveCall = fetchMock.mock.calls.find(([input]) =>
-      String(input).includes("/live/callbacks/1/resolve"),
+    const statusCalls = fetchMock.mock.calls.filter(([input]) =>
+      String(input).includes("/live/callbacks/1/status"),
     );
-    expect(resolveCall).toBeDefined();
-    expect((resolveCall?.[1] as RequestInit).method).toBe("POST");
+    expect(statusCalls.map(([, init]) => JSON.parse(String((init as RequestInit).body)))).toEqual([
+      { status: "in_progress" },
+      { status: "resolved" },
+    ]);
   });
 
   it("defaults to Live support when enabled and separates active work from history", async () => {

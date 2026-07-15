@@ -6,8 +6,8 @@ interface Props {
   open: boolean;
   /** Existing entry to edit, or null to add a new one. */
   doc: KnowledgeDocument | null;
-  /** Save the entry. Should reject with an Error whose message is shown. */
-  onSubmit: (question: string, answer: string) => Promise<void>;
+  /** Queue the entry; the parent closes this dialog synchronously. */
+  onSubmit: (question: string, answer: string) => void;
   onClose: () => void;
 }
 
@@ -15,7 +15,6 @@ interface Props {
 export function FaqDialog({ open, doc, onSubmit, onClose }: Props) {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Reset (or prefill, when editing) each time the dialog opens.
@@ -24,7 +23,6 @@ export function FaqDialog({ open, doc, onSubmit, onClose }: Props) {
       setQuestion(doc?.title ?? "");
       setAnswer(doc?.content ?? "");
       setError(null);
-      setBusy(false);
     }
   }, [open, doc]);
 
@@ -39,9 +37,8 @@ export function FaqDialog({ open, doc, onSubmit, onClose }: Props) {
 
   if (!open) return null;
 
-  const submit = async (e: FormEvent) => {
+  const submit = (e: FormEvent) => {
     e.preventDefault();
-    if (busy) return;
     const q = question.trim();
     const a = answer.trim();
     if (q.length < 5) {
@@ -52,15 +49,8 @@ export function FaqDialog({ open, doc, onSubmit, onClose }: Props) {
       setError("The answer must be at least 10 characters.");
       return;
     }
-    setBusy(true);
     setError(null);
-    try {
-      await onSubmit(q, a);
-      onClose();
-    } catch (err) {
-      setError((err as Error).message);
-      setBusy(false);
-    }
+    onSubmit(q, a);
   };
 
   return createPortal(
@@ -132,10 +122,9 @@ export function FaqDialog({ open, doc, onSubmit, onClose }: Props) {
           </button>
           <button
             type="submit"
-            disabled={busy}
-            className="rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-sky-700 disabled:opacity-60"
+            className="rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-sky-700"
           >
-            {busy ? "Saving…" : "Save FAQ"}
+            Save FAQ
           </button>
         </div>
       </form>
