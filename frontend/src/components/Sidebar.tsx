@@ -106,7 +106,7 @@ export function Sidebar({
 
       <div className="flex-1 overflow-y-auto px-2">
         <p className="px-2 py-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
-          History
+          Chat &amp; history
         </p>
         {conversations === undefined && (
           <div className="space-y-1" role="status" aria-label="Loading conversations">

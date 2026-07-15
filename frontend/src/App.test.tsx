@@ -85,6 +85,7 @@ describe("App shell", () => {
 
   it("renders navigation to the admin views", async () => {
     renderApp();
+    expect(await screen.findByText("Chat & history")).toBeInTheDocument();
     expect(await screen.findByText(/knowledge/i)).toBeInTheDocument();
     expect(screen.getByText(/settings/i)).toBeInTheDocument();
     expect(screen.getByText(/widget guide/i)).toBeInTheDocument();
