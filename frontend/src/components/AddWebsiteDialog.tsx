@@ -60,7 +60,7 @@ export function AddWebsiteDialog({ open, onSubmit, onClose }: Props) {
       <form
         onSubmit={submit}
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-sm space-y-4 rounded-xl bg-white p-5 shadow-xl"
+        className="w-full max-w-sm space-y-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl"
         role="dialog"
         aria-modal="true"
         aria-labelledby="add-website-title"
@@ -84,7 +84,7 @@ export function AddWebsiteDialog({ open, onSubmit, onClose }: Props) {
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="e.g. Acme Store"
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+            className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-sky-500"
           />
         </label>
 
@@ -97,7 +97,7 @@ export function AddWebsiteDialog({ open, onSubmit, onClose }: Props) {
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               placeholder="https://example.com"
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+              className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-sky-500"
             />
           </label>
           <p className="mt-1 text-xs text-slate-400">

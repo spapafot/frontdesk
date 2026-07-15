@@ -95,20 +95,27 @@ export function SettingsPage() {
   };
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="mx-auto flex min-h-full max-w-4xl flex-col p-4">
-        <h2 className="text-lg font-semibold text-slate-800">Settings</h2>
-        <p className="mt-1 text-sm text-slate-500">
+    <div className="flex h-full flex-col overflow-hidden">
+      <header className="shrink-0 border-b border-slate-200 bg-white px-6 py-5">
+        <h1 className="text-lg font-semibold text-slate-900">Settings</h1>
+        <p className="mt-0.5 text-sm text-slate-500">
           Configure how your assistant introduces itself, behaves, and looks on your site.
         </p>
+      </header>
+      <div className="flex-1 overflow-y-auto">
+      <div className="mx-auto flex min-h-full max-w-5xl flex-col p-6">
 
         {isLoading && <SettingsSkeleton />}
         {error && <p className="mt-4 text-sm text-red-600">Failed to load settings.</p>}
 
         {data && (
-          <form onSubmit={submit} className="mt-6 space-y-8">
+          <form onSubmit={submit} className="space-y-5">
             {/* Assistant */}
-            <section className="max-w-2xl space-y-5">
+            <section className="max-w-3xl space-y-5 rounded-2xl border border-slate-200 bg-white p-5">
+              <div>
+                <h2 className="text-sm font-semibold text-slate-900">Assistant</h2>
+                <p className="mt-0.5 text-xs text-slate-500">Set the identity and behavior used across this website.</p>
+              </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700">Business name</label>
                 <input
@@ -116,7 +123,7 @@ export function SettingsPage() {
                   value={businessName}
                   onChange={(e) => setBusinessName(e.target.value)}
                   required
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+                  className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-sky-500"
                 />
               </div>
 
@@ -127,7 +134,7 @@ export function SettingsPage() {
                   value={assistantName}
                   onChange={(e) => setAssistantName(e.target.value)}
                   required
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+                  className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-sky-500"
                 />
               </div>
 
@@ -145,7 +152,7 @@ export function SettingsPage() {
                   rows={6}
                   maxLength={4000}
                   placeholder="e.g. Always greet customers warmly. Refer to our company as 'the team'."
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+                  className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-sky-500"
                 />
                 <p className="mt-1 text-right text-xs text-slate-400">
                   {customInstructions.length}/4000
@@ -154,7 +161,7 @@ export function SettingsPage() {
             </section>
 
             {/* Widget appearance */}
-            <section className="border-t border-slate-200 pt-6">
+            <section className="rounded-2xl border border-slate-200 bg-white p-5">
               <h3 className="text-sm font-semibold text-slate-800">Widget appearance</h3>
               <p className="mt-1 text-xs text-slate-500">
                 Customize the chat launcher and window. The preview updates as you edit.
@@ -177,7 +184,8 @@ export function SettingsPage() {
             </section>
 
             {/* Website & access */}
-            <section className="max-w-2xl border-t border-slate-200 pt-6">
+            <section className="max-w-3xl rounded-2xl border border-slate-200 bg-white p-5">
+              <h3 className="text-sm font-semibold text-slate-900">Website & access</h3>
               <label className="block text-sm font-medium text-slate-700">Website origin</label>
               <p className="text-xs text-slate-400">
                 Exact HTTPS origin where the widget is installed.
@@ -187,7 +195,7 @@ export function SettingsPage() {
                 value={widgetOrigin}
                 onChange={(e) => setWidgetOrigin(e.target.value)}
                 placeholder="https://example.com"
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+                className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-sky-500"
               />
               <label className="mt-3 flex items-center gap-2 text-sm text-slate-700">
                 <input
@@ -225,7 +233,7 @@ export function SettingsPage() {
                   onChange={(e) => setNotificationEmail(e.target.value)}
                   maxLength={254}
                   placeholder="support@example.com"
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+                  className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-sky-500"
                 />
               </div>
               <p className="mt-2 text-xs text-slate-500">
@@ -238,7 +246,7 @@ export function SettingsPage() {
               <button
                 type="submit"
                 disabled={saving}
-                className="rounded-full bg-sky-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-sky-700 disabled:opacity-50"
+                className="rounded-xl bg-sky-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-sky-700 disabled:opacity-50"
               >
                 {saving ? "Saving..." : "Save settings"}
               </button>
@@ -265,7 +273,7 @@ export function SettingsPage() {
         )}
 
         {current && (
-          <section className="mt-8 max-w-2xl border-t border-slate-200 pt-6">
+          <section className="mt-5 max-w-3xl rounded-2xl border border-slate-200 bg-white p-5">
             <h3 className="text-sm font-semibold text-slate-800">Website</h3>
             <p className="mt-1 text-xs text-slate-500">
               Rename this website, or permanently delete it and everything in it.
@@ -274,7 +282,7 @@ export function SettingsPage() {
               <button
                 type="button"
                 onClick={() => setRenameOpen(true)}
-                className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
               >
                 Rename website
               </button>
@@ -282,7 +290,7 @@ export function SettingsPage() {
                 <button
                   type="button"
                   onClick={() => setDeleteOpen(true)}
-                  className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-600 transition hover:bg-red-50"
+                  className="rounded-xl border border-red-200 bg-white px-4 py-2.5 text-sm font-medium text-red-600 transition hover:bg-red-50"
                 >
                   Delete website
                 </button>
@@ -292,6 +300,7 @@ export function SettingsPage() {
         )}
 
         <TeamSection />
+      </div>
       </div>
 
       <RenameWebsiteDialog

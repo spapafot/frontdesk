@@ -47,7 +47,7 @@ export function ChunkPreviewDialog({ open, siteId, doc, onClose }: Props) {
       role="presentation"
     >
       <div
-        className="flex max-h-[80vh] w-full max-w-2xl flex-col rounded-xl bg-white p-5 shadow-xl"
+        className="flex max-h-[80vh] w-full max-w-2xl flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"

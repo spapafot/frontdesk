@@ -1,4 +1,5 @@
 import { DragEvent, useState } from "react";
+import { Check, ChevronRight, Copy } from "lucide-react";
 import { CallbackTicket, Operator, TicketStatus } from "../api/live";
 import { Skeleton } from "../components/Skeleton";
 
@@ -12,10 +13,25 @@ interface Props {
   onSetArchived: (id: number, archived: boolean) => void | Promise<void>;
 }
 
-const COLUMNS: { status: TicketStatus; title: string; pill: string }[] = [
-  { status: "pending", title: "New", pill: "bg-amber-100 text-amber-700" },
-  { status: "in_progress", title: "In progress", pill: "bg-sky-100 text-sky-700" },
-  { status: "resolved", title: "Resolved", pill: "bg-emerald-100 text-emerald-700" },
+const COLUMNS: { status: TicketStatus; title: string; pill: string; dot: string }[] = [
+  {
+    status: "pending",
+    title: "New",
+    pill: "bg-amber-100 text-amber-700",
+    dot: "bg-amber-400",
+  },
+  {
+    status: "in_progress",
+    title: "In progress",
+    pill: "bg-sky-100 text-sky-700",
+    dot: "bg-sky-500",
+  },
+  {
+    status: "resolved",
+    title: "Resolved",
+    pill: "bg-emerald-100 text-emerald-700",
+    dot: "bg-emerald-500",
+  },
 ];
 
 function formatTime(value: string): string {
@@ -54,7 +70,9 @@ function assigneeLabel(ticket: CallbackTicket, operators: Operator[] | undefined
 }
 
 const cardButton =
-  "rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-100";
+  "inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50";
+const primaryCardButton =
+  "inline-flex items-center gap-1 rounded-full bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-sky-700";
 
 function AssigneePicker({
   ticket,
@@ -69,8 +87,10 @@ function AssigneePicker({
 }) {
   const [open, setOpen] = useState(false);
   const label = assigneeLabel(ticket, operators);
-  const chip = `inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-xs ${
-    ticket.assignee_user_id ? "bg-slate-100 text-slate-700" : "bg-slate-50 text-slate-400"
+  const chip = `inline-flex max-w-full items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium ${
+    ticket.assignee_user_id
+      ? "border-slate-200 bg-slate-100 text-slate-700"
+      : "border-slate-200 bg-white text-slate-400"
   }`;
 
   // Solo account: the owner is the only possible assignee, so a picker would
@@ -171,10 +191,10 @@ function TicketCard({
         e.dataTransfer.setData("text/plain", String(ticket.id));
         e.dataTransfer.effectAllowed = "move";
       }}
-      className="cursor-grab rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm active:cursor-grabbing"
+      className="cursor-grab rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-slate-300 hover:shadow-md active:cursor-grabbing"
     >
-      <div className="flex items-baseline justify-between gap-2">
-        <p className="min-w-0 truncate text-sm font-medium text-slate-800">
+      <div className="flex items-start justify-between gap-3">
+        <p className="min-w-0 truncate text-sm font-semibold text-slate-900">
           {ticket.customer_name?.trim() || ticket.customer_email}
         </p>
         <span
@@ -185,24 +205,26 @@ function TicketCard({
         </span>
       </div>
 
-      <div className="mt-0.5 flex items-center gap-2">
+      <div className="mt-1 flex items-center gap-1.5">
         <span className="min-w-0 truncate text-xs text-slate-500">{ticket.customer_email}</span>
         <button
           type="button"
-          className="shrink-0 text-xs font-semibold text-slate-500 underline hover:text-slate-700"
+          aria-label={`Copy ${ticket.customer_email}`}
+          title="Copy email"
+          className="shrink-0 rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
           onClick={() => void navigator.clipboard.writeText(ticket.customer_email)}
         >
-          Copy
+          <Copy className="h-3.5 w-3.5" aria-hidden="true" />
         </button>
       </div>
 
       {ticket.customer_message?.trim() && (
-        <p className="mt-2 whitespace-pre-wrap text-sm text-slate-600 line-clamp-3">
+        <p className="mt-3 whitespace-pre-wrap text-sm leading-5 text-slate-600 line-clamp-3">
           {ticket.customer_message}
         </p>
       )}
 
-      <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2">
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
         <AssigneePicker
           ticket={ticket}
           operators={operators}
@@ -211,12 +233,14 @@ function TicketCard({
         />
         <div className="flex shrink-0 gap-1.5">
           {ticket.status === "pending" && (
-            <button type="button" className={cardButton} onClick={() => void onMove(ticket.id, "in_progress")}>
+            <button type="button" className={primaryCardButton} onClick={() => void onMove(ticket.id, "in_progress")}>
               Start
+              <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
             </button>
           )}
           {ticket.status === "in_progress" && (
-            <button type="button" className={cardButton} onClick={() => void onMove(ticket.id, "resolved")}>
+            <button type="button" className={primaryCardButton} onClick={() => void onMove(ticket.id, "resolved")}>
+              <Check className="h-3.5 w-3.5" aria-hidden="true" />
               Resolve
             </button>
           )}
@@ -242,6 +266,7 @@ function BoardColumn({
   title,
   status,
   pill,
+  dot,
   tickets,
   onDropTicket,
   ...cardProps
@@ -249,6 +274,7 @@ function BoardColumn({
   title: string;
   status: TicketStatus;
   pill: string;
+  dot: string;
   tickets: CallbackTicket[];
   onDropTicket: (id: number, status: TicketStatus) => void;
 } & Omit<Props, "callbacks">) {
@@ -269,22 +295,27 @@ function BoardColumn({
         const id = Number(e.dataTransfer.getData("text/plain"));
         if (Number.isInteger(id) && id > 0) onDropTicket(id, status);
       }}
-      className={`flex min-h-[10rem] flex-col rounded-xl bg-slate-100/70 p-2 transition ${
-        over ? "ring-2 ring-sky-300" : ""
+      className={`flex min-h-[18rem] flex-col rounded-2xl border p-3 transition ${
+        over
+          ? "border-sky-300 bg-sky-50/70 ring-2 ring-sky-200"
+          : "border-slate-200 bg-slate-100/80"
       }`}
     >
-      <div className="flex items-center gap-2 px-1 pb-2 pt-1">
-        <h3 className="text-sm font-semibold text-slate-700">{title}</h3>
+      <div className="flex items-center gap-2 px-1 pb-3 pt-1">
+        <span className={`h-2 w-2 rounded-full ${dot}`} aria-hidden="true" />
+        <h3 className="text-sm font-semibold text-slate-800">{title}</h3>
         <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${pill}`}>
           {tickets.length}
         </span>
       </div>
-      <div className="flex-1 space-y-2">
+      <div className="flex-1 space-y-3">
         {tickets.map((ticket) => (
           <TicketCard key={ticket.id} ticket={ticket} {...cardProps} />
         ))}
         {tickets.length === 0 && (
-          <p className="px-1 pt-1 text-xs text-slate-400">No tickets</p>
+          <div className="flex min-h-28 items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white/50 px-4 text-center">
+            <p className="text-xs text-slate-400">No tickets</p>
+          </div>
         )}
       </div>
     </section>
@@ -304,34 +335,35 @@ export function TicketsPage({ callbacks, ...rest }: Props) {
   };
 
   return (
-    <div className="mx-auto h-full max-w-5xl overflow-y-auto p-4">
-      <h2 className="text-lg font-semibold text-slate-800">Tickets</h2>
-      <p className="mt-1 text-sm text-slate-500">
-        Visitors who asked for help while no one was available. New tickets are also sent to
-        your notification email.
-      </p>
+    <div className="flex h-full flex-col overflow-hidden">
+      <header className="shrink-0 border-b border-slate-200 bg-white px-6 py-5">
+        <h1 className="text-lg font-semibold text-slate-900">Tickets</h1>
+        <p className="mt-0.5 text-sm text-slate-500">
+          Visitors who asked for help while no one was available. New tickets are also sent to
+          your notification email.
+        </p>
+      </header>
+      <div className="flex-1 overflow-y-auto p-6">
+      <div className="mx-auto max-w-7xl">
 
       {callbacks === undefined && (
-        <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3" role="status" aria-label="Loading tickets">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3" role="status" aria-label="Loading tickets">
           {Array.from({ length: 3 }).map((_, index) => (
             <Skeleton key={index} className="h-40 w-full rounded-xl" />
           ))}
         </div>
       )}
 
-      {callbacks !== undefined && callbacks.length === 0 && (
-        <p className="mt-6 text-sm text-slate-400">No tickets yet.</p>
-      )}
-
-      {callbacks !== undefined && callbacks.length > 0 && (
+      {callbacks !== undefined && (
         <>
-          <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="grid grid-cols-1 items-start gap-5 md:grid-cols-3">
             {COLUMNS.map((column) => (
               <BoardColumn
                 key={column.status}
                 title={column.title}
                 status={column.status}
                 pill={column.pill}
+                dot={column.dot}
                 tickets={active.filter((t) => t.status === column.status)}
                 onDropTicket={onDropTicket}
                 {...rest}
@@ -340,7 +372,7 @@ export function TicketsPage({ callbacks, ...rest }: Props) {
           </div>
 
           {archived.length > 0 && (
-            <section className="mt-6">
+            <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-4">
               <button
                 type="button"
                 onClick={() => setShowArchived((v) => !v)}
@@ -370,7 +402,7 @@ export function TicketsPage({ callbacks, ...rest }: Props) {
                   {archived.map((ticket) => (
                     <li
                       key={ticket.id}
-                      className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-slate-200 bg-white px-3 py-2"
+                      className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-slate-50 px-3 py-2.5"
                     >
                       <span className="min-w-0 truncate text-sm text-slate-600">
                         {ticket.customer_name?.trim() || ticket.customer_email}
@@ -396,6 +428,8 @@ export function TicketsPage({ callbacks, ...rest }: Props) {
           )}
         </>
       )}
+      </div>
+      </div>
     </div>
   );
 }

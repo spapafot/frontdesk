@@ -76,7 +76,7 @@ export function WidgetInstall({
   };
 
   return (
-    <div className="mt-8 border-t border-slate-200 pt-6">
+    <section className="mt-5 max-w-3xl rounded-2xl border border-slate-200 bg-white p-5">
       <h3 className="text-sm font-semibold text-slate-800">
         Install on your website
       </h3>
@@ -95,7 +95,7 @@ export function WidgetInstall({
         <label className="block text-xs font-medium text-slate-600">
           Site key
         </label>
-        <code className="mt-1 block w-full break-all rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+        <code className="mt-1.5 block w-full break-all rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-700">
           {siteKey}
         </code>
       </div>
@@ -104,13 +104,13 @@ export function WidgetInstall({
         <label className="block text-xs font-medium text-slate-600">
           Embed snippet
         </label>
-        <pre className="mt-1 overflow-x-auto rounded-lg border border-slate-200 bg-slate-900 px-3 py-3 text-xs leading-relaxed text-slate-100">
+        <pre className="mt-1.5 overflow-x-auto rounded-xl bg-slate-900 p-4 text-xs leading-relaxed text-slate-100">
           {snippet}
         </pre>
         <button
           type="button"
           onClick={copy}
-          className="mt-2 rounded-full bg-slate-800 px-4 py-1.5 text-xs font-medium text-white transition hover:bg-slate-700"
+          className="mt-2 rounded-xl bg-slate-800 px-4 py-2 text-xs font-medium text-white transition hover:bg-slate-700"
         >
           {copied ? "Copied" : "Copy snippet"}
         </button>
@@ -131,11 +131,11 @@ export function WidgetInstall({
               setRotating(false);
             }
           }}
-          className="ml-2 rounded-full border border-red-300 px-4 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-50 disabled:opacity-50"
+          className="ml-2 rounded-xl border border-red-200 px-4 py-2 text-xs font-medium text-red-700 transition hover:bg-red-50 disabled:opacity-50"
         >
           {rotating ? "Rotating..." : "Rotate key"}
         </button>
       </div>
-    </div>
+    </section>
   );
 }

@@ -56,6 +56,14 @@ function makeDataTransfer() {
 afterEach(cleanup);
 
 describe("TicketsPage board", () => {
+  it("keeps all three columns visible when the board is empty", () => {
+    renderPage({ callbacks: [] });
+
+    expect(screen.getByRole("region", { name: "New" })).toHaveTextContent("No tickets");
+    expect(screen.getByRole("region", { name: "In progress" })).toHaveTextContent("No tickets");
+    expect(screen.getByRole("region", { name: "Resolved" })).toHaveTextContent("No tickets");
+  });
+
   it("places tickets in their status columns and hides archived ones", () => {
     renderPage({
       callbacks: [

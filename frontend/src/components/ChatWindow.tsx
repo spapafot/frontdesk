@@ -25,7 +25,7 @@ export function ChatWindow({ messages, showDebug, isLoadingHistory }: Props) {
 
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="mx-auto w-full max-w-2xl space-y-4 p-4">
+      <div className="mx-auto w-full max-w-3xl space-y-4 px-6 py-6">
         {isLoadingHistory && (
           <div className="space-y-4" role="status" aria-label="Loading conversation">
             {HISTORY_SKELETON.map((b, idx) => (
@@ -36,8 +36,9 @@ export function ChatWindow({ messages, showDebug, isLoadingHistory }: Props) {
           </div>
         )}
         {!isLoadingHistory && messages.length === 0 && (
-          <div className="mx-auto mt-10 max-w-md text-center text-sm text-slate-500">
-            <p className="text-base font-medium text-slate-700">How can I help you?</p>
+          <div className="mx-auto mt-16 max-w-md text-center text-sm text-slate-500">
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-100 text-xl text-sky-600">✦</div>
+            <p className="text-base font-semibold text-slate-800">How can I help you?</p>
             <p className="mt-2">
               Upload a file and I'll answer your questions about the content.
             </p>

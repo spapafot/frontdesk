@@ -72,6 +72,12 @@ function renderAdmin() {
   );
 }
 
+async function openKnowledgeTab(name: "Documents" | "Web pages" | "FAQs") {
+  await userEvent.click(
+    await screen.findByRole("tab", { name: new RegExp(`^${name}`, "i") }),
+  );
+}
+
 beforeEach(() => {
   localStorage.clear();
 });
@@ -121,6 +127,8 @@ describe("AdminPage optimistic knowledge-base actions", () => {
       }),
     );
     renderAdmin();
+
+    await openKnowledgeTab("Web pages");
 
     const input = await screen.findByPlaceholderText(/example\.com/i);
     await userEvent.type(input, "https://acme.com/pricing");
@@ -192,6 +200,8 @@ describe("AdminPage optimistic knowledge-base actions", () => {
     );
     renderAdmin();
 
+    await openKnowledgeTab("Web pages");
+
     const input = await screen.findByPlaceholderText(/example\.com/i);
     await userEvent.type(input, "https://acme.com/help");
     await userEvent.click(screen.getByRole("button", { name: "Add link" }));
@@ -219,6 +229,8 @@ describe("AdminPage optimistic knowledge-base actions", () => {
       }),
     );
     renderAdmin();
+
+    await openKnowledgeTab("Web pages");
 
     await screen.findByText("Pricing");
     await userEvent.click(screen.getByRole("button", { name: "Rescan" }));
@@ -293,6 +305,8 @@ describe("AdminPage FAQ entries", () => {
     stubFetchDocs([DOC, FAQ_DOC]);
     renderAdmin();
 
+    await openKnowledgeTab("FAQs");
+
     // Rendered exactly once: the Documents filter must exclude type "faq".
     await screen.findByText(FAQ_DOC.title);
     expect(screen.getAllByText(FAQ_DOC.title)).toHaveLength(1);
@@ -314,6 +328,8 @@ describe("AdminPage FAQ entries", () => {
       }),
     );
     renderAdmin();
+
+    await openKnowledgeTab("FAQs");
 
     await userEvent.click(
       await screen.findByRole("button", { name: "Add FAQ" }),
@@ -356,6 +372,8 @@ describe("AdminPage FAQ entries", () => {
     );
     renderAdmin();
 
+    await openKnowledgeTab("FAQs");
+
     await userEvent.click(
       await screen.findByRole("button", { name: "Add FAQ" }),
     );
@@ -383,6 +401,8 @@ describe("AdminPage FAQ entries", () => {
       }),
     );
     renderAdmin();
+
+    await openKnowledgeTab("FAQs");
 
     await screen.findByText(FAQ_DOC.title);
     await userEvent.click(screen.getByRole("button", { name: "Edit" }));
@@ -433,6 +453,8 @@ describe("AdminPage FAQ entries", () => {
     );
     renderAdmin();
 
+    await openKnowledgeTab("FAQs");
+
     await userEvent.click(
       await screen.findByRole("button", { name: "Add FAQ" }),
     );
@@ -464,6 +486,8 @@ describe("AdminPage FAQ entries", () => {
       }),
     );
     renderAdmin();
+
+    await openKnowledgeTab("FAQs");
 
     await screen.findByText(FAQ_DOC.title);
     await userEvent.click(screen.getByRole("button", { name: "Preview" }));

@@ -1,0 +1,118 @@
+---
+import DeviceFrame from "./DeviceFrame.astro";
+
+const columns = [
+  {
+    title: "New",
+    count: 2,
+    dot: "bg-amber-400",
+    pill: "bg-amber-100 text-amber-700",
+    tickets: [
+      {
+        name: "Maria P.",
+        email: "maria@example.com",
+        message: "I still haven't received a shipping confirmation.",
+        time: "2h ago",
+        assignee: "Unassigned",
+        action: "Start",
+        primary: true,
+      },
+      {
+        name: "Kostas A.",
+        email: "kostas@example.com",
+        message: "My package arrived damaged.",
+        time: "5h ago",
+        assignee: "Unassigned",
+        action: "Start",
+        primary: true,
+      },
+    ],
+  },
+  {
+    title: "In progress",
+    count: 1,
+    dot: "bg-sky-500",
+    pill: "bg-sky-100 text-sky-700",
+    tickets: [
+      {
+        name: "Elena S.",
+        email: "elena@example.com",
+        message: "Can I change the size on my recent order?",
+        time: "Yesterday",
+        assignee: "Aria",
+        action: "Resolve",
+        primary: true,
+      },
+    ],
+  },
+  {
+    title: "Resolved",
+    count: 1,
+    dot: "bg-emerald-500",
+    pill: "bg-emerald-100 text-emerald-700",
+    tickets: [
+      {
+        name: "Sofia K.",
+        email: "sofia@example.com",
+        message: "Thank you for resolving my issue so quickly!",
+        time: "2d ago",
+        assignee: "You",
+        action: "Reopen",
+        primary: false,
+      },
+    ],
+  },
+];
+---
+
+<DeviceFrame label="Tickets · Angels Fashion">
+  <div class="border-b border-slate-200 bg-white px-5 py-4">
+    <p class="text-sm font-semibold text-slate-900">Tickets</p>
+    <p class="mt-0.5 text-xs text-slate-500">Callback requests waiting for your team.</p>
+  </div>
+
+  <div class="grid grid-cols-1 items-start gap-3 bg-slate-50 p-4 sm:grid-cols-3">
+    {
+      columns.map((column) => (
+        <section class="min-h-48 rounded-2xl border border-slate-200 bg-slate-100 p-2.5">
+          <div class="flex items-center gap-1.5 px-0.5 pb-2.5">
+            <span class={`h-2 w-2 rounded-full ${column.dot}`} aria-hidden="true" />
+            <h3 class="truncate text-xs font-semibold text-slate-800">{column.title}</h3>
+            <span class={`ml-auto rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${column.pill}`}>
+              {column.count}
+            </span>
+          </div>
+
+          <div class="space-y-2">
+            {column.tickets.map((ticket) => (
+              <article class="rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm">
+                <div class="flex items-start justify-between gap-2">
+                  <p class="truncate text-xs font-semibold text-slate-900">{ticket.name}</p>
+                  <span class="shrink-0 text-[9px] text-slate-400">{ticket.time}</span>
+                </div>
+                <p class="mt-0.5 truncate text-[10px] text-slate-500">{ticket.email}</p>
+                <p class="mt-2 line-clamp-2 text-[10px] leading-4 text-slate-600">
+                  {ticket.message}
+                </p>
+                <div class="mt-2.5 flex flex-wrap items-center justify-between gap-1.5 border-t border-slate-100 pt-2">
+                  <span class="max-w-full truncate rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[9px] font-medium text-slate-500">
+                    {ticket.assignee}
+                  </span>
+                  <span
+                    class={`rounded-full px-2 py-1 text-[9px] font-semibold ${
+                      ticket.primary
+                        ? "bg-sky-600 text-white"
+                        : "border border-slate-300 bg-white text-slate-700"
+                    }`}
+                  >
+                    {ticket.action}
+                  </span>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      ))
+    }
+  </div>
+</DeviceFrame>

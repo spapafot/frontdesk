@@ -44,56 +44,18 @@ behavior, monthly usage, and whether live human handoff is available.
 
 ![Widget installation and security settings](assets/readme/widget-installation-settings.png)
 
-### Live human handoff
+## Features
 
-When a visitor needs a person, the conversation can hand off from the AI to the site
-owner in real time - the AI stops answering and the owner takes over the same thread:
-
-- The widget reveals a **Need more help? / Talk to a person** action after the visitor
-  has sent a few messages; the threshold survives a refresh and resets on a new
-  conversation.
-- The owner sees a live badge and hears a sound in the dashboard, toggles an
-  **Online / Offline** presence, and accepts a waiting conversation to take over.
-- If no owner is online (or none accepts within the timeout), the visitor is offered a
-  **callback form**; requests land in a dashboard callback queue the owner can resolve.
-- Handoff, messages, and closure flow over WebSockets held at the edge, while the
-  backend remains the single authority for who is assigned and what was said.
-
-The feature is dark-launched behind deployment flags and a per-site toggle, so it is
-invisible until explicitly enabled.
-
-## Highlights
-
-- **Hybrid, reranked retrieval-augmented generation:** OpenAI `text-embedding-3-large`
-  embeddings (1536 dims) and PostgreSQL full-text search, fused with Reciprocal Rank
-  Fusion over pgvector cosine (HNSW) and lexical results, a Jina cross-encoder reranker
-  over a wide candidate set, and follow-up query contextualization for standalone
-  retrieval.
-- **Multilingual streaming chat:** DeepSeek V4-Flash (OpenAI-compatible API, thinking
-  off) streams grounded answers over SSE.
-- **Asynchronous ingestion pipeline:** file uploads and fetched web pages are stored in
-  S3 and queued to a dedicated ingestion Lambda that extracts, normalizes, filters junk
-  fragments, chunks with overlap, and embeds - off the request path, with a dead-letter
-  queue for failures and re-ingestion without re-uploading.
-- **Live human handoff:** an AI→human escalation state machine with atomic single-winner
-  acceptance, accept timeouts, and a callback fallback, carried over Cloudflare Durable
-  Objects using WebSocket Hibernation while PostgreSQL stays the source of truth.
-- **Multi-site workspace:** one owner manages many websites, each an isolated tenant
-  with its own assistant, documents, conversations, analytics, and widget.
-- **Embeddable widget:** a small dependency-free loader, Shadow DOM launcher, and
-  isolated iframe chat application.
-- **Bot protection:** Cloudflare Turnstile guards the widget session bootstrap. The
-  edge Worker verifies the token (checking hostname and action) before the backend
-  will issue a session, and the backend trusts only the Worker's attestation header -
-  never the raw token.
-- **Public endpoint protection:** exact-origin widget bootstrap, short-lived signed
-  sessions, key rotation, installation disablement, message-size validation, and
-  atomic monthly quotas.
-- **Edge controls:** Cloudflare rate limits public chat by client IP and installation,
-  throttles widget-session and live-connection attempts, and a shared edge secret
-  blocks direct access to the Lambda origin.
-- **Operational visibility:** conversation history, live/waiting queue, customer
-  ratings, unanswered question reporting, and retrieved-source debugging.
+- **Hybrid, reranked retrieval-augmented generation:**
+- **Multilingual streaming chat:**
+- **Asynchronous ingestion pipeline:**
+- **Live human handoff:**
+- **Multi-site workspace:**
+- **Embeddable widget:**
+- **Bot protection:**
+- **Public endpoint protection:**
+- **Edge controls:**
+- **Operational visibility:**
 
 ## Architecture
 
@@ -158,55 +120,6 @@ model call:
    grounded answer over SSE, emitting structured `conversation`/`sources`/`token`/
    `done` events.
 
-### Live human escalation
-
-When live support is enabled, the FastAPI Lambda remains the authorization and
-persistence authority; PostgreSQL owns conversation mode, assignment, messages,
-idempotency, audit events, and callback tickets. Cloudflare holds the idle WebSockets
-across two Durable Objects using WebSocket Hibernation:
-
-- **`ConversationRoom`** (keyed by conversation ID) joins the visitor and the owner and
-  brokers escalate / accept / message / cancel / close, plus a SQLite alarm that commits
-  the accept timeout.
-- **`BusinessInbox`** (keyed by site/profile ID) tracks manual owner presence and pushes
-  waiting alerts and transitions to the dashboard.
-
-The ordering rule is **authorize → persist → acknowledge → broadcast**. The browser
-never sees the edge secret: Lambda mints a 60-second signed socket ticket that the
-Worker redeems through `/internal/live/authorize`, validating that its scope matches
-the requested Durable Object before forwarding trusted claims. Visitor access also
-requires a conversation-scoped token whose random session identifier is stored only as
-a SHA-256 hash.
-
-Acceptance uses a conditional `UPDATE ... RETURNING`, so exactly one operator can win.
-The AI service checks `mode == ai` before doing work and again before saving output,
-and the widget aborts the active SSE request on escalation. State transitions:
-
-```text
-ai -> waiting -> human -> closed
-         |
-         +-> pending_ticket -> closed     (offline / accept timeout)
-         +---- visitor cancel ----------------------> ai
-```
-
-See [docs/LIVE_HUMAN_ESCALATION.md](docs/LIVE_HUMAN_ESCALATION.md) for the full design
-and [docs/LIVE_HUMAN_ESCALATION_RUNBOOK.md](docs/LIVE_HUMAN_ESCALATION_RUNBOOK.md) for
-the staged deployment checklist.
-
-### Asynchronous ingestion
-
-Ingestion runs off the request path across the two Lambdas:
-
-1. An admin upload is validated (type and 10 MB limit) or a URL is fetched and cleaned
-   by Jina Reader, stored encrypted in the S3 upload bucket, recorded as a `queued`
-   source, and enqueued to SQS. The API responds `202 Accepted` immediately.
-2. The SQS-triggered ingestion Lambda downloads the object, marks it `processing`, then
-   extracts, chunks, and embeds it (the `.doc` path uses the `antiword` binary baked
-   into the ingestion image; fetched pages reuse the text extractor).
-3. On success the source flips to `ready` and its S3 object is deleted; on an
-   unsupported file or extraction error it is marked `failed`. Transient errors retry
-   up to three times before the message lands in the dead-letter queue.
-
 ## Technology
 
 | Area           | Stack                                                             |
@@ -258,20 +171,6 @@ Start PostgreSQL and the API, then apply the schema:
 docker compose up -d --build
 docker compose run --rm backend alembic upgrade head
 ```
-
-The API is available at `http://localhost:8000`; `GET /health` is the health check.
-Authentication is optional in local development and required when the Supabase JWT
-secret is configured.
-
-Document ingestion runs on AWS: uploads are stored in S3 and processed by a separate
-SQS-triggered Lambda. To exercise uploads locally, set `INGESTION_BUCKET`,
-`INGESTION_QUEUE_URL`, and `AWS_REGION` (pointing at real or emulated S3/SQS) and run
-the ingestion handler against the queue; without them the upload endpoint returns
-`503`.
-
-Live human escalation is off unless `LIVE_HUMAN_ESCALATION_ENABLED=true`, the Worker
-flag is set, and a site enables it - the real-time WebSocket transport requires the
-deployed Cloudflare Durable Objects.
 
 ### Frontend
 
@@ -337,15 +236,6 @@ npm run check
 npm test
 ```
 
-The backend suite covers authentication rejection, edge-secret enforcement, Turnstile
-attestation on the widget bootstrap, per-site isolation, foreign conversation IDs,
-message limits, signed widget sessions, live socket-ticket authorization and the live
-escalation repository, chat guardrails, asynchronous ingestion queueing and status
-transitions, secret redaction, and the absence of retired voice endpoints. Frontend
-tests cover authentication, the site switcher, the application shell, and the live
-conversation UI. The Cloudflare Worker has its own type-check and Vitest suite for edge
-auth, rate limiting, and Durable Object routing.
-
 ## Maintenance Scripts
 
 - `backend/reingest_documents.py` rebuilds chunks and embeddings from each stored
@@ -353,47 +243,4 @@ auth, rate limiting, and Durable Object routing.
 - `backend/reindex_embeddings.py` regenerates vectors for existing chunks without
   changing chunk boundaries.
 
-## Deployment Notes
-
-The production design uses Cloudflare Pages for the admin application and widget
-assets, a Cloudflare Worker for edge authentication, Turnstile verification, rate
-limiting, and the live-support Durable Objects, and Supabase for authentication and
-pgvector data. The backend runs as two AWS Lambda container images built from separate
-Dockerfiles:
-
-- **API Lambda** (`Dockerfile.lambda`, `requirements-api.txt`) - FastAPI behind the
-  Lambda Web Adapter with response streaming for SSE. Deployed by
-  `deploy/aws/deploy-backend.sh`; migrations are applied separately with
-  `deploy/aws/migrate-backend.sh` (Alembic run from the same image).
-- **Ingestion Lambda** (`Dockerfile.ingestion.lambda`, `requirements-ingestion.txt`) -
-  the SQS-triggered document processor, with `antiword` for legacy `.doc` files.
-  Deployed by `deploy/aws/deploy-ingestion.sh`.
-
-Production requires separate random values for `EDGE_SHARED_SECRET` and
-`WIDGET_SESSION_SECRET`. The widget CDN must be present in `WIDGET_ALLOWED_ORIGINS`;
-customer websites are authorized individually through each installation's exact origin
-rather than a global wildcard. The API Lambda also needs `INGESTION_BUCKET` and
-`INGESTION_QUEUE_URL` to accept uploads.
-
-Turnstile enforcement is opt-in and staged: deploy the validating Worker first
-(`TURNSTILE_SECRET_KEY`, `TURNSTILE_EXPECTED_HOSTNAME`, `TURNSTILE_EXPECTED_ACTION`),
-then set `TURNSTILE_REQUIRED=true` on the backend so it rejects any widget session
-that did not arrive with the Worker's verification header.
-
-Live human escalation is released dark and enabled in stages: the Worker deploys the
-two Durable Object classes (the `v1-live-support` migration), then
-`LIVE_HUMAN_ESCALATION_ENABLED` is turned on for the Lambda and the Worker, and finally
-per site in **Settings**. It rolls back configuration-first without touching ordinary
-AI data. See the runbook under `docs/` for the exact order.
-
-## Documentation
-
-- [docs/DEPLOY.md](docs/DEPLOY.md) - end-to-end deployment.
-- [docs/WIDGET.md](docs/WIDGET.md) - widget build, install snippet, and embedding.
-- [docs/widget-security.md](docs/widget-security.md) - widget authorization model.
-- [docs/RAG_IMPROVEMENTS.md](docs/RAG_IMPROVEMENTS.md) - retrieval and reranking notes.
-- [docs/MODELS.md](docs/MODELS.md) - chat and embedding model choices.
-- [docs/LIVE_HUMAN_ESCALATION.md](docs/LIVE_HUMAN_ESCALATION.md) and
-  [docs/LIVE_HUMAN_ESCALATION_RUNBOOK.md](docs/LIVE_HUMAN_ESCALATION_RUNBOOK.md) -
-  live handoff design and deployment.
   </content>

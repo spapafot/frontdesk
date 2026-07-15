@@ -62,7 +62,7 @@ export function FaqDialog({ open, doc, onSubmit, onClose }: Props) {
       <form
         onSubmit={submit}
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-lg space-y-4 rounded-xl bg-white p-5 shadow-xl"
+        className="w-full max-w-lg space-y-5 rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl"
         role="dialog"
         aria-modal="true"
         aria-labelledby="faq-dialog-title"

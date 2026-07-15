@@ -37,9 +37,9 @@ function ratingBadge(rating: string | null) {
 
 function MetricCard({ label, value }: { label: string; value: number | string }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4">
-      <p className="text-2xl font-semibold text-slate-800">{value}</p>
-      <p className="mt-1 text-xs uppercase tracking-wide text-slate-400">{label}</p>
+    <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4">
+      <p className="text-3xl font-semibold text-slate-900">{value}</p>
+      <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</p>
     </div>
   );
 }
@@ -81,24 +81,27 @@ export function AnalyticsPage({ onOpenConversation }: Props) {
   };
 
   return (
-    <div className="mx-auto h-full max-w-4xl overflow-y-auto p-4">
-      <h2 className="text-lg font-semibold text-slate-800">Logs & analytics</h2>
-      <p className="mt-1 text-sm text-slate-500">
-        Conversation volume, customer ratings, and questions the assistant could not answer.
-      </p>
+    <div className="flex h-full flex-col overflow-hidden">
+      <header className="shrink-0 border-b border-slate-200 bg-white px-6 py-5">
+        <h1 className="text-lg font-semibold text-slate-900">Logs & analytics</h1>
+        <p className="mt-0.5 text-sm text-slate-500">
+          Conversation volume, customer ratings, and questions the assistant could not answer.
+        </p>
+      </header>
+      <div className="flex-1 overflow-y-auto p-6">
 
       {isLoading && <AnalyticsSkeleton />}
 
       {analytics && (
         <>
-          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <MetricCard label="Conversations" value={analytics.total_conversations} />
             <MetricCard label="Last 7 days" value={analytics.last_7_days} />
             <MetricCard label="Helpful" value={analytics.ratings.up} />
             <MetricCard label="Not helpful" value={analytics.ratings.down} />
           </div>
 
-          <section className="mt-8">
+          <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
             <h3 className="text-sm font-semibold text-slate-700">
               Unanswered questions ({analytics.unanswered.length})
             </h3>
@@ -113,7 +116,7 @@ export function AnalyticsPage({ onOpenConversation }: Props) {
               {analytics.unanswered.map((item, idx) => (
                 <div
                   key={`${item.conversation_id}-${idx}`}
-                  className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2"
+                  className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2.5"
                 >
                   <div className="min-w-0">
                     <p className="truncate text-sm text-slate-700">{item.question}</p>
@@ -133,9 +136,9 @@ export function AnalyticsPage({ onOpenConversation }: Props) {
             </div>
           </section>
 
-          <section className="mt-8">
-            <h3 className="text-sm font-semibold text-slate-700">Recent conversations</h3>
-            <div className="mt-3 overflow-x-auto rounded-lg border border-slate-200">
+          <section className="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+            <h3 className="border-b border-slate-100 px-5 py-4 text-sm font-semibold text-slate-900">Recent conversations</h3>
+            <div className="overflow-x-auto">
               <table className="w-full min-w-[32rem] border-collapse text-sm">
                 <thead>
                   <tr className="bg-slate-50 text-left text-xs uppercase text-slate-400">
@@ -206,7 +209,7 @@ export function AnalyticsPage({ onOpenConversation }: Props) {
           role="presentation"
         >
           <div
-            className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-xl bg-white shadow-xl"
+            className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-2xl bg-white shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="border-b border-slate-200 p-4">
@@ -257,6 +260,7 @@ export function AnalyticsPage({ onOpenConversation }: Props) {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

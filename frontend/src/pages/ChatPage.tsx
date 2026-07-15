@@ -96,15 +96,15 @@ export function ChatPage({
 
   return (
     <div className="flex h-full flex-col">
-      <header className="px-4 pt-4">
-        <div className="mx-auto flex w-full max-w-2xl items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3">
+      <header className="shrink-0 border-b border-slate-200 bg-white px-6 py-4">
+        <div className="flex w-full items-center justify-between gap-4">
           <div>
             {settings ? (
               <>
-                <h1 className="text-sm font-semibold text-slate-800">
+                <h1 className="text-lg font-semibold text-slate-900">
                   {section === "live" ? "Live support" : settings.assistant_name}
                 </h1>
-                <p className="text-xs text-slate-500">{settings.business_name}</p>
+                <p className="mt-0.5 text-sm text-slate-500">{settings.business_name}</p>
               </>
             ) : (
               <div role="status" aria-label="Loading assistant">

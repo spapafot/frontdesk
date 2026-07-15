@@ -49,11 +49,18 @@ export function LiveConversation({
     return displayName;
   };
 
+  const composerPlaceholder =
+    state.mode === "human"
+      ? "Reply to visitor…"
+      : state.mode === "closed"
+        ? "This conversation has ended"
+        : "Accept the conversation to reply";
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {status && (
-        <div className="px-4 pt-2">
-          <div className={`mx-auto flex w-full max-w-2xl items-center justify-between gap-4 rounded-xl border px-4 py-3 ${status.className}`}>
+        <div className="px-6 pt-5">
+          <div className={`mx-auto flex w-full max-w-3xl items-center justify-between gap-4 rounded-2xl border px-5 py-4 ${status.className}`}>
             <div className="min-w-0">
               <p className="text-sm font-semibold">{status.title}</p>
               <p className="mt-0.5 text-xs opacity-75">{status.description}</p>
@@ -81,14 +88,14 @@ export function LiveConversation({
           </div>
         </div>
       )}
-      <div className="flex-1 overflow-y-auto p-4">
-        <div className="mx-auto w-full max-w-2xl space-y-3">
+      <div className="flex-1 overflow-y-auto p-6">
+        <div className="mx-auto w-full max-w-3xl space-y-3">
           {(state.messages ?? []).map((item) => {
             const visitor = item.sender_type === "visitor";
             const label = senderLabel(item.sender_type, item.sender_display_name);
             return (
               <div key={item.id} className={`flex ${visitor ? "justify-start" : "justify-end"}`}>
-                <div className={`max-w-[75%] rounded-xl px-3 py-2 text-sm shadow-sm ${visitor ? "border border-slate-200 bg-white text-slate-800" : item.sender_type === "operator" ? "bg-sky-600 text-white" : "border border-sky-200 bg-sky-50 text-sky-950"}`}>
+                <div className={`max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${visitor ? "rounded-bl-sm border border-slate-200 bg-white text-slate-800 shadow-sm" : item.sender_type === "operator" ? "rounded-br-sm bg-sky-600 text-white" : "rounded-br-sm border border-sky-200 bg-sky-50 text-sky-950"}`}>
                   {label && <div className="mb-0.5 text-[11px] font-medium opacity-70">{label}</div>}
                   {item.content}
                 </div>
@@ -98,16 +105,16 @@ export function LiveConversation({
         </div>
       </div>
       {error && <p className="mx-auto w-full max-w-2xl px-4 pb-2 text-xs text-red-600">{error}</p>}
-      <div className="border-t border-slate-200 p-4">
-        <form onSubmit={submit} className="mx-auto flex w-full max-w-2xl gap-2">
+      <div className="border-t border-slate-200 bg-white p-4">
+        <form onSubmit={submit} className="mx-auto flex w-full max-w-3xl gap-2">
           <input
             value={message}
             onChange={(event) => setMessage(event.target.value)}
             disabled={state.mode !== "human"}
-            placeholder={state.mode === "human" ? "Reply to visitor…" : "Accept the conversation to reply"}
-            className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-50"
+            placeholder={composerPlaceholder}
+            className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50"
           />
-          <button disabled={state.mode !== "human" || !message.trim()} className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">Send</button>
+          <button disabled={state.mode !== "human" || !message.trim()} className="rounded-xl bg-sky-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-sky-700 disabled:opacity-50">Send</button>
         </form>
       </div>
     </div>

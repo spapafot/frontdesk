@@ -34,6 +34,7 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { TicketsPage } from "./pages/TicketsPage";
 import { WidgetDocsPage } from "./pages/WidgetDocsPage";
 import { useLiveInbox } from "./hooks/useLiveSupport";
+import { Menu } from "lucide-react";
 
 // Each view is a real URL so refresh restores it and the browser Back/Forward
 // buttons move between views instead of leaving the app.
@@ -394,21 +395,14 @@ function AppShell() {
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {/* Mobile top bar with the menu toggle. */}
-        <header className="flex items-center gap-2 border-b border-slate-200 bg-white px-3 py-2 md:hidden">
+        <header className="flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-3 md:hidden">
           <button
             type="button"
             onClick={() => setSidebarOpen(true)}
             aria-label="Open menu"
-            className="rounded-md p-1.5 text-slate-600 hover:bg-slate-100"
+            className="rounded-lg p-1 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
           >
-            <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
-              <path
-                d="M4 6h14M4 11h14M4 16h14"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-              />
-            </svg>
+            <Menu className="h-5 w-5" aria-hidden="true" />
           </button>
           <span className="truncate text-sm font-semibold text-slate-800">
             {current?.assistant_name ?? "Plug & Play"}
@@ -512,10 +506,13 @@ function FirstRunPanel({
     <div className="flex h-full items-center justify-center bg-slate-50 p-4">
       <form
         onSubmit={submit}
-        className="w-full max-w-sm space-y-4 rounded-xl border border-slate-200 bg-white p-8 shadow-sm"
+        className="w-full max-w-sm space-y-4 rounded-2xl border border-slate-200 bg-white p-8 shadow-sm"
       >
+        <div className="flex justify-center">
+          <img src="/logo-horizontal-full-color.png" alt="Plug & Play" className="h-12 w-auto" />
+        </div>
         <div className="text-center">
-          <h1 className="text-lg font-semibold text-slate-900">Add your first website</h1>
+          <h1 className="text-xl font-semibold text-slate-900">Add your first website</h1>
           <p className="mt-1 text-sm text-slate-500">
             Each website gets its own assistant, knowledge base, and widget.
           </p>
@@ -531,7 +528,7 @@ function FirstRunPanel({
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="e.g. Acme Store"
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+            className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-sky-500"
           />
         </label>
 
@@ -544,7 +541,7 @@ function FirstRunPanel({
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               placeholder="https://example.com"
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+              className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-sky-500"
             />
           </label>
           <p className="mt-1 text-xs text-slate-400">
@@ -556,7 +553,7 @@ function FirstRunPanel({
         <button
           type="submit"
           disabled={busy}
-          className="w-full rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-sky-700 disabled:opacity-60"
+          className="w-full rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-sky-700 disabled:opacity-60"
         >
           {busy ? "Creating…" : "Create website"}
         </button>

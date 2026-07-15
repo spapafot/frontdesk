@@ -43,15 +43,15 @@ export function SetPasswordPanel({ onDone }: Props) {
     <div className="flex h-full items-center justify-center bg-slate-50 p-4">
       <form
         onSubmit={onSubmit}
-        className="w-full max-w-sm space-y-5 rounded-xl border border-slate-200 bg-white p-8 shadow-sm"
+        className="w-full max-w-sm space-y-5 rounded-2xl border border-slate-200 bg-white p-8 shadow-sm"
       >
         <div className="flex flex-col items-center text-center">
           <img
             src="/logo-stacked-full-color.png"
             alt="Plug & Play"
-            className="mb-4 h-28 w-auto"
+            className="mb-5 h-24 w-auto"
           />
-          <h1 className="text-lg font-semibold text-slate-900">
+          <h1 className="text-xl font-semibold text-slate-900">
             Welcome to the team
           </h1>
           <p className="mt-1 text-sm text-slate-500">
@@ -69,7 +69,7 @@ export function SetPasswordPanel({ onDone }: Props) {
             autoComplete="new-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+            className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-sky-500"
           />
         </label>
 
@@ -82,7 +82,7 @@ export function SetPasswordPanel({ onDone }: Props) {
             autoComplete="new-password"
             value={confirm}
             onChange={(e) => setConfirm(e.target.value)}
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+            className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-sky-500"
           />
         </label>
 
@@ -91,7 +91,7 @@ export function SetPasswordPanel({ onDone }: Props) {
         <button
           type="submit"
           disabled={busy}
-          className="w-full rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-sky-700 disabled:opacity-60"
+          className="w-full rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-sky-700 disabled:opacity-60"
         >
           {busy ? "Saving…" : "Save password and continue"}
         </button>

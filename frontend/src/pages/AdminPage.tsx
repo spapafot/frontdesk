@@ -1,4 +1,5 @@
 import { FormEvent, useRef, useState } from "react";
+import { FileText, Globe, HelpCircle, Link2, Plus, Upload } from "lucide-react";
 import useSWR from "swr";
 import {
   KnowledgeDocument,
@@ -21,6 +22,7 @@ import { Skeleton } from "../components/Skeleton";
 import { useToast } from "../components/Toast";
 
 const ACCEPT = ".txt,.pdf,.doc,.docx,.xls,.xlsx";
+type KnowledgeTab = "documents" | "web-pages" | "faqs";
 
 export function AdminPage() {
   const { selectedSiteId } = useSite();
@@ -45,6 +47,7 @@ export function AdminPage() {
     },
   );
   const [uploading, setUploading] = useState(false);
+  const [activeTab, setActiveTab] = useState<KnowledgeTab>("documents");
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadNotice, setUploadNotice] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -303,13 +306,27 @@ export function AdminPage() {
   const urlDocs = visibleDocuments?.filter((d) => d.type === "url") ?? [];
   const faqDocs = visibleDocuments?.filter((d) => d.type === "faq") ?? [];
 
+  const tabs: {
+    id: KnowledgeTab;
+    label: string;
+    count: number;
+    icon: typeof FileText;
+  }[] = [
+    { id: "documents", label: "Documents", count: fileDocs.length, icon: FileText },
+    { id: "web-pages", label: "Web pages", count: urlDocs.length, icon: Globe },
+    { id: "faqs", label: "FAQs", count: faqDocs.length, icon: HelpCircle },
+  ];
+
   return (
-    <div className="mx-auto h-full max-w-3xl overflow-y-auto p-4">
-      <h2 className="text-lg font-semibold text-slate-800">Knowledge base</h2>
-      <p className="mt-1 text-sm text-slate-500">
-        Everything the assistant is allowed to answer from. Add files, web
-        pages, or FAQs below.
-      </p>
+    <div className="flex h-full flex-col overflow-hidden">
+      <header className="shrink-0 border-b border-slate-200 bg-white px-6 py-5">
+        <h1 className="text-lg font-semibold text-slate-900">Knowledge base</h1>
+        <p className="mt-0.5 text-sm text-slate-500">
+          Everything the assistant is allowed to answer from. Add files, web pages, or FAQs below.
+        </p>
+      </header>
+      <div className="flex-1 overflow-y-auto p-6">
+      <div className="mx-auto max-w-5xl">
 
       {error && (
         <p className="mt-4 text-sm text-red-600">
@@ -317,14 +334,59 @@ export function AdminPage() {
         </p>
       )}
 
-      {/* Documents ------------------------------------------------------- */}
-      <section className="mt-6">
-        <h3 className="text-sm font-semibold text-slate-700">Documents</h3>
-        <p className="mt-0.5 text-xs text-slate-400">
-          Upload files: TXT, PDF, DOC, DOCX, XLS, XLSX.
-        </p>
+      <div
+        className="mt-6 flex gap-1 overflow-x-auto overflow-y-hidden border-b border-slate-200"
+        role="tablist"
+        aria-label="Knowledge sources"
+      >
+        {tabs.map((tab) => {
+          const Icon = tab.icon;
+          const selected = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              id={`knowledge-tab-${tab.id}`}
+              aria-selected={selected}
+              aria-controls={`knowledge-panel-${tab.id}`}
+              onClick={() => setActiveTab(tab.id)}
+              className={`relative flex shrink-0 items-center gap-2 px-4 py-3 text-sm font-medium transition ${
+                selected
+                  ? "text-sky-700 after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full after:bg-sky-600"
+                  : "text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              <Icon className="h-4 w-4" aria-hidden="true" />
+              <span>{tab.label}</span>
+              <span
+                className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                  selected ? "bg-sky-100 text-sky-700" : "bg-slate-100 text-slate-500"
+                }`}
+              >
+                {tab.count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
 
-        <div className="mt-3 rounded-xl border-2 border-dashed border-slate-300 bg-white p-6 text-center">
+      {/* Documents ------------------------------------------------------- */}
+      {activeTab === "documents" && (
+      <section
+        className="pt-6"
+        role="tabpanel"
+        id="knowledge-panel-documents"
+        aria-labelledby="knowledge-tab-documents"
+      >
+        <div className="mb-4">
+          <h2 className="text-base font-semibold text-slate-900">Documents</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Upload TXT, PDF, DOC, DOCX, XLS, or XLSX files for the assistant to use.
+          </p>
+        </div>
+
+        <div className="rounded-2xl border-2 border-dashed border-slate-300 bg-white p-8 text-center">
           <input
             ref={fileInput}
             type="file"
@@ -333,11 +395,14 @@ export function AdminPage() {
             className="hidden"
             onChange={(e) => onFiles(e.target.files)}
           />
+          <div className="mx-auto mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-sky-50 text-sky-600">
+            <Upload className="h-5 w-5" aria-hidden="true" />
+          </div>
           <button
             type="button"
             onClick={() => fileInput.current?.click()}
             disabled={uploading}
-            className="rounded-full bg-sky-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-sky-700 disabled:opacity-50"
+            className="rounded-full bg-sky-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-sky-700 disabled:opacity-50"
           >
             {uploading ? "Uploading..." : "Choose files to upload"}
           </button>
@@ -383,19 +448,36 @@ export function AdminPage() {
             ))}
         </div>
       </section>
+      )}
 
       {/* Web pages ------------------------------------------------------- */}
-      <section className="mt-8">
-        <h3 className="text-sm font-semibold text-slate-700">Web pages</h3>
-        <p className="mt-0.5 text-xs text-slate-400">
-          Add a page by its URL. We read and keep its text - use Rescan to
-          refresh it later.
-        </p>
+      {activeTab === "web-pages" && (
+      <section
+        className="pt-6"
+        role="tabpanel"
+        id="knowledge-panel-web-pages"
+        aria-labelledby="knowledge-tab-web-pages"
+      >
+        <div className="mb-4">
+          <h2 className="text-base font-semibold text-slate-900">Web pages</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Add one page at a time. Use Rescan whenever its content changes.
+          </p>
+        </div>
 
         <form
           onSubmit={onAddLink}
-          className="mt-3 rounded-xl border border-slate-200 bg-white p-4"
+          className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
         >
+          <div className="mb-4 flex items-start gap-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-50 text-sky-600">
+              <Link2 className="h-4 w-4" aria-hidden="true" />
+            </span>
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900">Add a web page</h3>
+              <p className="mt-0.5 text-xs text-slate-500">Enter the exact URL you want the assistant to read.</p>
+            </div>
+          </div>
           <label htmlFor="knowledge-link-url" className="sr-only">
             Web page URL
           </label>
@@ -408,12 +490,12 @@ export function AdminPage() {
               value={linkUrl}
               onChange={(e) => setLinkUrl(e.target.value)}
               placeholder="https://example.com/pricing"
-              className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+              className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-sky-500"
             />
             <button
               type="submit"
               disabled={addingLink}
-              className="shrink-0 rounded-full bg-sky-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-sky-700 disabled:opacity-50"
+              className="shrink-0 rounded-full bg-sky-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-sky-700 disabled:opacity-50"
             >
               {addingLink ? "Adding…" : "Add link"}
             </button>
@@ -445,26 +527,34 @@ export function AdminPage() {
             ))}
         </div>
       </section>
+      )}
 
       {/* FAQs ------------------------------------------------------------ */}
-      <section className="mt-8">
-        <h3 className="text-sm font-semibold text-slate-700">FAQs</h3>
-        <p className="mt-0.5 text-xs text-slate-400">
-          Add common questions with the exact answers you want the assistant to
-          give. They become active as soon as processing finishes.
-        </p>
-
-        <div className="mt-3 rounded-xl border border-slate-200 bg-white p-4">
+      {activeTab === "faqs" && (
+      <section
+        className="pt-6"
+        role="tabpanel"
+        id="knowledge-panel-faqs"
+        aria-labelledby="knowledge-tab-faqs"
+      >
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold text-slate-900">FAQs</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Add common questions with the exact answers the assistant should give.
+            </p>
+          </div>
           <button
             type="button"
             onClick={() => setFaqDialog({ doc: null })}
-            className="rounded-full bg-sky-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-sky-700"
+            className="inline-flex items-center gap-2 rounded-full bg-sky-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-sky-700"
           >
+            <Plus className="h-4 w-4" aria-hidden="true" />
             Add FAQ
           </button>
         </div>
 
-        <div className="mt-4">
+        <div>
           {visibleDocuments &&
             (faqDocs.length === 0 ? (
               <p className="text-sm text-slate-500">
@@ -481,6 +571,7 @@ export function AdminPage() {
             ))}
         </div>
       </section>
+      )}
 
       <LinkDisclaimerDialog
         open={showLinkDisclaimer}
@@ -502,6 +593,8 @@ export function AdminPage() {
         doc={previewDoc}
         onClose={() => setPreviewDoc(null)}
       />
+      </div>
+      </div>
     </div>
   );
 }

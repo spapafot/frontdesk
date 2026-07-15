@@ -52,4 +52,23 @@ describe("LiveConversation", () => {
     await user.click(screen.getByRole("button", { name: "End conversation" }));
     expect(onAction).toHaveBeenCalledWith("close");
   });
+
+  it("labels a closed conversation as ended and keeps the composer disabled", () => {
+    const onAction = vi.fn();
+    render(
+      <LiveConversation
+        state={{
+          ...humanState,
+          mode: "closed",
+          closed_at: "2026-07-14T08:10:00Z",
+        }}
+        error={null}
+        onAction={onAction}
+      />,
+    );
+
+    expect(screen.getByPlaceholderText("This conversation has ended")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    expect(onAction).not.toHaveBeenCalled();
+  });
 });

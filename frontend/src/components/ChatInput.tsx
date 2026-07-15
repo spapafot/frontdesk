@@ -1,4 +1,5 @@
 import { FormEvent, useState } from "react";
+import { Send } from "lucide-react";
 
 interface Props {
   onSend: (text: string) => void;
@@ -16,22 +17,23 @@ export function ChatInput({ onSend, disabled }: Props) {
   };
 
   return (
-    <div className="px-4 pb-4">
-      <div className="mx-auto w-full max-w-2xl rounded-xl border border-slate-200 bg-white">
-        <form onSubmit={submit} className="flex gap-2 px-4 py-3">
+    <div className="border-t border-slate-200 bg-white px-6 py-4">
+      <div className="mx-auto w-full max-w-3xl">
+        <form onSubmit={submit} className="flex gap-2">
         <input
           type="text"
           value={value}
           onChange={(e) => setValue(e.target.value)}
           placeholder="Ask a question..."
-          className="flex-1 rounded-full border border-slate-300 px-4 py-2 text-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100 disabled:bg-slate-50"
+          className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm outline-none focus:border-transparent focus:bg-white focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50"
         />
         <button
           type="submit"
           disabled={disabled || !value.trim()}
-          className="rounded-full bg-sky-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-600 text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Send
+          <Send className="h-4 w-4" aria-hidden="true" />
+          <span className="sr-only">Send</span>
         </button>
       </form>
       </div>

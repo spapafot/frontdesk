@@ -42,7 +42,7 @@ export function LinkDisclaimerDialog({ open, url, onConfirm, onCancel }: Props) 
       role="presentation"
     >
       <div
-        className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl"
+        className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"

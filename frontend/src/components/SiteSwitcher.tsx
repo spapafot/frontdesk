@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useSite } from "./SiteProvider";
 import { AddWebsiteDialog } from "./AddWebsiteDialog";
 import { Skeleton } from "./Skeleton";
+import { Check, ChevronDown, Globe2, Plus } from "lucide-react";
 
 /**
  * Cloudflare-style website picker pinned at the top of the sidebar. The current
@@ -17,34 +18,27 @@ export function SiteSwitcher() {
   const label = current?.name ?? (sites && sites.length === 0 ? "No websites" : "Loading…");
 
   return (
-    <div className="relative border-b border-slate-200 px-3 py-2">
+    <div className="relative border-b border-slate-200 px-3 py-2.5">
       <button
         type="button"
         aria-label="Select website"
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+        className="flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-100"
       >
+        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-sky-100 text-sky-600"><Globe2 className="h-3 w-3" /></span>
         {sites === undefined ? (
           <Skeleton className="h-4 w-32" />
         ) : (
           <span className="min-w-0 flex-1 truncate">{label}</span>
         )}
-        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-          <path
-            d="M6 8l4 4 4-4"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
+        <ChevronDown className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
 
       {open && (
         <>
           {/* Click-away scrim. */}
           <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} role="presentation" />
-          <div className="absolute left-3 right-3 z-40 mt-1 rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+          <div className="absolute left-3 right-3 z-40 mt-1 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
             <ul className="max-h-64 overflow-y-auto">
               {sites?.map((s) => (
                 <li key={s.id}>
@@ -54,13 +48,15 @@ export function SiteSwitcher() {
                       selectSite(s.id);
                       setOpen(false);
                     }}
-                    className={`block w-full truncate px-3 py-2 text-left text-sm transition ${
+                    className={`flex w-full items-center gap-2 truncate px-3 py-2 text-left text-sm transition ${
                       s.id === selectedSiteId
                         ? "font-semibold text-sky-700"
                         : "text-slate-700 hover:bg-slate-100"
                     }`}
                   >
-                    {s.name}
+                    <Globe2 className="h-3.5 w-3.5 shrink-0 text-slate-300" />
+                    <span className="min-w-0 flex-1 truncate">{s.name}</span>
+                    {s.id === selectedSiteId && <Check className="h-3.5 w-3.5 shrink-0 text-sky-600" />}
                   </button>
                 </li>
               ))}
@@ -77,7 +73,7 @@ export function SiteSwitcher() {
                   }}
                   className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium text-sky-700 transition hover:bg-sky-50"
                 >
-                  <span className="text-lg leading-none">+</span> Add website
+                  <Plus className="h-4 w-4" /> Add website
                 </button>
               </div>
             )}
