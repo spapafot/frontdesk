@@ -169,6 +169,7 @@ let conversationRatingStorageKey = "";
 let conversationToken = "";
 let visitorMessageCount = 0;
 let conversationRated: Rating | "" = "";
+let ratingDismissed = false;
 let streaming = false;
 let widgetToken = "";
 let turnstileWidgetId: string | null = null;
@@ -241,6 +242,8 @@ function showChat(session: WidgetSession) {
     (storedRating === "up" || storedRating === "down")
       ? storedRating
       : "";
+  // A rated conversation was already thanked - never offer the rating again.
+  ratingDismissed = conversationRated !== "";
   if (!conversationId || !conversationToken) {
     localStorage.removeItem(conversationRatingStorageKey);
   }
@@ -363,6 +366,7 @@ function clearConversationSession() {
   conversationToken = "";
   visitorMessageCount = 0;
   conversationRated = "";
+  ratingDismissed = false;
   localStorage.removeItem(conversationStorageKey);
   localStorage.removeItem(conversationTokenStorageKey);
   localStorage.removeItem(visitorMessageCountStorageKey);
@@ -394,6 +398,8 @@ async function liveResponseError(response: Response): Promise<string> {
 
 function setLiveMode(mode: LiveMode) {
   liveMode = mode;
+  const actionsWereHidden = liveActionsEl.hidden;
+  const callbackWasHidden = callbackEl.hidden;
   const showTalk = liveEnabled && (
     mode === "waiting" || (
       mode === "ai" &&
@@ -406,10 +412,12 @@ function setLiveMode(mode: LiveMode) {
   const showNewChat = mode === "closed";
   // Offer a rating on a real conversation once it has ended (closed) or once
   // the visitor has exchanged a few messages with the AI - independent of the
-  // live-escalation feature, so AI-only sites can be rated too.
-  const showRating = conversationId !== null && conversationToken.length > 0 && (
-    mode === "closed" || (mode === "ai" && visitorMessageCount >= 3 && !streaming)
-  );
+  // live-escalation feature, so AI-only sites can be rated too. Once rated
+  // (and briefly thanked), the offer is gone for good.
+  const showRating = !ratingDismissed &&
+    conversationId !== null && conversationToken.length > 0 && (
+      mode === "closed" || (mode === "ai" && visitorMessageCount >= 3 && !streaming)
+    );
   liveActionsEl.hidden = !showTalk && !showNewChat && !showRating;
   livePromptEl.hidden = !showTalk;
   talkEl.hidden = !showTalk;
@@ -426,6 +434,14 @@ function setLiveMode(mode: LiveMode) {
     mode === "waiting" ? "Finding someone…" :
     mode === "pending_ticket" ? "Currently unavailable" :
     mode === "closed" ? "Conversation closed" : "Online";
+  // Un-hiding a panel between the messages and the composer shrinks the
+  // message scrollport, clipping the newest bubble - re-pin to the bottom.
+  if (
+    (actionsWereHidden && !liveActionsEl.hidden) ||
+    (callbackWasHidden && !callbackEl.hidden)
+  ) {
+    scrollToBottom();
+  }
 }
 
 function recordVisitorMessage() {
@@ -435,6 +451,9 @@ function recordVisitorMessage() {
   }
   setLiveMode(liveMode);
 }
+
+// How long "Thanks for your feedback." stays up before the rating bar hides.
+const RATING_THANKS_MS = 1500;
 
 function renderRatingSelection() {
   const rated = conversationRated !== "";
@@ -477,6 +496,13 @@ async function submitRating(value: Rating) {
     if (conversationRatingStorageKey) {
       localStorage.setItem(conversationRatingStorageKey, value);
     }
+    // Leave the thanks up briefly, then retire the rating bar for good.
+    const ratedConversation = conversationId;
+    window.setTimeout(() => {
+      if (conversationId !== ratedConversation) return; // a new chat started
+      ratingDismissed = true;
+      setLiveMode(liveMode);
+    }, RATING_THANKS_MS);
   } catch {
     conversationRated = ""; // let the visitor try again
     renderRatingSelection();

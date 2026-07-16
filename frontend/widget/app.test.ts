@@ -479,6 +479,11 @@ describe("embedded widget verification flow", () => {
     expect(rateUp.disabled).toBe(true);
     const storageKey = `wx_conv_17_${encodeURIComponent("https://customer.example")}`;
     expect(localStorage.getItem(`${storageKey}_rating`)).toBe("up");
+
+    // The thanks lingers briefly, then the rating bar retires for good.
+    const actions = document.getElementById("wx-live-actions") as HTMLDivElement;
+    await vi.waitFor(() => expect(rating.hidden).toBe(true), { timeout: 4000 });
+    expect(actions.hidden).toBe(true);
   });
 
   it("offers a rating alongside 'Start a new conversation' when closed", async () => {
@@ -560,7 +565,7 @@ describe("embedded widget verification flow", () => {
     expect(rating).toHaveTextContent("How was this conversation?");
   });
 
-  it("marks a previously rated conversation as already rated", async () => {
+  it("does not offer the rating again for a previously rated conversation", async () => {
     window.turnstile = {
       render: vi.fn(() => "widget-id"),
       reset: vi.fn(),
@@ -593,15 +598,9 @@ describe("embedded widget verification flow", () => {
     );
 
     const rating = document.getElementById("wx-rating") as HTMLDivElement;
-    const rateUp = document.getElementById("wx-rate-up") as HTMLButtonElement;
-    const rateDown = document.getElementById("wx-rate-down") as HTMLButtonElement;
-    expect(rating.hidden).toBe(false);
-    expect(document.getElementById("wx-rating-prompt")).toHaveTextContent(
-      "Thanks for your feedback."
-    );
-    expect(rateUp).toHaveClass("selected");
-    expect(rateUp.disabled).toBe(true);
-    expect(rateDown.disabled).toBe(true);
+    const actions = document.getElementById("wx-live-actions") as HTMLDivElement;
+    expect(rating.hidden).toBe(true);
+    expect(actions.hidden).toBe(true);
   });
 });
 
