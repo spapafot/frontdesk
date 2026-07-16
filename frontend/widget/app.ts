@@ -31,6 +31,7 @@ interface TurnstileApi {
       action: string;
       theme: "auto";
       size: "flexible";
+      "refresh-expired": "never";
       callback: (token: string) => void;
       "error-callback": () => void;
       "expired-callback": () => void;
@@ -295,13 +296,22 @@ function renderVerification() {
     action: "widget-session",
     theme: "auto",
     size: "flexible",
+    // The token is consumed as soon as the session is minted, but the widget
+    // stays mounted (hidden) and would otherwise re-challenge every 5 minutes
+    // when its spent token expires. wx-verify resets it when a fresh token is
+    // actually needed.
+    "refresh-expired": "never",
     callback: (token) => {
       verificationMessageEl.textContent = "Finishing verification…";
       postToParent({ type: "wx-turnstile", token });
     },
     "error-callback": () => showVerificationError(),
-    "expired-callback": () =>
-      showVerificationError("Verification expired. Please try again."),
+    "expired-callback": () => {
+      // Only meaningful while we are still waiting to exchange the token -
+      // after that the chat is running on its own session, so stay quiet.
+      if (verificationEl.hidden) return;
+      showVerificationError("Verification expired. Please try again.");
+    },
     "timeout-callback": () =>
       showVerificationError("Verification timed out. Please try again."),
   });
