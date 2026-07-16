@@ -110,6 +110,12 @@ class Settings(BaseSettings):
     live_conversation_token_ttl_seconds: int = 14400
     live_socket_ticket_ttl_seconds: int = 60
     live_accept_timeout_seconds: int = 60
+    # Visitor abuse moderation (OpenAI Moderation API; reuses openai_api_key).
+    # Fail-open: errors/timeouts/missing key never block a normal answer.
+    moderation_enabled: bool = True
+    moderation_model: str = "omni-moderation-latest"
+    moderation_timeout: float = 5.0
+    moderation_strike_limit: int = 3
 
     @property
     def allowed_origins(self) -> list[str]:
@@ -144,7 +150,7 @@ class Settings(BaseSettings):
     supabase_jwt_audience: str = "authenticated"
     # Cache lifetime for the fetched JWKS (seconds). Signing keys rotate rarely.
     supabase_jwks_cache_seconds: int = 600
-    # Service-role key for the Supabase Admin API — used only to create invited
+    # Service-role key for the Supabase Admin API - used only to create invited
     # team members' accounts (generate_link). Empty disables account creation;
     # invites still work for people who already have an account.
     supabase_service_role_key: str = ""

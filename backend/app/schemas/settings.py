@@ -28,6 +28,8 @@ class SettingsOut(BaseModel):
     show_branding: bool = True
     live_human_escalation_enabled: bool = False
     live_human_escalation_available: bool = False
+    moderation_enabled: bool = True
+    moderation_available: bool = False
     notification_email: str | None = None
 
 
@@ -38,6 +40,7 @@ class SettingsUpdate(BaseModel):
     widget_origin: str | None = Field(default=None, max_length=255)
     widget_enabled: bool | None = None
     live_human_escalation_enabled: bool | None = None
+    moderation_enabled: bool | None = None
     notification_email: str | None = Field(default=None, max_length=254)
     # Appearance
     accent_color: str | None = Field(default=None, pattern=_HEX_COLOR)

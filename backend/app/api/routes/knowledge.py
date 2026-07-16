@@ -235,7 +235,7 @@ async def add_faq(
 ) -> DocumentOut:
     """Store a question/answer pair and index it synchronously.
 
-    No S3/SQS involved — the entry is ready and active when the request
+    No S3/SQS involved - the entry is ready and active when the request
     returns, so FAQs work even when the async ingestion stack is unconfigured.
     """
     try:

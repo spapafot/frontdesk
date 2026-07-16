@@ -49,6 +49,9 @@ async def _to_out(profile: AssistantProfile, session: AsyncSession) -> SettingsO
         show_branding=installation.show_branding,
         live_human_escalation_enabled=profile.live_human_escalation_enabled,
         live_human_escalation_available=settings.live_human_escalation_enabled,
+        moderation_enabled=profile.moderation_enabled,
+        moderation_available=settings.moderation_enabled
+        and bool(settings.openai_api_key),
         notification_email=profile.notification_email,
     )
 
@@ -74,6 +77,7 @@ async def update_settings(
         assistant_name=body.assistant_name,
         custom_instructions=body.custom_instructions,
         live_human_escalation_enabled=body.live_human_escalation_enabled,
+        moderation_enabled=body.moderation_enabled,
         notification_email=body.notification_email,
     )
     installation = await WidgetRepository(session).get_for_profile(profile.id)

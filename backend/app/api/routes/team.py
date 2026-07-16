@@ -1,9 +1,9 @@
 """Team management: the account owner invites members who can then work every
-site the owner has (tickets, live escalations, knowledge, history, analytics —
+site the owner has (tickets, live escalations, knowledge, history, analytics -
 everything except site/settings/team management).
 
 Routes are keyed by the caller's own user id, so each account can only ever
-manage its own team — "owner-only" is structural, not a role check. Invitation
+manage its own team - "owner-only" is structural, not a role check. Invitation
 email delivery happens at the edge: the invite response carries an
 ``invite_notify`` payload that the Cloudflare Worker strips and turns into an
 email (see ``deploy/cloudflare/worker/src/index.ts``).
@@ -76,7 +76,7 @@ async def invite_member(
     detail = link.warning
     if link.already_registered:
         detail = (
-            "This person already has an account — they'll see your sites the "
+            "This person already has an account - they'll see your sites the "
             "next time they sign in."
         )
 

@@ -818,6 +818,20 @@ async function send(text: string) {
             break;
           case "mode_changed":
           case "interrupted":
+            if (event.mode === "closed") {
+              // Server-side close (e.g. abuse moderation). The canned closing
+              // message arrived as "token" events; keep the bubble. Setting
+              // `answer` also stops the post-loop "(no response)" overwrite
+              // when the close carried no text (already-closed conversation).
+              if (!answer) {
+                answer = "This conversation has been closed.";
+                pending.textContent = answer;
+              }
+              pending.classList.remove("pending");
+              setLiveMode("closed");
+              scrollToBottom();
+              break;
+            }
             pending.remove();
             void connectLive().catch(() => undefined);
             break;

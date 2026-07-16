@@ -21,6 +21,8 @@ export interface Settings {
   show_branding: boolean;
   live_human_escalation_enabled: boolean;
   live_human_escalation_available: boolean;
+  moderation_enabled: boolean;
+  moderation_available: boolean;
   notification_email: string | null;
 }
 
@@ -53,6 +55,7 @@ export async function updateSettings(
     widget_origin: string;
     widget_enabled: boolean;
     live_human_escalation_enabled: boolean;
+    moderation_enabled: boolean;
     // Omitted (undefined) when empty: the backend rejects a blank email and
     // treats an absent field as "leave unchanged".
     notification_email?: string;

@@ -16,7 +16,7 @@ interface AuthContextValue {
   /** True only when a real session exists and can be signed out. */
   canSignOut: boolean;
   signOut: () => void;
-  /** Supabase user id (`sub`) — the same value the backend sees as the admin
+  /** Supabase user id (`sub`) - the same value the backend sees as the admin
    * user id, so it can be compared against e.g. a ticket's assignee. */
   userId: string | null;
   userEmail: string | null;
@@ -43,12 +43,12 @@ export function AuthGate({ children }: { children: ReactNode }) {
   // If auth is disabled we're "ready" immediately.
   const [ready, setReady] = useState(!authEnabled);
   // A team-invite link lands here with `type=invite` in the URL hash. Capture
-  // it synchronously on first render — supabase-js consumes the hash to create
+  // it synchronously on first render - supabase-js consumes the hash to create
   // the session and strips it from the URL. The invitee has no password yet,
   // so they must set one before entering the app (or they could never sign in
   // a second time).
   const [invitePending, setInvitePending] = useState(() =>
-    window.location.hash.includes("type=invite")
+    window.location.hash.includes("type=invite"),
   );
 
   useEffect(() => {
@@ -99,10 +99,20 @@ export function AuthGate({ children }: { children: ReactNode }) {
 function AuthConfigurationError() {
   return (
     <div className="flex h-full items-center justify-center bg-slate-50 p-4">
-      <div role="alert" aria-labelledby="auth-config-title" className="max-w-md rounded-2xl border border-red-200 bg-white p-6 text-center shadow-sm">
-        <h1 id="auth-config-title" className="text-lg font-semibold text-slate-900">Authentication is not configured</h1>
+      <div
+        role="alert"
+        aria-labelledby="auth-config-title"
+        className="max-w-md rounded-2xl border border-red-200 bg-white p-6 text-center shadow-sm"
+      >
+        <h1
+          id="auth-config-title"
+          className="text-lg font-semibold text-slate-900"
+        >
+          Authentication is not configured
+        </h1>
         <p className="mt-2 text-sm text-slate-600">
-          Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY before starting the admin app.
+          Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY before starting the
+          admin app.
         </p>
       </div>
     </div>
@@ -172,7 +182,12 @@ function LoginForm() {
           />
         </label>
 
-        {error && <p className="flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600"><AlertTriangle className="h-3.5 w-3.5 shrink-0" />{error}</p>}
+        {error && (
+          <p className="flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            {error}
+          </p>
+        )}
 
         <button
           type="submit"

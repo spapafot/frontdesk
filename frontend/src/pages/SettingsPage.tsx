@@ -40,6 +40,7 @@ export function SettingsPage() {
   const [widgetOrigin, setWidgetOrigin] = useState("");
   const [widgetEnabled, setWidgetEnabled] = useState(true);
   const [liveHumanEscalationEnabled, setLiveHumanEscalationEnabled] = useState(false);
+  const [moderationEnabled, setModerationEnabled] = useState(true);
   const [notificationEmail, setNotificationEmail] = useState("");
   const [appearance, setAppearance] = useState<AppearanceState>(DEFAULT_APPEARANCE);
   const [saving, setSaving] = useState(false);
@@ -54,6 +55,7 @@ export function SettingsPage() {
       setWidgetOrigin(data.widget_origin ?? "");
       setWidgetEnabled(data.widget_enabled ?? true);
       setLiveHumanEscalationEnabled(data.live_human_escalation_enabled ?? false);
+      setModerationEnabled(data.moderation_enabled ?? true);
       setNotificationEmail(data.notification_email ?? "");
       setAppearance({
         accentColor: data.accent_color,
@@ -78,6 +80,7 @@ export function SettingsPage() {
         widget_origin: widgetOrigin,
         widget_enabled: widgetEnabled,
         live_human_escalation_enabled: liveHumanEscalationEnabled,
+        moderation_enabled: moderationEnabled,
         notification_email: notificationEmail.trim() || undefined,
         accent_color: appearance.accentColor.trim(),
         launcher_icon: appearance.launcherIcon,
@@ -220,6 +223,20 @@ export function SettingsPage() {
                   deploying the Lambda migration and Durable Objects.
                 </p>
               )}
+              <label className="mt-3 flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={moderationEnabled}
+                  disabled={!data.moderation_available}
+                  onChange={(e) => setModerationEnabled(e.target.checked)}
+                />
+                Automatically moderate abusive visitor messages
+              </label>
+              <p className="mt-1 text-xs text-slate-400">
+                {data.moderation_available
+                  ? "Abusive messages get a warning instead of an answer; repeated abuse closes the conversation."
+                  : "Moderation is unavailable for this deployment (requires an OpenAI API key)."}
+              </p>
               <div className="mt-4">
                 <label className="block text-sm font-medium text-slate-700">
                   Notification email

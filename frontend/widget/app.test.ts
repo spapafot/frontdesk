@@ -602,6 +602,228 @@ describe("embedded widget verification flow", () => {
     expect(rating.hidden).toBe(true);
     expect(actions.hidden).toBe(true);
   });
+
+  it("closes the chat when the stream delivers a moderation close", async () => {
+    window.turnstile = {
+      render: vi.fn(() => "widget-id"),
+      reset: vi.fn(),
+    };
+    const closedText =
+      "This conversation has been closed due to repeated inappropriate messages.";
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        [
+          `data: ${JSON.stringify({
+            type: "conversation",
+            conversation_id: 42,
+            conversation_token: "conversation-token",
+          })}`,
+          `data: ${JSON.stringify({ type: "token", content: closedText })}`,
+          `data: ${JSON.stringify({
+            type: "mode_changed",
+            mode: "closed",
+            conversation_id: 42,
+          })}`,
+          "",
+        ].join("\n\n"),
+        { status: 200, headers: { "content-type": "text/event-stream" } }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const sockets: unknown[] = [];
+    class MockWebSocket {
+      static OPEN = 1;
+      constructor() {
+        sockets.push(this);
+      }
+      close() {}
+      send() {}
+    }
+    vi.stubGlobal("WebSocket", MockWebSocket);
+
+    const widget = await import("./app");
+    widget.handleParentMessage(
+      new MessageEvent("message", {
+        origin: location.origin,
+        source: window,
+        data: {
+          type: "wx-session",
+          session: {
+            token: "signed-session",
+            installation_id: 17,
+            origin: "https://customer.example",
+            assistant_name: "Helper",
+            business_name: "Acme",
+            live_human_escalation_enabled: false,
+          },
+        },
+      })
+    );
+
+    const form = document.getElementById("wx-form") as HTMLFormElement;
+    const input = document.getElementById("wx-input") as HTMLInputElement;
+    input.value = "abusive message";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() =>
+      expect(document.getElementById("wx-messages")).toHaveTextContent(closedText)
+    );
+    await vi.waitFor(() => expect(form.hidden).toBe(true));
+    expect(
+      (document.getElementById("wx-new-chat") as HTMLButtonElement).hidden
+    ).toBe(false);
+    expect(document.getElementById("wx-subtitle")).toHaveTextContent(
+      "Conversation closed"
+    );
+    // A server-side close must not spuriously open a live socket.
+    expect(sockets).toHaveLength(0);
+    expect(
+      fetchMock.mock.calls.some((call) => String(call[0]).includes("/live/"))
+    ).toBe(false);
+  });
+
+  it("shows the closed notice when sending into an already-closed conversation", async () => {
+    window.turnstile = {
+      render: vi.fn(() => "widget-id"),
+      reset: vi.fn(),
+    };
+    // The backend's early return carries no token text - just the mode change.
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        [
+          `data: ${JSON.stringify({
+            type: "mode_changed",
+            mode: "closed",
+            conversation_id: 42,
+          })}`,
+          "",
+        ].join("\n\n"),
+        { status: 200, headers: { "content-type": "text/event-stream" } }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const widget = await import("./app");
+    widget.handleParentMessage(
+      new MessageEvent("message", {
+        origin: location.origin,
+        source: window,
+        data: {
+          type: "wx-session",
+          session: {
+            token: "signed-session",
+            installation_id: 17,
+            origin: "https://customer.example",
+            assistant_name: "Helper",
+            business_name: "Acme",
+            live_human_escalation_enabled: false,
+          },
+        },
+      })
+    );
+
+    const form = document.getElementById("wx-form") as HTMLFormElement;
+    const input = document.getElementById("wx-input") as HTMLInputElement;
+    input.value = "hello?";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() =>
+      expect(document.getElementById("wx-messages")).toHaveTextContent(
+        "This conversation has been closed."
+      )
+    );
+    expect(document.getElementById("wx-messages")).not.toHaveTextContent(
+      "(no response)"
+    );
+    await vi.waitFor(() => expect(form.hidden).toBe(true));
+  });
+
+  it("still hands off to the live socket for non-closed mode changes", async () => {
+    window.turnstile = {
+      render: vi.fn(() => "widget-id"),
+      reset: vi.fn(),
+    };
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).endsWith("/live/visitor/socket-ticket")) {
+        return new Response(
+          JSON.stringify({
+            ticket: "live-ticket",
+            websocket_path: "/live/conversations/42",
+            conversation_id: 42,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      return new Response(
+        [
+          `data: ${JSON.stringify({
+            type: "conversation",
+            conversation_id: 42,
+            conversation_token: "conversation-token",
+          })}`,
+          `data: ${JSON.stringify({
+            type: "mode_changed",
+            mode: "waiting",
+            conversation_id: 42,
+          })}`,
+          "",
+        ].join("\n\n"),
+        { status: 200, headers: { "content-type": "text/event-stream" } }
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const sockets: MockWebSocket[] = [];
+    class MockWebSocket {
+      static OPEN = 1;
+      readyState = 0;
+      onopen: (() => void) | null = null;
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onclose: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      send = vi.fn();
+
+      constructor(_url: string, _protocols: string[]) {
+        sockets.push(this);
+        queueMicrotask(() => {
+          this.readyState = MockWebSocket.OPEN;
+          this.onopen?.();
+        });
+      }
+
+      close() {}
+    }
+    vi.stubGlobal("WebSocket", MockWebSocket);
+
+    const widget = await import("./app");
+    widget.handleParentMessage(
+      new MessageEvent("message", {
+        origin: location.origin,
+        source: window,
+        data: {
+          type: "wx-session",
+          session: {
+            token: "signed-session",
+            installation_id: 17,
+            origin: "https://customer.example",
+            assistant_name: "Helper",
+            business_name: "Acme",
+            live_human_escalation_enabled: true,
+          },
+        },
+      })
+    );
+
+    const form = document.getElementById("wx-form") as HTMLFormElement;
+    const input = document.getElementById("wx-input") as HTMLInputElement;
+    input.value = "hello?";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => expect(sockets).toHaveLength(1));
+    expect(document.getElementById("wx-messages")).not.toHaveTextContent(
+      "(no response)"
+    );
+  });
 });
 
 describe("widget appearance", () => {

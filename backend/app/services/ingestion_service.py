@@ -257,7 +257,7 @@ async def ingest_text_document(
 
     Used for sources whose text is already in hand (e.g. FAQ entries), so the
     document is ``ready`` and active the moment the request returns. Flushes
-    but does not commit — the caller owns the transaction, so an embedding
+    but does not commit - the caller owns the transaction, so an embedding
     failure mid-way rolls back without leaving an orphan document."""
     chunks = chunk_text(normalize_text(text))
     if not chunks:
@@ -290,7 +290,7 @@ async def reingest_text_document(
     """Replace a text document's title/content and rebuild its chunks in place.
 
     Preserves ``is_active`` (editing a disabled entry must not re-enable it).
-    Flushes but does not commit — the caller owns the transaction."""
+    Flushes but does not commit - the caller owns the transaction."""
     chunks = chunk_text(normalize_text(text))
     if not chunks:
         raise ExtractionError(

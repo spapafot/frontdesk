@@ -1,12 +1,12 @@
 """Create invited users via the Supabase Admin API (service-role key).
 
 Only ``generate_link`` is used: it creates the account and returns a one-time
-set-password action link WITHOUT Supabase sending any email — delivery happens
+set-password action link WITHOUT Supabase sending any email - delivery happens
 at the edge via Cloudflare Email Sending (see the Worker's invite interception).
 
 Best-effort by design: the membership row is the real access mechanism (it
 activates by email match at the member's first login), so a failure here must
-never fail the invite request. Nothing in this module may log the action link —
+never fail the invite request. Nothing in this module may log the action link -
 it is a live credential.
 """
 

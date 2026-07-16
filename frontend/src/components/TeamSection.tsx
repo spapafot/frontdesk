@@ -12,7 +12,7 @@ import { ConfirmDialog } from "./ConfirmDialog";
 /**
  * Owner-only team management, rendered on the Settings page. Invited members
  * get access to every site on this account: tickets, live chats, history,
- * knowledge base, and analytics — everything except settings and this list.
+ * knowledge base, and analytics - everything except settings and this list.
  */
 export function TeamSection() {
   const { data: members, error, mutate } = useSWR(teamKey, listTeamMembers);
@@ -31,10 +31,9 @@ export function TeamSection() {
     setNotice(null);
     try {
       const result = await inviteTeamMember(value);
-      await mutate(
-        (list) => [...(list ?? []), result.member],
-        { revalidate: false },
-      );
+      await mutate((list) => [...(list ?? []), result.member], {
+        revalidate: false,
+      });
       setEmail("");
       setNotice(result.detail ?? `Invitation sent to ${result.member.email}.`);
     } catch (err) {
@@ -52,7 +51,8 @@ export function TeamSection() {
           return list?.filter((m) => m.id !== member.id) ?? [];
         },
         {
-          optimisticData: (list) => list?.filter((m) => m.id !== member.id) ?? [],
+          optimisticData: (list) =>
+            list?.filter((m) => m.id !== member.id) ?? [],
           rollbackOnError: true,
           revalidate: false,
         },
@@ -94,7 +94,9 @@ export function TeamSection() {
           {busy ? "Inviting…" : "Send invite"}
         </button>
       </form>
-      {inviteError && <p className="mt-2 text-sm text-red-600">{inviteError}</p>}
+      {inviteError && (
+        <p className="mt-2 text-sm text-red-600">{inviteError}</p>
+      )}
       {notice && (
         <p className="mt-2 text-sm text-sky-700" role="status">
           {notice}
