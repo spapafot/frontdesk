@@ -82,6 +82,26 @@ async def chat_stream(
         await session.commit()
         profile_id = profile.id
 
+        # An admin/operator must never continue a website visitor's conversation
+        # through this endpoint: doing so would append messages as if the visitor
+        # sent them and poison the stored transcript. Visitor conversations are
+        # read-only from the dashboard; live handoff goes through the live socket
+        # instead. The admin's own test chats have no visitor session, so they
+        # are unaffected.
+        if body.conversation_id is not None:
+            conversation = await ConversationRepository(session).get(
+                body.conversation_id
+            )
+            if (
+                conversation is not None
+                and conversation.profile_id == profile_id
+                and conversation.visitor_session_id_hash is not None
+            ):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Visitor conversations are read-only from the dashboard.",
+                )
+
     return StreamingResponse(
         stream_chat(
             message=body.message,

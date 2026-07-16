@@ -301,6 +301,60 @@ describe("App shell", () => {
     expect(screen.getByText("Conversation ended")).toBeInTheDocument();
   });
 
+  it("makes a visitor's AI conversation read-only in history but keeps the test chat editable", async () => {
+    const visitor = {
+      id: 31,
+      title: "Visitor question",
+      started_at: "2026-07-14T08:00:00Z",
+      rating: null,
+      summary: null,
+      mode: "ai",
+      assigned_user_id: null,
+      escalation_requested_at: null,
+      accepted_at: null,
+      closed_at: null,
+      last_message_at: "2026-07-14T08:05:00Z",
+      is_visitor: true,
+    };
+    // The admin's own test chat is also an AI conversation, but has no visitor
+    // session, so it must stay editable.
+    const testChat = { ...visitor, id: 32, title: "My test chat", is_visitor: false };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      let body: unknown = {};
+      if (/\/sites($|\?|\/)/.test(url)) body = SITES;
+      else if (url.includes("/settings")) body = SETTINGS;
+      else if (url.includes("/messages")) body = [
+        { id: 1, role: "user", content: "How much does it cost?", sender_type: "visitor", sender_display_name: null, created_at: "2026-07-14T08:01:00Z" },
+        { id: 2, role: "assistant", content: "We are still in beta.", sender_type: "ai", sender_display_name: null, created_at: "2026-07-14T08:02:00Z" },
+      ];
+      else if (url.includes("/conversations")) body = [visitor, testChat];
+      else if (url.includes("/analytics")) body = {
+        total_conversations: 0,
+        last_7_days: 0,
+        ratings: {},
+        unanswered: [],
+      };
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }));
+
+    renderApp();
+
+    // The visitor conversation renders as a read-only transcript with no composer.
+    await userEvent.click(await screen.findByText("Visitor question"));
+    expect(await screen.findByText("We are still in beta.")).toBeInTheDocument();
+    expect(screen.getByText(/read-only record/i)).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("Ask a question...")).not.toBeInTheDocument();
+
+    // The admin's own test chat keeps its composer.
+    await userEvent.click(screen.getByText("My test chat"));
+    expect(await screen.findByPlaceholderText("Ask a question...")).toBeInTheDocument();
+    expect(screen.queryByText(/read-only record/i)).not.toBeInTheDocument();
+  });
+
   it("shows widget installation documentation and supported attributes", async () => {
     renderApp();
     await userEvent.click(await screen.findByRole("button", { name: "Widget guide" }));

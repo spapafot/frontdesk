@@ -29,6 +29,7 @@ def _to_out(conversation) -> ConversationOut:
         accepted_at=conversation.accepted_at,
         closed_at=conversation.closed_at,
         last_message_at=conversation.last_message_at,
+        is_visitor=conversation.visitor_session_id_hash is not None,
     )
 
 
