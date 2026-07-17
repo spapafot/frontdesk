@@ -197,6 +197,11 @@ const displayedLiveMessageIds = new Set<number>();
 // a refresh so a lost "stopped typing" event can never strand the dots.
 const TYPING_REFRESH_MS = 2000;
 const TYPING_EXPIRE_MS = 5000;
+// An edge Worker predating the typing relay rejects the hint with exactly
+// "Unsupported live action." — feature-detected per connection so the visitor
+// never sees that as an error bubble.
+const LEGACY_TYPING_REJECTION = "Unsupported live action.";
+let typingSupported = true;
 let typingSent = false;
 let typingSentAt = 0;
 let operatorTypingRow: HTMLElement | null = null;
@@ -425,6 +430,7 @@ function showConnectionStatus(message: string, loading = false) {
 }
 
 function notifyTyping(active: boolean) {
+  if (!typingSupported) return;
   if (liveMode !== "human" || liveSocket?.readyState !== WebSocket.OPEN) return;
   const now = Date.now();
   if (active && typingSent && now - typingSentAt < TYPING_REFRESH_MS) return;
@@ -636,6 +642,7 @@ async function openLiveConnection(): Promise<WebSocket> {
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   const socket = new WebSocket(url, ["live-v1", `ticket.${ticket.ticket}`]);
   liveSocket = socket;
+  typingSupported = true; // a fresh connection may reach an upgraded Worker
   let opened = false;
   socket.onmessage = (message) => {
     let event: Record<string, unknown>;
@@ -709,6 +716,13 @@ async function openLiveConnection(): Promise<WebSocket> {
       showOperatorTyping(event.typing === true);
     } else if (event.type === "error") {
       const error = new Error(String(event.message || "Live support error."));
+      // Every event the widget sends besides `typing` is understood by all
+      // Worker versions, so this rejection can only be the typing hint
+      // bouncing off an older Worker. Go quiet instead of showing it.
+      if (error.message === LEGACY_TYPING_REJECTION) {
+        typingSupported = false;
+        return;
+      }
       if (pendingHandoffResult) {
         const pending = pendingHandoffResult;
         pendingHandoffResult = null;

@@ -221,4 +221,40 @@ describe("useLiveConversation", () => {
       vi.useRealTimers();
     }
   });
+
+  it("stops sending typing silently when an older Worker rejects the hint", async () => {
+    const socket = new FakeSocket();
+    api.operatorSocketTicket.mockResolvedValue({
+      ticket: "ticket",
+      websocket_path: "/live/conversations/11",
+      conversation_id: 11,
+      expires_in: 60,
+    });
+    api.openLiveSocket.mockReturnValue(socket as unknown as WebSocket);
+
+    const { result } = renderHook(() => useLiveConversation(1, 11, true));
+    await waitFor(() => expect(socket.onmessage).not.toBeNull());
+
+    act(() => {
+      result.current.notifyTyping(true);
+      socket.onmessage?.({
+        data: JSON.stringify({
+          version: 1,
+          type: "error",
+          message: "Unsupported live action.",
+        }),
+      } as MessageEvent);
+      result.current.notifyTyping(false);
+    });
+
+    // The legacy rejection is swallowed (no operator-facing error) and no
+    // further typing frames go out on this connection.
+    expect(result.current.error).toBeNull();
+    expect(socket.send).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(socket.send.mock.calls[0][0] as string)).toEqual({
+      version: 1,
+      type: "typing",
+      typing: true,
+    });
+  });
 });

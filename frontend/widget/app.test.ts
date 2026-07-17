@@ -1129,6 +1129,105 @@ describe("embedded widget verification flow", () => {
       { version: 1, type: "typing", typing: false },
     ]);
   });
+
+  it("goes quiet when an older Worker rejects the typing hint", async () => {
+    window.turnstile = {
+      render: vi.fn(() => "widget-id"),
+      reset: vi.fn(),
+    };
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          ticket: "live-ticket",
+          websocket_path: "/live/conversations/42",
+          conversation_id: 42,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const sockets: MockWebSocket[] = [];
+    class MockWebSocket {
+      static OPEN = 1;
+      readyState = 0;
+      onopen: (() => void) | null = null;
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onclose: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      send = vi.fn();
+
+      constructor(_url: string, _protocols: string[]) {
+        sockets.push(this);
+        queueMicrotask(() => {
+          this.readyState = MockWebSocket.OPEN;
+          this.onopen?.();
+        });
+      }
+
+      close() {}
+    }
+    vi.stubGlobal("WebSocket", MockWebSocket);
+
+    const storageKey = `wx_conv_17_${encodeURIComponent("https://customer.example")}`;
+    localStorage.setItem(storageKey, "42");
+    localStorage.setItem(`${storageKey}_token`, "conversation-token");
+
+    const widget = await import("./app");
+    widget.handleParentMessage(
+      new MessageEvent("message", {
+        origin: location.origin,
+        source: window,
+        data: {
+          type: "wx-session",
+          session: {
+            token: "signed-session",
+            installation_id: 17,
+            origin: "https://customer.example",
+            assistant_name: "Helper",
+            business_name: "Acme",
+            live_human_escalation_enabled: true,
+          },
+        },
+      })
+    );
+
+    await vi.waitFor(() => expect(sockets).toHaveLength(1));
+    sockets[0].onmessage?.({
+      data: JSON.stringify({
+        version: 1,
+        type: "state",
+        conversation_id: 42,
+        mode: "human",
+      }),
+    } as MessageEvent);
+
+    const input = document.getElementById("wx-input") as HTMLInputElement;
+    input.value = "hello";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+
+    // The old ConversationRoom bounces the hint back as an error.
+    sockets[0].onmessage?.({
+      data: JSON.stringify({
+        version: 1,
+        type: "error",
+        message: "Unsupported live action.",
+      }),
+    } as MessageEvent);
+
+    // The rejection never becomes a visitor-facing bubble, and no further
+    // typing frames are sent on this connection (clearing the input would
+    // otherwise emit an unthrottled stop signal).
+    expect(document.getElementById("wx-messages")).not.toHaveTextContent(
+      "Unsupported live action."
+    );
+    input.value = "";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    const typingFrames = sockets[0].send.mock.calls
+      .map((call) => JSON.parse(call[0] as string))
+      .filter((event) => event.type === "typing");
+    expect(typingFrames).toEqual([{ version: 1, type: "typing", typing: true }]);
+  });
 });
 
 describe("widget appearance", () => {

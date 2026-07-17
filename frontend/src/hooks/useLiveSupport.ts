@@ -21,6 +21,10 @@ interface WireEvent extends Partial<LiveState> {
 // without a refresh so a lost "stopped typing" event can never strand it.
 const TYPING_REFRESH_MS = 2000;
 const TYPING_EXPIRE_MS = 5000;
+// An edge Worker predating the typing relay rejects the hint with exactly
+// this message; no other event this client sends can trigger it. Detected
+// per connection so the operator never sees it as an error.
+const LEGACY_TYPING_REJECTION = "Unsupported live action.";
 
 function mergeMessages(
   current: LiveMessage[] = [],
@@ -142,6 +146,7 @@ export function useLiveConversation(
   const typingSentRef = useRef(false);
   const typingSentAtRef = useRef(0);
   const typingExpiryRef = useRef<number | undefined>(undefined);
+  const typingSupportedRef = useRef(true);
   const [state, setState] = useState<LiveState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [visitorTyping, setVisitorTyping] = useState(false);
@@ -166,6 +171,7 @@ export function useLiveConversation(
         if (stopped) return;
         const socket = openLiveSocket(ticket);
         socketRef.current = socket;
+        typingSupportedRef.current = true; // a fresh connection may reach an upgraded Worker
         socket.onopen = () => setError(null);
         socket.onmessage = (event) => {
           const message = JSON.parse(event.data) as WireEvent;
@@ -207,7 +213,13 @@ export function useLiveConversation(
               );
             }
           } else if (message.type === "error") {
-            setError(typeof message.message === "string" ? message.message : "Live action failed.");
+            const text =
+              typeof message.message === "string" ? message.message : "Live action failed.";
+            if (text === LEGACY_TYPING_REJECTION) {
+              typingSupportedRef.current = false;
+            } else {
+              setError(text);
+            }
           }
         };
         socket.onclose = () => {
@@ -243,6 +255,7 @@ export function useLiveConversation(
   }, []);
 
   const notifyTyping = useCallback((active: boolean) => {
+    if (!typingSupportedRef.current) return;
     const now = Date.now();
     if (active && typingSentRef.current && now - typingSentAtRef.current < TYPING_REFRESH_MS) {
       return;
