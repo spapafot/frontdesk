@@ -16,6 +16,10 @@ class ConversationOut(BaseModel):
     accepted_at: datetime | None = None
     closed_at: datetime | None = None
     last_message_at: datetime | None = None
+    # True when the conversation was started by a website visitor (has a bound
+    # visitor session). The admin's own test chats have no visitor session, so
+    # this is False for them. Drives the read-only history view.
+    is_visitor: bool = False
 
 
 class MessageOut(BaseModel):

@@ -20,6 +20,9 @@ class AssistantProfile(Base):
     live_human_escalation_enabled: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false"
     )
+    moderation_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true"
+    )
     notification_email: Mapped[str | None] = mapped_column(String(254), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

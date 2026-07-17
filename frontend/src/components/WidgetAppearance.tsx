@@ -12,10 +12,12 @@ export interface AppearanceState {
 interface Props {
   value: AppearanceState;
   onChange: (next: AppearanceState) => void;
-  // Reserved for the paid-tier "hide branding" toggle (UI currently disabled -
-  // see the commented block below). The data-branding plumbing already exists
-  // end-to-end, so re-enabling is just uncommenting.
+  // Whether the "Powered by" line is shown in the widget.
   showBranding: boolean;
+  onShowBrandingChange: (next: boolean) => void;
+  // Plan entitlement: removing branding is a paid-plan feature.
+  canRemoveBranding: boolean;
+  onUpgrade: () => void;
 }
 
 const SWATCHES = [
@@ -30,7 +32,14 @@ const SWATCHES = [
 
 const HEX = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 
-export function WidgetAppearance({ value, onChange }: Props) {
+export function WidgetAppearance({
+  value,
+  onChange,
+  showBranding,
+  onShowBrandingChange,
+  canRemoveBranding,
+  onUpgrade,
+}: Props) {
   const set = (patch: Partial<AppearanceState>) =>
     onChange({ ...value, ...patch });
 
@@ -174,25 +183,36 @@ export function WidgetAppearance({ value, onChange }: Props) {
         />
       </div>
 
-      {/*
-        Branding toggle - hidden until paid tiers exist. The `data-branding`
-        plumbing already works end-to-end, so re-enable by uncommenting this
-        block and adding `showBranding` back to the destructured props.
-
-        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-          <label className="flex items-start gap-3 text-sm text-slate-500">
-            <input type="checkbox" checked={showBranding} disabled className="mt-0.5" />
-            <span>
-              <span className="font-medium text-slate-700">
-                Show "Powered by Plug &amp; Play"
-              </span>
-              <span className="ml-2 rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-600">
-                Paid plans
-              </span>
+      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+        <label className="flex items-start gap-3 text-sm text-slate-600">
+          <input
+            type="checkbox"
+            checked={!showBranding}
+            disabled={!canRemoveBranding}
+            onChange={(e) => onShowBrandingChange(!e.target.checked)}
+            className="mt-0.5"
+          />
+          <span>
+            <span className="font-medium text-slate-700">
+              Remove "Powered by Plug &amp; Play" branding
             </span>
-          </label>
-        </div>
-      */}
+            {!canRemoveBranding && (
+              <button
+                type="button"
+                onClick={onUpgrade}
+                className="ml-2 rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-700 hover:bg-sky-200"
+              >
+                Upgrade to enable
+              </button>
+            )}
+            <span className="mt-0.5 block text-xs text-slate-400">
+              {canRemoveBranding
+                ? "Hides the branding line at the bottom of your widget."
+                : "Available on the Pro and Business plans."}
+            </span>
+          </span>
+        </label>
+      </div>
     </div>
   );
 }

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_selected_site, require_site_owner
+from app.core.auth import AdminUser, require_admin
 from app.core.db import get_session
 from app.core.config import settings
 from app.core.origins import normalize_origin
@@ -11,6 +12,7 @@ from app.models.profile import AssistantProfile
 from app.repositories.profile_repository import ProfileRepository
 from app.repositories.widget_repository import WidgetRepository
 from app.schemas.settings import SettingsOut, SettingsUpdate
+from app.services import billing
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -38,7 +40,6 @@ async def _to_out(profile: AssistantProfile, session: AsyncSession) -> SettingsO
         public_key=installation.public_key,
         widget_origin=installation.allowed_origin,
         widget_enabled=installation.is_enabled,
-        widget_monthly_limit=installation.monthly_limit,
         widget_monthly_usage=await repo.usage(installation.id, period),
         widget_resets_at=reset,
         accent_color=installation.accent_color,
@@ -49,6 +50,9 @@ async def _to_out(profile: AssistantProfile, session: AsyncSession) -> SettingsO
         show_branding=installation.show_branding,
         live_human_escalation_enabled=profile.live_human_escalation_enabled,
         live_human_escalation_available=settings.live_human_escalation_enabled,
+        moderation_enabled=profile.moderation_enabled,
+        moderation_available=settings.moderation_enabled
+        and bool(settings.openai_api_key),
         notification_email=profile.notification_email,
     )
 
@@ -67,13 +71,31 @@ async def update_settings(
     session: AsyncSession = Depends(get_session),
     # Reads are team-readable (the app shell needs them); writes are owner-only.
     profile: AssistantProfile = Depends(require_site_owner),
+    user: AdminUser = Depends(require_admin),
 ) -> SettingsOut:
+    # Plan-gated feature writes: enabling live handoff or removing branding both
+    # require the entitlement. Turning either back off is always allowed.
+    if body.live_human_escalation_enabled is True or body.show_branding is False:
+        entitlements = await billing.resolve_entitlements(
+            session, user, profile.owner_user_id
+        )
+        if body.live_human_escalation_enabled is True and not entitlements.live_handoff:
+            raise HTTPException(
+                status_code=402,
+                detail="Live human handoff is available on the Pro and Business plans. Upgrade to enable it.",
+            )
+        if body.show_branding is False and not entitlements.remove_branding:
+            raise HTTPException(
+                status_code=402,
+                detail="Removing branding is available on the Pro and Business plans. Upgrade to hide it.",
+            )
     await ProfileRepository(session).update_settings(
         profile,
         name=body.business_name,
         assistant_name=body.assistant_name,
         custom_instructions=body.custom_instructions,
         live_human_escalation_enabled=body.live_human_escalation_enabled,
+        moderation_enabled=body.moderation_enabled,
         notification_email=body.notification_email,
     )
     installation = await WidgetRepository(session).get_for_profile(profile.id)

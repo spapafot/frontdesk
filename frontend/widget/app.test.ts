@@ -231,6 +231,85 @@ describe("embedded widget verification flow", () => {
     expect(localStorage.getItem(`${storageKey}_token`)).toBe("fresh-token");
   });
 
+  it("restores the chat and drops an expired live conversation after re-verification", async () => {
+    window.turnstile = {
+      render: vi.fn(() => "widget-id"),
+      reset: vi.fn(),
+    };
+    // The stored conversation token is expired: the socket-ticket endpoint
+    // keeps returning 401 even after the widget token is refreshed.
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({ detail: "Invalid or expired conversation session." }),
+        { status: 401, headers: { "content-type": "application/json" } }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const storageKey = `wx_conv_17_${encodeURIComponent("https://customer.example")}`;
+    localStorage.setItem(storageKey, "999");
+    localStorage.setItem(`${storageKey}_token`, "expired-conversation-token");
+    localStorage.setItem(`${storageKey}_visitor_count`, "3");
+
+    const widget = await import("./app");
+    const sessionMessage = (token: string) =>
+      new MessageEvent("message", {
+        origin: location.origin,
+        source: window,
+        data: {
+          type: "wx-session",
+          session: {
+            token,
+            installation_id: 17,
+            origin: "https://customer.example",
+            assistant_name: "Helper",
+            business_name: "Acme",
+            live_human_escalation_enabled: true,
+          },
+        },
+      });
+
+    const postMessage = vi.spyOn(window, "postMessage");
+    widget.handleParentMessage(sessionMessage("signed-session"));
+
+    // The auto live-connect gets 401 and asks the loader for a fresh session.
+    await vi.waitFor(() =>
+      expect(postMessage).toHaveBeenCalledWith({ type: "wx-refresh" }, location.origin)
+    );
+    // The loader answers with wx-verify: verification takes over the UI and
+    // must not leave the "Talk to a person" bar floating underneath.
+    widget.handleParentMessage(
+      new MessageEvent("message", {
+        origin: location.origin,
+        source: window,
+        data: { type: "wx-verify" },
+      })
+    );
+    const verification = document.getElementById("wx-verification") as HTMLElement;
+    const form = document.getElementById("wx-form") as HTMLFormElement;
+    const actions = document.getElementById("wx-live-actions") as HTMLDivElement;
+    expect(verification.hidden).toBe(false);
+    expect(form.hidden).toBe(true);
+    expect(actions.hidden).toBe(true);
+
+    // Turnstile re-solves and the fresh session arrives: the chat must come
+    // back instead of sticking on "Finishing verification…".
+    widget.handleParentMessage(sessionMessage("signed-session-2"));
+    await vi.waitFor(() => expect(verification.hidden).toBe(true));
+    expect(form.hidden).toBe(false);
+
+    // The retry still 401s, so the dead conversation session is dropped and
+    // the visitor can simply chat again on the next open.
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(localStorage.getItem(storageKey)).toBeNull());
+    expect(localStorage.getItem(`${storageKey}_token`)).toBeNull();
+    expect(localStorage.getItem(`${storageKey}_visitor_count`)).toBeNull();
+    await vi.waitFor(() =>
+      expect((document.getElementById("wx-talk") as HTMLButtonElement).hidden).toBe(true)
+    );
+    expect(form.hidden).toBe(false);
+  });
+
   it("coalesces rapid handoff clicks into one ticket, socket, and escalation", async () => {
     window.turnstile = {
       render: vi.fn(() => "widget-id"),
@@ -479,6 +558,11 @@ describe("embedded widget verification flow", () => {
     expect(rateUp.disabled).toBe(true);
     const storageKey = `wx_conv_17_${encodeURIComponent("https://customer.example")}`;
     expect(localStorage.getItem(`${storageKey}_rating`)).toBe("up");
+
+    // The thanks lingers briefly, then the rating bar retires for good.
+    const actions = document.getElementById("wx-live-actions") as HTMLDivElement;
+    await vi.waitFor(() => expect(rating.hidden).toBe(true), { timeout: 4000 });
+    expect(actions.hidden).toBe(true);
   });
 
   it("offers a rating alongside 'Start a new conversation' when closed", async () => {
@@ -560,7 +644,7 @@ describe("embedded widget verification flow", () => {
     expect(rating).toHaveTextContent("How was this conversation?");
   });
 
-  it("marks a previously rated conversation as already rated", async () => {
+  it("does not offer the rating again for a previously rated conversation", async () => {
     window.turnstile = {
       render: vi.fn(() => "widget-id"),
       reset: vi.fn(),
@@ -593,15 +677,231 @@ describe("embedded widget verification flow", () => {
     );
 
     const rating = document.getElementById("wx-rating") as HTMLDivElement;
-    const rateUp = document.getElementById("wx-rate-up") as HTMLButtonElement;
-    const rateDown = document.getElementById("wx-rate-down") as HTMLButtonElement;
-    expect(rating.hidden).toBe(false);
-    expect(document.getElementById("wx-rating-prompt")).toHaveTextContent(
-      "Thanks for your feedback."
+    const actions = document.getElementById("wx-live-actions") as HTMLDivElement;
+    expect(rating.hidden).toBe(true);
+    expect(actions.hidden).toBe(true);
+  });
+
+  it("closes the chat when the stream delivers a moderation close", async () => {
+    window.turnstile = {
+      render: vi.fn(() => "widget-id"),
+      reset: vi.fn(),
+    };
+    const closedText =
+      "This conversation has been closed due to repeated inappropriate messages.";
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        [
+          `data: ${JSON.stringify({
+            type: "conversation",
+            conversation_id: 42,
+            conversation_token: "conversation-token",
+          })}`,
+          `data: ${JSON.stringify({ type: "token", content: closedText })}`,
+          `data: ${JSON.stringify({
+            type: "mode_changed",
+            mode: "closed",
+            conversation_id: 42,
+          })}`,
+          "",
+        ].join("\n\n"),
+        { status: 200, headers: { "content-type": "text/event-stream" } }
+      )
     );
-    expect(rateUp).toHaveClass("selected");
-    expect(rateUp.disabled).toBe(true);
-    expect(rateDown.disabled).toBe(true);
+    vi.stubGlobal("fetch", fetchMock);
+    const sockets: unknown[] = [];
+    class MockWebSocket {
+      static OPEN = 1;
+      constructor() {
+        sockets.push(this);
+      }
+      close() {}
+      send() {}
+    }
+    vi.stubGlobal("WebSocket", MockWebSocket);
+
+    const widget = await import("./app");
+    widget.handleParentMessage(
+      new MessageEvent("message", {
+        origin: location.origin,
+        source: window,
+        data: {
+          type: "wx-session",
+          session: {
+            token: "signed-session",
+            installation_id: 17,
+            origin: "https://customer.example",
+            assistant_name: "Helper",
+            business_name: "Acme",
+            live_human_escalation_enabled: false,
+          },
+        },
+      })
+    );
+
+    const form = document.getElementById("wx-form") as HTMLFormElement;
+    const input = document.getElementById("wx-input") as HTMLInputElement;
+    input.value = "abusive message";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() =>
+      expect(document.getElementById("wx-messages")).toHaveTextContent(closedText)
+    );
+    await vi.waitFor(() => expect(form.hidden).toBe(true));
+    expect(
+      (document.getElementById("wx-new-chat") as HTMLButtonElement).hidden
+    ).toBe(false);
+    expect(document.getElementById("wx-subtitle")).toHaveTextContent(
+      "Conversation closed"
+    );
+    // A server-side close must not spuriously open a live socket.
+    expect(sockets).toHaveLength(0);
+    expect(
+      fetchMock.mock.calls.some((call) => String(call[0]).includes("/live/"))
+    ).toBe(false);
+  });
+
+  it("shows the closed notice when sending into an already-closed conversation", async () => {
+    window.turnstile = {
+      render: vi.fn(() => "widget-id"),
+      reset: vi.fn(),
+    };
+    // The backend's early return carries no token text - just the mode change.
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        [
+          `data: ${JSON.stringify({
+            type: "mode_changed",
+            mode: "closed",
+            conversation_id: 42,
+          })}`,
+          "",
+        ].join("\n\n"),
+        { status: 200, headers: { "content-type": "text/event-stream" } }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const widget = await import("./app");
+    widget.handleParentMessage(
+      new MessageEvent("message", {
+        origin: location.origin,
+        source: window,
+        data: {
+          type: "wx-session",
+          session: {
+            token: "signed-session",
+            installation_id: 17,
+            origin: "https://customer.example",
+            assistant_name: "Helper",
+            business_name: "Acme",
+            live_human_escalation_enabled: false,
+          },
+        },
+      })
+    );
+
+    const form = document.getElementById("wx-form") as HTMLFormElement;
+    const input = document.getElementById("wx-input") as HTMLInputElement;
+    input.value = "hello?";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() =>
+      expect(document.getElementById("wx-messages")).toHaveTextContent(
+        "This conversation has been closed."
+      )
+    );
+    expect(document.getElementById("wx-messages")).not.toHaveTextContent(
+      "(no response)"
+    );
+    await vi.waitFor(() => expect(form.hidden).toBe(true));
+  });
+
+  it("still hands off to the live socket for non-closed mode changes", async () => {
+    window.turnstile = {
+      render: vi.fn(() => "widget-id"),
+      reset: vi.fn(),
+    };
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).endsWith("/live/visitor/socket-ticket")) {
+        return new Response(
+          JSON.stringify({
+            ticket: "live-ticket",
+            websocket_path: "/live/conversations/42",
+            conversation_id: 42,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      return new Response(
+        [
+          `data: ${JSON.stringify({
+            type: "conversation",
+            conversation_id: 42,
+            conversation_token: "conversation-token",
+          })}`,
+          `data: ${JSON.stringify({
+            type: "mode_changed",
+            mode: "waiting",
+            conversation_id: 42,
+          })}`,
+          "",
+        ].join("\n\n"),
+        { status: 200, headers: { "content-type": "text/event-stream" } }
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const sockets: MockWebSocket[] = [];
+    class MockWebSocket {
+      static OPEN = 1;
+      readyState = 0;
+      onopen: (() => void) | null = null;
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onclose: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      send = vi.fn();
+
+      constructor(_url: string, _protocols: string[]) {
+        sockets.push(this);
+        queueMicrotask(() => {
+          this.readyState = MockWebSocket.OPEN;
+          this.onopen?.();
+        });
+      }
+
+      close() {}
+    }
+    vi.stubGlobal("WebSocket", MockWebSocket);
+
+    const widget = await import("./app");
+    widget.handleParentMessage(
+      new MessageEvent("message", {
+        origin: location.origin,
+        source: window,
+        data: {
+          type: "wx-session",
+          session: {
+            token: "signed-session",
+            installation_id: 17,
+            origin: "https://customer.example",
+            assistant_name: "Helper",
+            business_name: "Acme",
+            live_human_escalation_enabled: true,
+          },
+        },
+      })
+    );
+
+    const form = document.getElementById("wx-form") as HTMLFormElement;
+    const input = document.getElementById("wx-input") as HTMLInputElement;
+    input.value = "hello?";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => expect(sockets).toHaveLength(1));
+    expect(document.getElementById("wx-messages")).not.toHaveTextContent(
+      "(no response)"
+    );
   });
 });
 

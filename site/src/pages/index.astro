@@ -11,6 +11,7 @@ import LiveSupportShowcase from "../components/LiveSupportShowcase.astro";
 import WidgetCustomizeShowcase from "../components/WidgetCustomizeShowcase.astro";
 import TicketsShowcase from "../components/TicketsShowcase.astro";
 import { SITE, NAV } from "../config";
+import { PRICING_TIERS, TRIAL_NOTE } from "../data/pricing";
 
 // Full schema markup for the home page: the responsible organisation, the
 // website, and the product itself.
@@ -37,6 +38,13 @@ const schema = [
     operatingSystem: "Web",
     description: SITE.description,
     url: SITE.url,
+    offers: {
+      "@type": "AggregateOffer",
+      priceCurrency: "EUR",
+      lowPrice: String(PRICING_TIERS[0].priceMonthly),
+      highPrice: String(PRICING_TIERS[PRICING_TIERS.length - 1].priceMonthly),
+      offerCount: PRICING_TIERS.length,
+    },
   },
 ];
 ---
@@ -226,7 +234,7 @@ const schema = [
       title="Turn missed handoffs into work your team can track."
       body="When no operator accepts a live request, the visitor can leave callback details and Plug & Play creates a ticket automatically. Your team can assign it, move it through three clear stages, and keep every request visible until it is resolved."
       bullets={[
-        "New, In progress, and Resolved — no extra workflow to configure",
+        "New, In progress, and Resolved - no extra workflow to configure",
         "Drag tickets between stages or use Start, Resolve, and Reopen",
         "Assign work to the owner or an active teammate",
       ]}
@@ -337,6 +345,68 @@ const schema = [
       </div>
     </section>
   </div>
+
+  <!-- Pricing -->
+  <section id="pricing" class="border-t border-slate-200 bg-white">
+    <div class="mx-auto max-w-6xl px-6 py-20">
+      <div class="mx-auto max-w-2xl text-center">
+        <p class="text-sm font-semibold uppercase tracking-widest text-sky-700">
+          Pricing
+        </p>
+        <h2 class="mt-4 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
+          Simple plans that grow with you.
+        </h2>
+        <p class="mt-5 text-lg leading-8 text-slate-600">
+          {TRIAL_NOTE}
+        </p>
+      </div>
+
+      <div class="mt-14 grid gap-6 md:grid-cols-3">
+        {
+          PRICING_TIERS.map((tier) => (
+            <div
+              class={`flex h-full flex-col rounded-2xl border bg-white p-6 ${tier.highlighted ? "border-sky-500 ring-1 ring-sky-200" : "border-slate-200"}`}
+            >
+              <div class="flex items-center gap-2">
+                <h3 class="text-xl font-semibold text-slate-950">{tier.name}</h3>
+                {tier.highlighted && (
+                  <span class="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-semibold text-sky-700">
+                    Most popular
+                  </span>
+                )}
+              </div>
+              <p class="mt-2 text-sm leading-6 text-slate-600">{tier.tagline}</p>
+              <div class="mt-5">
+                <span class="text-4xl font-semibold tracking-tight text-slate-950">
+                  €{tier.priceMonthly}
+                </span>
+                <span class="text-sm text-slate-500"> / month</span>
+              </div>
+              <p class="mt-1 text-xs text-slate-400">
+                or €{tier.priceYearly} / year (2 months free)
+              </p>
+              <ul class="mt-6 flex-1 space-y-3">
+                {tier.features.map((feature) => (
+                  <li class="flex items-start gap-3 text-sm text-slate-600">
+                    <span class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-sky-100 text-xs font-bold text-sky-700">
+                      ✓
+                    </span>
+                    {feature}
+                  </li>
+                ))}
+              </ul>
+              <a
+                href={NAV.register}
+                class={`mt-8 inline-flex justify-center rounded-lg px-5 py-3 text-sm font-medium transition ${tier.highlighted ? "bg-sky-600 text-white hover:bg-sky-700" : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"}`}
+              >
+                Start free trial
+              </a>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  </section>
 
   <!-- Closing call to action -->
   <section class="border-t border-slate-200 bg-white">

@@ -9,7 +9,6 @@ export interface Settings {
   public_key: string | null;
   widget_origin: string | null;
   widget_enabled: boolean;
-  widget_monthly_limit: number;
   widget_monthly_usage: number;
   widget_resets_at: string;
   // Appearance
@@ -21,6 +20,8 @@ export interface Settings {
   show_branding: boolean;
   live_human_escalation_enabled: boolean;
   live_human_escalation_available: boolean;
+  moderation_enabled: boolean;
+  moderation_available: boolean;
   notification_email: string | null;
 }
 
@@ -53,6 +54,7 @@ export async function updateSettings(
     widget_origin: string;
     widget_enabled: boolean;
     live_human_escalation_enabled: boolean;
+    moderation_enabled: boolean;
     // Omitted (undefined) when empty: the backend rejects a blank email and
     // treats an absent field as "leave unchanged".
     notification_email?: string;
@@ -61,6 +63,7 @@ export async function updateSettings(
     launcher_position: LauncherPosition;
     greeting: string;
     launcher_label: string;
+    show_branding: boolean;
   }
 ): Promise<Settings> {
   return handle(

@@ -27,7 +27,7 @@ async def get_site_access(
     """Resolve which site a request targets and the caller's role on it.
 
     ``?site_id=`` omitted falls back to the caller's default site (an owner's
-    first site — bootstrapping one on first login — else the first site of a
+    first site - bootstrapping one on first login - else the first site of a
     team they belong to), so an un-updated client keeps working. A ``site_id``
     the caller cannot access yields 404 (don't leak existence). Team
     memberships pending on the caller's email are activated as a side effect
@@ -38,6 +38,10 @@ async def get_site_access(
     else:
         result = await repo.get_accessible(site_id, user.id, user.email)
         if result is None:
+            # No cross-tenant access, ever - not even for super-admins. The
+            # super-admin role only lifts billing/plan limits on the caller's
+            # OWN account (see app.services.billing.resolve_entitlements); it
+            # never grants sight of another owner's sites or data.
             raise HTTPException(status_code=404, detail="Site not found.")
         profile, role = result
     if role == "owner" and profile.notification_email is None and user.email:

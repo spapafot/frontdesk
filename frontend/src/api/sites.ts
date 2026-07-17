@@ -9,7 +9,6 @@ export interface Site {
   public_key: string | null;
   widget_origin: string | null;
   widget_enabled: boolean;
-  widget_monthly_limit: number;
   widget_monthly_usage: number;
   /** The caller's relationship to the site; absent (older API) means owner. */
   role?: "owner" | "member";

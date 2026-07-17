@@ -14,6 +14,10 @@ export interface ConversationSummary {
   accepted_at: string | null;
   closed_at: string | null;
   last_message_at: string | null;
+  // Started by a website visitor (vs. the admin's own test chat). Visitor
+  // conversations are read-only in the history view. Optional so optimistically
+  // inserted test conversations (which are never visitor-owned) can omit it.
+  is_visitor?: boolean;
 }
 
 export interface StoredMessage {

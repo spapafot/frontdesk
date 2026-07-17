@@ -83,9 +83,6 @@ async def test_widget_chat_never_requests_source_metadata(
     async def get_installation(_self, profile_id):
         return installation if profile_id == 11 else None
 
-    async def reserve_message(_self, _installation, _period):
-        return True
-
     monkeypatch.setattr(
         "app.api.routes.chat.decode_widget_token",
         lambda _token: (11, 17, "pk_live_test"),
@@ -93,10 +90,6 @@ async def test_widget_chat_never_requests_source_metadata(
     monkeypatch.setattr(
         "app.repositories.widget_repository.WidgetRepository.get_for_profile",
         get_installation,
-    )
-    monkeypatch.setattr(
-        "app.repositories.widget_repository.WidgetRepository.reserve_message",
-        reserve_message,
     )
     monkeypatch.setattr("app.api.routes.chat.stream_chat", make_fake_stream(record))
 
@@ -109,6 +102,62 @@ async def test_widget_chat_never_requests_source_metadata(
     _ = response.text
     assert record["profile_id"] == 11
     assert record["include_sources"] is False
+
+
+async def test_admin_chat_rejects_continuing_a_visitor_conversation(
+    client, settings, monkeypatch
+):
+    """An admin token must not append to a website visitor's conversation."""
+    monkeypatch.setattr(settings, "edge_shared_secret", "")
+    monkeypatch.setattr(settings, "supabase_jwt_secret", JWT_SECRET)
+    record: dict = {}
+    monkeypatch.setattr("app.api.routes.chat.stream_chat", make_fake_stream(record))
+
+    async def _get(_self, _conversation_id):
+        # profile_id 7 matches the profile resolved by conftest for this user.
+        return SimpleNamespace(
+            id=99, profile_id=7, visitor_session_id_hash="hashed-session"
+        )
+
+    monkeypatch.setattr(
+        "app.repositories.conversation_repository.ConversationRepository.get", _get
+    )
+
+    response = await client.post(
+        "/chat/stream",
+        json={"message": "hello", "conversation_id": 99},
+        headers={"Authorization": f"Bearer {make_jwt(JWT_SECRET)}"},
+    )
+    assert response.status_code == 403
+    # The service must never run for a rejected injection.
+    assert record == {}
+
+
+async def test_admin_chat_allows_continuing_own_test_conversation(
+    client, settings, monkeypatch
+):
+    """The admin's own test chat has no visitor session, so it stays continuable."""
+    monkeypatch.setattr(settings, "edge_shared_secret", "")
+    monkeypatch.setattr(settings, "supabase_jwt_secret", JWT_SECRET)
+    record: dict = {}
+    monkeypatch.setattr("app.api.routes.chat.stream_chat", make_fake_stream(record))
+
+    async def _get(_self, _conversation_id):
+        return SimpleNamespace(id=55, profile_id=7, visitor_session_id_hash=None)
+
+    monkeypatch.setattr(
+        "app.repositories.conversation_repository.ConversationRepository.get", _get
+    )
+
+    response = await client.post(
+        "/chat/stream",
+        json={"message": "hello", "conversation_id": 55},
+        headers={"Authorization": f"Bearer {make_jwt(JWT_SECRET)}"},
+    )
+    assert response.status_code == 200
+    _ = response.text
+    assert record["profile_id"] == 7
+    assert record["conversation_id"] == 55
 
 
 async def test_chat_message_has_hard_limit(client, settings, monkeypatch):

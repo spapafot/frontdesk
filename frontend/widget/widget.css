@@ -464,6 +464,14 @@ body {
   transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
 }
 
+/* iOS Safari zooms the page when a focused input's font is under 16px,
+   pushing the send button past the screen edge. Touch devices get 16px. */
+@media (pointer: coarse) {
+  .wx-input {
+    font-size: 16px;
+  }
+}
+
 .wx-input:focus {
   border-color: var(--accent);
   background: var(--surface);

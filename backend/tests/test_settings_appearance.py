@@ -59,6 +59,14 @@ def test_appearance_all_optional():
     assert body.launcher_icon is None
 
 
+def test_moderation_toggle_is_optional_and_defaults_off_the_wire():
+    # Absent = leave unchanged (update_settings skips None fields).
+    body = SettingsUpdate(business_name="Acme")
+    assert body.moderation_enabled is None
+    assert "moderation_enabled" not in body.model_fields_set
+    assert SettingsUpdate(moderation_enabled=False).moderation_enabled is False
+
+
 def test_notification_email_accepted_and_stripped():
     body = SettingsUpdate(notification_email="  owner@acme.com  ")
     assert body.notification_email == "owner@acme.com"

@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import useSWR from "swr";
 import {
   Settings,
@@ -10,6 +11,7 @@ import {
 import { WidgetInstall } from "../components/WidgetInstall";
 import { WidgetAppearance, AppearanceState } from "../components/WidgetAppearance";
 import { WidgetPreview } from "../components/WidgetPreview";
+import { usePlan } from "../components/PlanProvider";
 import { useSite } from "../components/SiteProvider";
 import { Skeleton } from "../components/Skeleton";
 import { RenameWebsiteDialog } from "../components/RenameWebsiteDialog";
@@ -26,6 +28,12 @@ const DEFAULT_APPEARANCE: AppearanceState = {
 
 export function SettingsPage() {
   const { selectedSiteId, sites, current, renameSite, deleteSite } = useSite();
+  const { entitlements, isSuperAdmin } = usePlan();
+  const navigate = useNavigate();
+  // Super-admins get every plan feature regardless of subscription. Live
+  // handoff additionally needs the deployment-level flag (not a plan gate).
+  const canRemoveBranding = isSuperAdmin || entitlements.remove_branding;
+  const canLiveHandoff = isSuperAdmin || entitlements.live_handoff;
   const { data, error, isLoading, mutate } = useSWR<Settings>(
     selectedSiteId != null ? settingsKey(selectedSiteId) : null,
     () => getSettings(selectedSiteId as number)
@@ -40,7 +48,9 @@ export function SettingsPage() {
   const [widgetOrigin, setWidgetOrigin] = useState("");
   const [widgetEnabled, setWidgetEnabled] = useState(true);
   const [liveHumanEscalationEnabled, setLiveHumanEscalationEnabled] = useState(false);
+  const [moderationEnabled, setModerationEnabled] = useState(true);
   const [notificationEmail, setNotificationEmail] = useState("");
+  const [showBranding, setShowBranding] = useState(true);
   const [appearance, setAppearance] = useState<AppearanceState>(DEFAULT_APPEARANCE);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -54,7 +64,9 @@ export function SettingsPage() {
       setWidgetOrigin(data.widget_origin ?? "");
       setWidgetEnabled(data.widget_enabled ?? true);
       setLiveHumanEscalationEnabled(data.live_human_escalation_enabled ?? false);
+      setModerationEnabled(data.moderation_enabled ?? true);
       setNotificationEmail(data.notification_email ?? "");
+      setShowBranding(data.show_branding ?? true);
       setAppearance({
         accentColor: data.accent_color,
         launcherIcon: data.launcher_icon,
@@ -78,12 +90,14 @@ export function SettingsPage() {
         widget_origin: widgetOrigin,
         widget_enabled: widgetEnabled,
         live_human_escalation_enabled: liveHumanEscalationEnabled,
+        moderation_enabled: moderationEnabled,
         notification_email: notificationEmail.trim() || undefined,
         accent_color: appearance.accentColor.trim(),
         launcher_icon: appearance.launcherIcon,
         launcher_position: appearance.launcherPosition,
         greeting: appearance.greeting.trim(),
         launcher_label: appearance.launcherLabel.trim(),
+        show_branding: showBranding,
       });
       await mutate(updated, { revalidate: false });
       setSaved(true);
@@ -170,14 +184,17 @@ export function SettingsPage() {
                 <WidgetAppearance
                   value={appearance}
                   onChange={setAppearance}
-                  showBranding={data.show_branding}
+                  showBranding={showBranding}
+                  onShowBrandingChange={setShowBranding}
+                  canRemoveBranding={canRemoveBranding}
+                  onUpgrade={() => navigate("/billing")}
                 />
                 <div className="lg:sticky lg:top-4 lg:self-start">
                   <WidgetPreview
                     appearance={appearance}
                     assistantName={assistantName}
                     businessName={businessName}
-                    showBranding={data.show_branding}
+                    showBranding={showBranding}
                   />
                 </div>
               </div>
@@ -209,17 +226,46 @@ export function SettingsPage() {
                 <input
                   type="checkbox"
                   checked={liveHumanEscalationEnabled}
-                  disabled={!data.live_human_escalation_available}
+                  disabled={!data.live_human_escalation_available || !canLiveHandoff}
                   onChange={(e) => setLiveHumanEscalationEnabled(e.target.checked)}
                 />
                 Allow visitors to talk to a person
+                {data.live_human_escalation_available && !canLiveHandoff && (
+                  <button
+                    type="button"
+                    onClick={() => navigate("/billing")}
+                    className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-700 hover:bg-sky-200"
+                  >
+                    Upgrade
+                  </button>
+                )}
               </label>
-              {!data.live_human_escalation_available && (
+              {!data.live_human_escalation_available ? (
                 <p className="mt-1 text-xs text-slate-400">
                   Live support is disabled for this deployment. Enable the global flag after
                   deploying the Lambda migration and Durable Objects.
                 </p>
+              ) : (
+                !canLiveHandoff && (
+                  <p className="mt-1 text-xs text-slate-400">
+                    Live human handoff is available on the Pro and Business plans.
+                  </p>
+                )
               )}
+              <label className="mt-3 flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={moderationEnabled}
+                  disabled={!data.moderation_available}
+                  onChange={(e) => setModerationEnabled(e.target.checked)}
+                />
+                Automatically moderate abusive visitor messages
+              </label>
+              <p className="mt-1 text-xs text-slate-400">
+                {data.moderation_available
+                  ? "Abusive messages get a warning instead of an answer; repeated abuse closes the conversation."
+                  : "Moderation is unavailable for this deployment (requires an OpenAI API key)."}
+              </p>
               <div className="mt-4">
                 <label className="block text-sm font-medium text-slate-700">
                   Notification email
@@ -237,8 +283,11 @@ export function SettingsPage() {
                 />
               </div>
               <p className="mt-2 text-xs text-slate-500">
-                {(data.widget_monthly_usage ?? 0).toLocaleString()} of{" "}
-                {(data.widget_monthly_limit ?? 0).toLocaleString()} messages used this month
+                {(data.widget_monthly_usage ?? 0).toLocaleString()} messages from
+                this site this month · check your total quota on the{" "}
+                <Link to="/billing" className="text-sky-600 hover:underline">
+                  Billing page
+                </Link>
               </p>
             </section>
 
@@ -264,7 +313,7 @@ export function SettingsPage() {
             launcherPosition={data.launcher_position}
             greeting={data.greeting}
             launcherLabel={data.launcher_label ?? ""}
-            showBranding={data.show_branding}
+            showBranding={showBranding}
             onRotate={async () => {
               const updated = await rotateWidgetKey(selectedSiteId as number);
               await mutate(updated, { revalidate: false });

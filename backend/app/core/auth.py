@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import logging
 import time
 
 import httpx
@@ -32,6 +33,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 # Paths that must stay reachable without the edge secret: CORS preflight has no
 # custom headers, and health checks are called by the platform, not the Worker.
@@ -70,6 +73,22 @@ class AdminUser:
         self.id = subject
         self.email = email
         self.claims = claims
+
+
+# A manual, dashboard-set Supabase role that lifts all billing/plan limits on
+# the holder's OWN account (unlimited quota/sites/seats/docs, every feature on),
+# so an operator's account is unaffected by Stripe. It grants NO cross-tenant
+# access: a super-admin still cannot see or act on another owner's sites or data
+# (tenant isolation is enforced independently in get_site_access). Supabase
+# surfaces custom roles under ``app_metadata`` in the access token; the claim is
+# never issued or changed by Stripe.
+SUPERADMIN_ROLE = "superadmin"
+
+
+def is_superadmin(user: "AdminUser") -> bool:
+    claims = getattr(user, "claims", None) or {}
+    app_metadata = claims.get("app_metadata") or {}
+    return app_metadata.get("role") == SUPERADMIN_ROLE
 
 
 # In-process JWKS cache. Supabase signing keys rotate rarely, so we fetch the
@@ -154,6 +173,65 @@ async def _decode(token: str) -> dict:
     return jwt.decode(token, signing_key.key, algorithms=["ES256", "RS256"], **common)
 
 
+# Distinct 401 detail so the frontend can tell "second factor missing" apart
+# from "token invalid/expired". Machine-matched by the SPA - do not reword.
+MFA_REQUIRED_DETAIL = "mfa_required"
+
+# In-process cache of "does this user have a verified MFA factor?", so the
+# Supabase Admin API is consulted at most once per user per TTL rather than on
+# every aal1 request. Values are (has_verified_factor, expires_at monotonic).
+_mfa_cache: dict[str, tuple[bool, float]] = {}
+_MFA_CACHE_MAX = 1024
+# A failed factor lookup fails OPEN (the primary JWT + edge-secret gates stay
+# fully enforced) but the False answer is cached briefly so an Admin API
+# outage doesn't add a timeout to every admin request.
+_MFA_ERROR_TTL_SECONDS = 60.0
+
+
+async def _fetch_user_factors(user_id: str) -> list[dict]:
+    """Fetch the user's MFA factors from the Supabase Admin API.
+
+    Split out for testability, like ``_fetch_jwks_set``.
+    """
+    key = settings.supabase_service_role_key
+    base = settings.supabase_url.rstrip("/")
+    async with httpx.AsyncClient(timeout=5.0) as http:
+        resp = await http.get(
+            f"{base}/auth/v1/admin/users/{user_id}/factors",
+            headers={"apikey": key, "Authorization": f"Bearer {key}"},
+        )
+        resp.raise_for_status()
+        body = resp.json()
+    # GoTrue returns a bare array; tolerate a {"factors": [...]} wrapper too.
+    factors = body.get("factors") if isinstance(body, dict) else body
+    return [f for f in factors if isinstance(f, dict)] if isinstance(factors, list) else []
+
+
+async def _user_has_verified_factor(user_id: str) -> bool:
+    now = time.monotonic()
+    cached = _mfa_cache.get(user_id)
+    if cached is not None and now < cached[1]:
+        return cached[0]
+
+    try:
+        factors = await _fetch_user_factors(user_id)
+        result = any(f.get("status") == "verified" for f in factors)
+        ttl = float(settings.supabase_mfa_cache_seconds)
+    except (httpx.HTTPError, ValueError):
+        logger.warning("Supabase MFA factor lookup failed; failing open", exc_info=True)
+        result = False
+        ttl = _MFA_ERROR_TTL_SECONDS
+
+    if len(_mfa_cache) >= _MFA_CACHE_MAX:
+        expired = [uid for uid, (_, exp) in _mfa_cache.items() if exp <= now]
+        for uid in expired:
+            _mfa_cache.pop(uid, None)
+        if len(_mfa_cache) >= _MFA_CACHE_MAX:
+            _mfa_cache.clear()
+    _mfa_cache[user_id] = (result, now + ttl)
+    return result
+
+
 async def require_admin(
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
 ) -> AdminUser:
@@ -184,6 +262,23 @@ async def require_admin(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token: missing subject.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # MFA enforcement: a user who has completed TOTP enrollment must present an
+    # aal2 token, otherwise a stolen password would still work against the API
+    # directly (skipping the SPA's challenge screen). Fail-open when the Admin
+    # API is unconfigured or down - see _user_has_verified_factor.
+    if (
+        settings.mfa_enforcement_enabled
+        and claims.get("aal") != "aal2"
+        and settings.supabase_url
+        and settings.supabase_service_role_key
+        and await _user_has_verified_factor(claims["sub"])
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=MFA_REQUIRED_DETAIL,
             headers={"WWW-Authenticate": "Bearer"},
         )
 

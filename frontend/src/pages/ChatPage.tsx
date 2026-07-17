@@ -40,6 +40,11 @@ export function ChatPage({
   const { selectedSiteId } = useSite();
   const selectedMode = selectedConversation?.mode;
   const isAiConversation = section === "history" && selectedMode === "ai";
+  // A visitor's AI conversation is a record of what happened on the website, so
+  // it's read-only: sending here would append messages as if the visitor wrote
+  // them. Only the admin's own test chat (no visitor session) accepts input.
+  const isReadOnlyAiConversation =
+    isAiConversation && selectedConversation?.is_visitor === true;
   // Active conversations need the live socket; closed/pending ones are terminal
   // history read straight from stored messages, so they stay viewable even when
   // live support is turned off (which disables the socket).
@@ -161,7 +166,15 @@ export function ChatPage({
             showDebug={showDebug}
             isLoadingHistory={isLoadingHistory}
           />
-          <ChatInput onSend={send} disabled={isStreaming} />
+          {isReadOnlyAiConversation ? (
+            <div className="border-t border-slate-200 bg-white px-6 py-4">
+              <p className="mx-auto w-full max-w-3xl text-center text-sm text-slate-500">
+                This conversation happened on your website. It's a read-only record.
+              </p>
+            </div>
+          ) : (
+            <ChatInput onSend={send} disabled={isStreaming} />
+          )}
         </>
       )}
     </div>

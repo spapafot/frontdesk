@@ -31,6 +31,7 @@ interface TurnstileApi {
       action: string;
       theme: "auto";
       size: "flexible";
+      "refresh-expired": "never";
       callback: (token: string) => void;
       "error-callback": () => void;
       "expired-callback": () => void;
@@ -169,6 +170,7 @@ let conversationRatingStorageKey = "";
 let conversationToken = "";
 let visitorMessageCount = 0;
 let conversationRated: Rating | "" = "";
+let ratingDismissed = false;
 let streaming = false;
 let widgetToken = "";
 let turnstileWidgetId: string | null = null;
@@ -200,6 +202,8 @@ function showVerificationError(
   verificationEl.hidden = false;
   messagesEl.hidden = true;
   formEl.hidden = true;
+  liveActionsEl.hidden = true;
+  callbackEl.hidden = true;
   verificationMessageEl.textContent = message;
   verificationMessageEl.classList.add("wx-error");
   retryEl.hidden = false;
@@ -210,6 +214,12 @@ function showChat(session: WidgetSession) {
   if (chatInitialized && refreshResolver) {
     refreshResolver(session.token);
     refreshResolver = null;
+    // A mid-session wx-verify hid the chat behind the verification pane;
+    // bring it back now that the fresh session is here. setLiveMode restores
+    // the mode-driven panels (composer, live actions, callback form).
+    verificationEl.hidden = true;
+    messagesEl.hidden = false;
+    setLiveMode(liveMode);
     return;
   }
   titleEl.textContent = session.assistant_name || "Chat";
@@ -241,6 +251,8 @@ function showChat(session: WidgetSession) {
     (storedRating === "up" || storedRating === "down")
       ? storedRating
       : "";
+  // A rated conversation was already thanked - never offer the rating again.
+  ratingDismissed = conversationRated !== "";
   if (!conversationId || !conversationToken) {
     localStorage.removeItem(conversationRatingStorageKey);
   }
@@ -270,6 +282,8 @@ function renderVerification() {
   verificationEl.hidden = false;
   messagesEl.hidden = true;
   formEl.hidden = true;
+  liveActionsEl.hidden = true;
+  callbackEl.hidden = true;
 
   // Local development can run without Turnstile. Production enforcement at
   // the Worker/backend still rejects an empty token, so this cannot fail open.
@@ -292,13 +306,22 @@ function renderVerification() {
     action: "widget-session",
     theme: "auto",
     size: "flexible",
+    // The token is consumed as soon as the session is minted, but the widget
+    // stays mounted (hidden) and would otherwise re-challenge every 5 minutes
+    // when its spent token expires. wx-verify resets it when a fresh token is
+    // actually needed.
+    "refresh-expired": "never",
     callback: (token) => {
       verificationMessageEl.textContent = "Finishing verification…";
       postToParent({ type: "wx-turnstile", token });
     },
     "error-callback": () => showVerificationError(),
-    "expired-callback": () =>
-      showVerificationError("Verification expired. Please try again."),
+    "expired-callback": () => {
+      // Only meaningful while we are still waiting to exchange the token -
+      // after that the chat is running on its own session, so stay quiet.
+      if (verificationEl.hidden) return;
+      showVerificationError("Verification expired. Please try again.");
+    },
     "timeout-callback": () =>
       showVerificationError("Verification timed out. Please try again."),
   });
@@ -363,6 +386,7 @@ function clearConversationSession() {
   conversationToken = "";
   visitorMessageCount = 0;
   conversationRated = "";
+  ratingDismissed = false;
   localStorage.removeItem(conversationStorageKey);
   localStorage.removeItem(conversationTokenStorageKey);
   localStorage.removeItem(visitorMessageCountStorageKey);
@@ -394,6 +418,8 @@ async function liveResponseError(response: Response): Promise<string> {
 
 function setLiveMode(mode: LiveMode) {
   liveMode = mode;
+  const actionsWereHidden = liveActionsEl.hidden;
+  const callbackWasHidden = callbackEl.hidden;
   const showTalk = liveEnabled && (
     mode === "waiting" || (
       mode === "ai" &&
@@ -406,10 +432,12 @@ function setLiveMode(mode: LiveMode) {
   const showNewChat = mode === "closed";
   // Offer a rating on a real conversation once it has ended (closed) or once
   // the visitor has exchanged a few messages with the AI - independent of the
-  // live-escalation feature, so AI-only sites can be rated too.
-  const showRating = conversationId !== null && conversationToken.length > 0 && (
-    mode === "closed" || (mode === "ai" && visitorMessageCount >= 3 && !streaming)
-  );
+  // live-escalation feature, so AI-only sites can be rated too. Once rated
+  // (and briefly thanked), the offer is gone for good.
+  const showRating = !ratingDismissed &&
+    conversationId !== null && conversationToken.length > 0 && (
+      mode === "closed" || (mode === "ai" && visitorMessageCount >= 3 && !streaming)
+    );
   liveActionsEl.hidden = !showTalk && !showNewChat && !showRating;
   livePromptEl.hidden = !showTalk;
   talkEl.hidden = !showTalk;
@@ -426,6 +454,14 @@ function setLiveMode(mode: LiveMode) {
     mode === "waiting" ? "Finding someone…" :
     mode === "pending_ticket" ? "Currently unavailable" :
     mode === "closed" ? "Conversation closed" : "Online";
+  // Un-hiding a panel between the messages and the composer shrinks the
+  // message scrollport, clipping the newest bubble - re-pin to the bottom.
+  if (
+    (actionsWereHidden && !liveActionsEl.hidden) ||
+    (callbackWasHidden && !callbackEl.hidden)
+  ) {
+    scrollToBottom();
+  }
 }
 
 function recordVisitorMessage() {
@@ -435,6 +471,9 @@ function recordVisitorMessage() {
   }
   setLiveMode(liveMode);
 }
+
+// How long "Thanks for your feedback." stays up before the rating bar hides.
+const RATING_THANKS_MS = 1500;
 
 function renderRatingSelection() {
   const rated = conversationRated !== "";
@@ -477,6 +516,13 @@ async function submitRating(value: Rating) {
     if (conversationRatingStorageKey) {
       localStorage.setItem(conversationRatingStorageKey, value);
     }
+    // Leave the thanks up briefly, then retire the rating bar for good.
+    const ratedConversation = conversationId;
+    window.setTimeout(() => {
+      if (conversationId !== ratedConversation) return; // a new chat started
+      ratingDismissed = true;
+      setLiveMode(liveMode);
+    }, RATING_THANKS_MS);
   } catch {
     conversationRated = ""; // let the visitor try again
     renderRatingSelection();
@@ -511,6 +557,19 @@ async function openLiveConnection(): Promise<WebSocket> {
     if (refreshed) {
       widgetToken = refreshed;
       response = await liveTicketRequest();
+      if (response.status === 401) {
+        // A fresh widget token still gets 401, so the stored conversation
+        // session is expired and cannot be re-minted. Drop it (mirrors the
+        // /chat/stream recovery in send()) so the visitor gets a working
+        // chat instead of hitting this dead end on every open.
+        clearConversationSession();
+        displayedLiveMessageIds.clear();
+        hydrateLiveHistory = false;
+        setLiveMode("ai");
+        throw new Error(
+          "Your previous conversation has expired. Send a message to start a new one.",
+        );
+      }
     }
   }
   if (!response.ok) throw new Error(await liveResponseError(response));
@@ -782,6 +841,20 @@ async function send(text: string) {
             break;
           case "mode_changed":
           case "interrupted":
+            if (event.mode === "closed") {
+              // Server-side close (e.g. abuse moderation). The canned closing
+              // message arrived as "token" events; keep the bubble. Setting
+              // `answer` also stops the post-loop "(no response)" overwrite
+              // when the close carried no text (already-closed conversation).
+              if (!answer) {
+                answer = "This conversation has been closed.";
+                pending.textContent = answer;
+              }
+              pending.classList.remove("pending");
+              setLiveMode("closed");
+              scrollToBottom();
+              break;
+            }
             pending.remove();
             void connectLive().catch(() => undefined);
             break;

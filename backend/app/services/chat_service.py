@@ -2,7 +2,7 @@ import json
 import logging
 import re
 from collections.abc import AsyncGenerator
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import lru_cache
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
@@ -15,6 +15,8 @@ from app.core.db import SessionLocal
 from app.prompts.system_prompt import build_system_prompt
 from app.repositories.profile_repository import ProfileRepository
 from app.repositories.conversation_repository import ConversationRepository
+from app.repositories.live_repository import LiveRepository
+from app.services import moderation
 from app.services.rag_service import search_knowledge
 from app.services.live_auth import (
     create_conversation_token,
@@ -40,6 +42,32 @@ SAFE_FALLBACKS = {
     "en": "I'm sorry, I don't have that information.",
 }
 
+# Canned replies for moderated (abusive) visitor messages - flagged turns never
+# reach retrieval or the model. Language mirrors the visitor's message, like
+# SAFE_FALLBACKS.
+MODERATION_WARNINGS = {
+    "el": (
+        "Ας κρατήσουμε τη συζήτηση ευγενική. Δεν μπορώ να απαντήσω σε αυτό το "
+        "μήνυμα, αλλά θα χαρώ να βοηθήσω με οποιαδήποτε ερώτηση σχετικά με τα "
+        "προϊόντα ή τις υπηρεσίες μας."
+    ),
+    "en": (
+        "Let's keep this conversation respectful. I can't respond to that message, "
+        "but I'm happy to help with any questions about our products or services."
+    ),
+}
+MODERATION_CLOSED = {
+    "el": (
+        "Αυτή η συνομιλία έκλεισε λόγω επανειλημμένων ανάρμοστων μηνυμάτων. "
+        "Αν εξακολουθείτε να χρειάζεστε βοήθεια, μπορείτε να ξεκινήσετε μια νέα "
+        "συνομιλία."
+    ),
+    "en": (
+        "This conversation has been closed due to repeated inappropriate messages. "
+        "If you still need help, you're welcome to start a new conversation."
+    ),
+}
+
 _GREEK_RE = re.compile(r"[\u0370-\u03ff\u1f00-\u1fff]")
 _DISCLOSURE_PATTERNS = tuple(
     re.compile(pattern, re.IGNORECASE)
@@ -62,10 +90,14 @@ _DISCLOSURE_PATTERNS = tuple(
 )
 
 
+def _reply_language(message: str) -> str:
+    """Canned replies mirror the language of the visitor's message."""
+    return "el" if _GREEK_RE.search(message) else "en"
+
+
 def safe_fallback(message: str) -> str:
     """Return a deterministic no-information response in a supported language."""
-    language = "el" if _GREEK_RE.search(message) else "en"
-    return SAFE_FALLBACKS[language]
+    return SAFE_FALLBACKS[_reply_language(message)]
 
 
 def contains_internal_disclosure(text: str) -> bool:
@@ -109,7 +141,12 @@ def _sse(payload: dict) -> str:
 async def _load_history(repo: ConversationRepository, conversation_id: int) -> list[dict]:
     history: list[dict] = []
     for message in await repo.get_messages(conversation_id):
-        if message.role in ("user", "assistant") and message.content:
+        if (
+            message.role in ("user", "assistant")
+            and message.content
+            # Moderated messages (and their canned replies) never reach the model.
+            and not (message.meta or {}).get("flagged")
+        ):
             history.append({"role": message.role, "content": message.content})
     return history
 
@@ -185,6 +222,72 @@ async def run_turn(
                 visitor_session_id,
             )
         yield conversation_event
+
+        # --- Visitor abuse moderation (widget traffic only) -------------------
+        # installation_id is present on every widget turn; admin test chat and
+        # live-operator messages never pass through here. classify() is
+        # fail-open: None (outage/disabled) means "answer normally". Flagged
+        # turns skip retrieval and the model entirely; the visitor gets a
+        # canned warning, and repeated flags auto-close the conversation.
+        if installation_id is not None and profile.moderation_enabled:
+            verdict = await moderation.classify(message)
+            if verdict is not None and verdict.flagged:
+                live_repo = LiveRepository(session)
+                await conversation_repo.add_message(
+                    conversation.id,
+                    "user",
+                    message,
+                    meta={"flagged": True, "categories": list(verdict.categories)},
+                )
+                strikes = await live_repo.add_strike(conversation.id)
+                await live_repo.add_event(
+                    conversation.id,
+                    "message_flagged",
+                    "visitor",
+                    meta={"categories": list(verdict.categories), "strike": strikes},
+                )
+                closed = None
+                if strikes is not None and strikes >= settings.moderation_strike_limit:
+                    closed = await live_repo.close_flagged(
+                        conversation.id, datetime.now(timezone.utc)
+                    )
+                    if closed is not None:
+                        await live_repo.add_event(
+                            conversation.id,
+                            "auto_closed",
+                            "system",
+                            meta={"reason": "moderation", "strikes": strikes},
+                        )
+                reply = (
+                    MODERATION_CLOSED if closed is not None else MODERATION_WARNINGS
+                )[_reply_language(message)]
+                await conversation_repo.add_message(
+                    conversation.id,
+                    "assistant",
+                    reply,
+                    meta={
+                        "flagged": True,
+                        "moderation_warning": True,
+                        "strike": strikes,
+                        "answered": False,
+                        "searched": False,
+                        "had_sources": False,
+                        "question": message[:500],
+                    },
+                )
+                # Commit before yielding: a client disconnect closes the
+                # generator at the next yield, and the strike must be durable.
+                await session.commit()
+                yield {"type": "token", "content": reply}
+                if closed is not None:
+                    yield {
+                        "type": "mode_changed",
+                        "mode": "closed",
+                        "conversation_id": conversation.id,
+                    }
+                else:
+                    yield {"type": "done", "conversation_id": conversation.id}
+                return
 
         tz = ZoneInfo(profile.timezone)
         now = datetime.now(tz)

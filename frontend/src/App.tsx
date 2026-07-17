@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
-import useSWR from "swr";
+import {
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from "react-router-dom";
+import useSWR, { useSWRConfig } from "swr";
 import { analyticsKey, getAnalytics } from "./api/analytics";
 import {
   conversationsKey,
@@ -24,11 +30,16 @@ import {
 } from "./api/live";
 import { getSettings, settingsKey } from "./api/settings";
 import { useAuth } from "./components/AuthGate";
+import { PlanBanner } from "./components/PlanBanner";
+import { PlanProvider, usePlan } from "./components/PlanProvider";
 import { Sidebar, View } from "./components/Sidebar";
 import { SiteProvider, useSite } from "./components/SiteProvider";
+import { Spinner } from "./components/Spinner";
 import { ToastProvider, useToast } from "./components/Toast";
+import { AccountPage } from "./pages/AccountPage";
 import { AdminPage } from "./pages/AdminPage";
 import { AnalyticsPage } from "./pages/AnalyticsPage";
+import { BillingPage } from "./pages/BillingPage";
 import { ChatPage } from "./pages/ChatPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { TicketsPage } from "./pages/TicketsPage";
@@ -45,7 +56,9 @@ const VIEW_PATHS: Record<View, string> = {
   analytics: "/analytics",
   admin: "/knowledge",
   settings: "/settings",
+  billing: "/billing",
   widgetDocs: "/widget-guide",
+  account: "/account",
 };
 
 function viewFromPath(pathname: string): View {
@@ -55,7 +68,9 @@ function viewFromPath(pathname: string): View {
   if (pathname.startsWith("/analytics")) return "analytics";
   if (pathname.startsWith("/knowledge")) return "admin";
   if (pathname.startsWith("/settings")) return "settings";
+  if (pathname.startsWith("/billing")) return "billing";
   if (pathname.startsWith("/widget-guide")) return "widgetDocs";
+  if (pathname.startsWith("/account")) return "account";
   return "history";
 }
 
@@ -67,9 +82,11 @@ function conversationIdFromPath(pathname: string): number | null {
 export default function App() {
   return (
     <ToastProvider>
-      <SiteProvider>
-        <AppShell />
-      </SiteProvider>
+      <PlanProvider>
+        <SiteProvider>
+          <AppShell />
+        </SiteProvider>
+      </PlanProvider>
     </ToastProvider>
   );
 }
@@ -78,31 +95,121 @@ function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
   const view = viewFromPath(location.pathname);
-  const { sites, selectedSiteId, current, isLoading, createSite, isOwner } =
-    useSite();
+  const {
+    sites,
+    selectedSiteId,
+    current,
+    isLoading,
+    createSite,
+    isOwner,
+    ownsAnySite,
+  } = useSite();
+  const { entitlements, refresh: refreshPlan } = usePlan();
+  const { mutate: globalMutate } = useSWRConfig();
   const { showToast } = useToast();
   const selectedConversationId = conversationIdFromPath(location.pathname);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [provisioning, setProvisioning] = useState<string | null>(null);
 
   // Collapse the mobile drawer whenever the route changes.
   useEffect(() => {
     setSidebarOpen(false);
   }, [location.pathname]);
 
+  // Handle the return from Stripe Checkout (?checkout=… for a plan, ?topup=…
+  // for a one-time message pack). The webhook may lag the redirect, so poll a
+  // few times, then revalidate the ENTIRE SWR cache so gates/usage update
+  // without a manual refresh, and strip the query param so a reload can't
+  // re-trigger it.
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const checkout = params.get("checkout");
+    const topup = params.get("topup");
+    if (!checkout && !topup) return;
+    const clearParam = () => navigate(location.pathname, { replace: true });
+    if (checkout === "cancel" || topup === "cancel") {
+      showToast("Checkout canceled.");
+      clearParam();
+      return;
+    }
+    let cancelled = false;
+    if (checkout === "success") {
+      setProvisioning("Setting up your plan…");
+      void (async () => {
+        for (let attempt = 0; attempt < 6 && !cancelled; attempt += 1) {
+          const billing = await refreshPlan();
+          if (billing && billing.status === "active") break;
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+        }
+        if (cancelled) return;
+        await globalMutate(() => true); // refetch everything so gates flip live
+        setProvisioning(null);
+        showToast("Your plan is active. Welcome aboard!");
+        clearParam();
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }
+    if (checkout === "updated") {
+      // A portal-confirmed plan switch: the subscription already exists (status
+      // stays "active"), so give the webhook a moment to mirror the new price,
+      // then revalidate everything so entitlement gates flip live.
+      setProvisioning("Updating your plan…");
+      void (async () => {
+        for (let attempt = 0; attempt < 4 && !cancelled; attempt += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+          await refreshPlan();
+        }
+        if (cancelled) return;
+        await globalMutate(() => true);
+        setProvisioning(null);
+        showToast("Your plan has been updated.");
+        clearParam();
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }
+    if (topup === "success") {
+      // One-time payment: the plan/status don't change, so just give the webhook
+      // a moment to credit the messages, then revalidate the usage meter.
+      setProvisioning("Adding your messages…");
+      void (async () => {
+        for (let attempt = 0; attempt < 4 && !cancelled; attempt += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+          await refreshPlan();
+        }
+        if (cancelled) return;
+        await globalMutate(() => true);
+        setProvisioning(null);
+        showToast("Extra messages added to your account.");
+        clearParam();
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }
+    // Keyed on the query string: this is a one-shot handler per checkout return.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.search]);
+
   const { data: conversations, mutate: mutateConversations } = useSWR(
     selectedSiteId != null ? conversationsKey(selectedSiteId) : null,
-    () => listConversations(selectedSiteId as number)
+    () => listConversations(selectedSiteId as number),
   );
   const { mutate: mutateAnalytics } = useSWR(
     selectedSiteId != null ? analyticsKey(selectedSiteId) : null,
-    () => getAnalytics(selectedSiteId as number)
+    () => getAnalytics(selectedSiteId as number),
   );
   const { data: settings } = useSWR(
     selectedSiteId != null ? settingsKey(selectedSiteId) : null,
     () => getSettings(selectedSiteId as number),
   );
   const liveEnabled = Boolean(
-    settings?.live_human_escalation_available && settings.live_human_escalation_enabled,
+    entitlements.live_handoff &&
+    settings?.live_human_escalation_available &&
+    settings.live_human_escalation_enabled,
   );
 
   // Tickets are shared between the sidebar badge and the Tickets page so the
@@ -119,7 +226,8 @@ function AppShell() {
   // In-progress tickets already have someone on them; the badge is "needs
   // attention".
   const pendingTicketCount =
-    callbacks?.filter((item) => item.status === "pending" && !item.archived).length ?? 0;
+    callbacks?.filter((item) => item.status === "pending" && !item.archived)
+      .length ?? 0;
   const { userId } = useAuth();
 
   const patchTicket = async (
@@ -132,14 +240,16 @@ function AppShell() {
       await mutateCallbacks(
         async (list) => {
           const updated = await request();
-          return list?.map((item) => (item.id === updated.id ? updated : item)) ?? [];
+          return (
+            list?.map((item) => (item.id === updated.id ? updated : item)) ?? []
+          );
         },
         {
           optimisticData: (list) =>
             list?.map((item) => (item.id === id ? apply(item) : item)) ?? [],
           rollbackOnError: true,
           revalidate: false,
-        }
+        },
       );
     } catch {
       showToast(failMessage);
@@ -181,35 +291,53 @@ function AppShell() {
       id,
       () => archiveCallback(selectedSiteId, id, archived),
       (item) => ({ ...item, archived }),
-      archived ? "Couldn't archive the ticket. Restored." : "Couldn't unarchive the ticket. Restored.",
+      archived
+        ? "Couldn't archive the ticket. Restored."
+        : "Couldn't unarchive the ticket. Restored.",
     );
   };
 
-  const onInboxWaiting = useCallback((id: number) => {
-    void mutateConversations(
-      (current) => current?.map((conversation) => (
-        conversation.id === id ? { ...conversation, mode: "waiting" as const } : conversation
-      )),
-      { revalidate: true },
-    );
-  }, [mutateConversations]);
-  const onInboxTransition = useCallback((state: Partial<LiveState> & {
-    conversation_id: number;
-  }) => {
-    void mutateConversations(
-      (current) => current?.map((conversation) => (
-        conversation.id === state.conversation_id ? {
-          ...conversation,
-          ...(state.mode ? { mode: state.mode } : {}),
-          ...(state.assigned_user_id !== undefined
-            ? { assigned_user_id: state.assigned_user_id }
-            : {}),
-          ...(state.closed_at !== undefined ? { closed_at: state.closed_at } : {}),
-        } : conversation
-      )),
-      { revalidate: true },
-    );
-  }, [mutateConversations]);
+  const onInboxWaiting = useCallback(
+    (id: number) => {
+      void mutateConversations(
+        (current) =>
+          current?.map((conversation) =>
+            conversation.id === id
+              ? { ...conversation, mode: "waiting" as const }
+              : conversation,
+          ),
+        { revalidate: true },
+      );
+    },
+    [mutateConversations],
+  );
+  const onInboxTransition = useCallback(
+    (
+      state: Partial<LiveState> & {
+        conversation_id: number;
+      },
+    ) => {
+      void mutateConversations(
+        (current) =>
+          current?.map((conversation) =>
+            conversation.id === state.conversation_id
+              ? {
+                  ...conversation,
+                  ...(state.mode ? { mode: state.mode } : {}),
+                  ...(state.assigned_user_id !== undefined
+                    ? { assigned_user_id: state.assigned_user_id }
+                    : {}),
+                  ...(state.closed_at !== undefined
+                    ? { closed_at: state.closed_at }
+                    : {}),
+                }
+              : conversation,
+          ),
+        { revalidate: true },
+      );
+    },
+    [mutateConversations],
+  );
   const inbox = useLiveInbox(
     selectedSiteId,
     liveEnabled,
@@ -218,20 +346,24 @@ function AppShell() {
   );
 
   const selectedConversation = conversations?.find(
-    (c) => c.id === selectedConversationId
+    (c) => c.id === selectedConversationId,
   );
 
   // Keep route membership aligned with the live/history state partition.
   useEffect(() => {
     if (selectedConversationId === null || !conversations) return;
-    const selected = conversations.find((conversation) => conversation.id === selectedConversationId);
+    const selected = conversations.find(
+      (conversation) => conversation.id === selectedConversationId,
+    );
     if (!selected) {
       navigate(view === "live" ? "/live" : "/history", { replace: true });
       return;
     }
     const active = selected.mode === "waiting" || selected.mode === "human";
-    if (view === "live" && !active) navigate(`/history/${selected.id}`, { replace: true });
-    if (view === "history" && active) navigate(`/live/${selected.id}`, { replace: true });
+    if (view === "live" && !active)
+      navigate(`/history/${selected.id}`, { replace: true });
+    if (view === "history" && active)
+      navigate(`/live/${selected.id}`, { replace: true });
   }, [conversations, navigate, selectedConversationId, view]);
 
   const onNewChat = () => {
@@ -267,7 +399,7 @@ function AppShell() {
               ...prev,
             ]
           : prev,
-      { revalidate: true }
+      { revalidate: true },
     );
     navigate(`/history/${id}`);
   };
@@ -285,7 +417,7 @@ function AppShell() {
             list?.map((c) => (c.id === id ? { ...c, title } : c)) ?? [],
           rollbackOnError: true,
           revalidate: false,
-        }
+        },
       );
     } catch {
       showToast("Couldn't rename the conversation. Restored.");
@@ -305,7 +437,7 @@ function AppShell() {
           optimisticData: (list) => list?.filter((c) => c.id !== id) ?? [],
           rollbackOnError: true,
           revalidate: false,
-        }
+        },
       );
       mutateAnalytics();
     } catch {
@@ -326,7 +458,7 @@ function AppShell() {
             list?.map((c) => (c.id === id ? { ...c, rating } : c)) ?? [],
           rollbackOnError: true,
           revalidate: false,
-        }
+        },
       );
       mutateAnalytics();
     } catch {
@@ -338,24 +470,52 @@ function AppShell() {
     navigate(`/history/${id}`);
   };
 
-  const onLiveStateChange = useCallback((state: LiveState) => {
-    void mutateConversations(
-      (current) => current?.map((conversation) => conversation.id === state.conversation_id ? {
-        ...conversation,
-        mode: state.mode,
-        assigned_user_id: state.assigned_user_id,
-        escalation_requested_at: state.escalation_requested_at,
-        accepted_at: state.accepted_at,
-        closed_at: state.closed_at,
-      } : conversation),
-      { revalidate: true },
+  const onLiveStateChange = useCallback(
+    (state: LiveState) => {
+      void mutateConversations(
+        (current) =>
+          current?.map((conversation) =>
+            conversation.id === state.conversation_id
+              ? {
+                  ...conversation,
+                  mode: state.mode,
+                  assigned_user_id: state.assigned_user_id,
+                  escalation_requested_at: state.escalation_requested_at,
+                  accepted_at: state.accepted_at,
+                  closed_at: state.closed_at,
+                }
+              : conversation,
+          ),
+        { revalidate: true },
+      );
+      if (conversationIdFromPath(location.pathname) === state.conversation_id) {
+        const section =
+          state.mode === "waiting" || state.mode === "human"
+            ? "live"
+            : "history";
+        const target = `/${section}/${state.conversation_id}`;
+        if (location.pathname !== target) navigate(target, { replace: true });
+      }
+    },
+    [location.pathname, mutateConversations, navigate],
+  );
+
+  if (provisioning) {
+    return (
+      <div
+        role="status"
+        className="flex h-full flex-col items-center justify-center gap-4 bg-slate-50 p-6 text-center"
+      >
+        <Spinner className="h-8 w-8" />
+        <div>
+          <p className="text-lg font-semibold text-slate-900">{provisioning}</p>
+          <p className="mt-1 text-sm text-slate-500">
+            This only takes a moment - the page will update automatically.
+          </p>
+        </div>
+      </div>
     );
-    if (conversationIdFromPath(location.pathname) === state.conversation_id) {
-      const section = state.mode === "waiting" || state.mode === "human" ? "live" : "history";
-      const target = `/${section}/${state.conversation_id}`;
-      if (location.pathname !== target) navigate(target, { replace: true });
-    }
-  }, [location.pathname, mutateConversations, navigate]);
+  }
 
   if (!isLoading && sites && sites.length === 0) {
     return <FirstRunPanel onCreate={createSite} />;
@@ -394,6 +554,7 @@ function AppShell() {
       )}
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {ownsAnySite && <PlanBanner onUpgrade={() => navigate("/billing")} />}
         {/* Mobile top bar with the menu toggle. */}
         <header className="flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-3 md:hidden">
           <button
@@ -410,68 +571,99 @@ function AppShell() {
         </header>
 
         <main className="min-h-0 min-w-0 flex-1">
-        <Routes>
-          <Route
-            path="/"
-            element={settings === undefined ? <div /> : <Navigate to={liveEnabled ? "/live" : "/history"} replace />}
-          />
-          <Route
-            path="/live/:conversationId?"
-            element={liveEnabled ? (
-              <ChatPage
-                section="live"
-                selectedConversationId={selectedConversationId}
-                selectedConversation={selectedConversation}
-                settings={settings}
-                liveEnabled={liveEnabled}
-                onConversationCreated={onConversationCreated}
-                onRate={onRate}
-                onLiveStateChange={onLiveStateChange}
-              />
-            ) : <Navigate to="/history" replace />}
-          />
-          <Route
-            path="/history/:conversationId?"
-            element={
-              <ChatPage
-                section="history"
-                selectedConversationId={selectedConversationId}
-                selectedConversation={selectedConversation}
-                settings={settings}
-                liveEnabled={liveEnabled}
-                onConversationCreated={onConversationCreated}
-                onRate={onRate}
-                onLiveStateChange={onLiveStateChange}
-              />
-            }
-          />
-          <Route
-            path="/tickets"
-            element={liveEnabled ? (
-              <TicketsPage
-                callbacks={callbacks}
-                operators={operators}
-                isOwner={isOwner}
-                currentUserId={userId}
-                onMove={onMoveTicket}
-                onAssign={onAssignTicket}
-                onSetArchived={onSetTicketArchived}
-              />
-            ) : <Navigate to="/history" replace />}
-          />
-          <Route path="/knowledge" element={<AdminPage />} />
-          {/* Site settings are owner-only; members are bounced to history. */}
-          <Route
-            path="/settings"
-            element={isOwner ? <SettingsPage /> : <Navigate to="/history" replace />}
-          />
-          <Route path="/widget-guide" element={<WidgetDocsPage />} />
-          <Route
-            path="/analytics"
-            element={<AnalyticsPage onOpenConversation={onOpenConversation} />}
-          />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+          <Routes>
+            <Route
+              path="/"
+              element={
+                settings === undefined ? (
+                  <div />
+                ) : (
+                  <Navigate to={liveEnabled ? "/live" : "/history"} replace />
+                )
+              }
+            />
+            <Route
+              path="/live/:conversationId?"
+              element={
+                liveEnabled ? (
+                  <ChatPage
+                    section="live"
+                    selectedConversationId={selectedConversationId}
+                    selectedConversation={selectedConversation}
+                    settings={settings}
+                    liveEnabled={liveEnabled}
+                    onConversationCreated={onConversationCreated}
+                    onRate={onRate}
+                    onLiveStateChange={onLiveStateChange}
+                  />
+                ) : (
+                  <Navigate to="/history" replace />
+                )
+              }
+            />
+            <Route
+              path="/history/:conversationId?"
+              element={
+                <ChatPage
+                  section="history"
+                  selectedConversationId={selectedConversationId}
+                  selectedConversation={selectedConversation}
+                  settings={settings}
+                  liveEnabled={liveEnabled}
+                  onConversationCreated={onConversationCreated}
+                  onRate={onRate}
+                  onLiveStateChange={onLiveStateChange}
+                />
+              }
+            />
+            <Route
+              path="/tickets"
+              element={
+                liveEnabled ? (
+                  <TicketsPage
+                    callbacks={callbacks}
+                    operators={operators}
+                    isOwner={isOwner}
+                    currentUserId={userId}
+                    onMove={onMoveTicket}
+                    onAssign={onAssignTicket}
+                    onSetArchived={onSetTicketArchived}
+                  />
+                ) : (
+                  <Navigate to="/history" replace />
+                )
+              }
+            />
+            <Route path="/knowledge" element={<AdminPage />} />
+            {/* Site settings are owner-only; members are bounced to history. */}
+            <Route
+              path="/settings"
+              element={
+                isOwner ? <SettingsPage /> : <Navigate to="/history" replace />
+              }
+            />
+            <Route path="/widget-guide" element={<WidgetDocsPage />} />
+            {/* Billing is account-level and owner-only; members are bounced. */}
+            <Route
+              path="/billing"
+              element={
+                ownsAnySite ? (
+                  <BillingPage />
+                ) : (
+                  <Navigate to="/history" replace />
+                )
+              }
+            />
+            <Route
+              path="/analytics"
+              element={
+                <AnalyticsPage onOpenConversation={onOpenConversation} />
+              }
+            />
+            {/* Personal account settings: user-level, so members get it too. */}
+            <Route path="/account" element={<AccountPage />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
         </main>
       </div>
     </div>
@@ -509,10 +701,16 @@ function FirstRunPanel({
         className="w-full max-w-sm space-y-4 rounded-2xl border border-slate-200 bg-white p-8 shadow-sm"
       >
         <div className="flex justify-center">
-          <img src="/logo-horizontal-full-color.png" alt="Plug & Play" className="h-12 w-auto" />
+          <img
+            src="/logo-horizontal-full-color.png"
+            alt="Plug & Play"
+            className="h-12 w-auto"
+          />
         </div>
         <div className="text-center">
-          <h1 className="text-xl font-semibold text-slate-900">Add your first website</h1>
+          <h1 className="text-xl font-semibold text-slate-900">
+            Add your first website
+          </h1>
           <p className="mt-1 text-sm text-slate-500">
             Each website gets its own assistant, knowledge base, and widget.
           </p>
@@ -534,7 +732,8 @@ function FirstRunPanel({
 
         <div>
           <label className="block text-sm font-medium text-slate-700">
-            Website URL <span className="font-normal text-slate-400">(optional)</span>
+            Website URL{" "}
+            <span className="font-normal text-slate-400">(optional)</span>
             <input
               type="url"
               maxLength={255}
@@ -545,7 +744,8 @@ function FirstRunPanel({
             />
           </label>
           <p className="mt-1 text-xs text-slate-400">
-            The exact origin where the widget runs. You can set or change this later in Settings.
+            The exact origin where the widget runs. You can set or change this
+            later in Settings.
           </p>
         </div>
 

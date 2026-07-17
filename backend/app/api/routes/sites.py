@@ -11,6 +11,7 @@ from app.repositories.profile_repository import ProfileRepository
 from app.repositories.team_repository import TeamRepository
 from app.repositories.widget_repository import WidgetRepository
 from app.schemas.site import SiteCreate, SiteSummaryOut, SiteUpdate
+from app.services import billing
 
 router = APIRouter(prefix="/sites", tags=["sites"])
 
@@ -36,7 +37,6 @@ async def _to_summary(
         public_key=installation.public_key if installation else None,
         widget_origin=installation.allowed_origin if installation else None,
         widget_enabled=installation.is_enabled if installation else True,
-        widget_monthly_limit=installation.monthly_limit if installation else 0,
         widget_monthly_usage=(
             await repo.usage(installation.id, period) if installation else 0
         ),
@@ -74,8 +74,17 @@ async def create_site(
     session: AsyncSession = Depends(get_session),
     user: AdminUser = Depends(require_admin),
 ) -> SiteSummaryOut:
+    repo = ProfileRepository(session)
+    entitlements = await billing.resolve_entitlements(session, user, user.id)
+    if entitlements.sites is not None:
+        existing = await repo.list_for_owner(user.id)
+        if len(existing) >= entitlements.sites:
+            raise HTTPException(
+                status_code=402,
+                detail="Your plan's website limit has been reached. Upgrade to add more websites.",
+            )
     allowed_origin = normalize_origin(body.widget_origin)
-    profile = await ProfileRepository(session).create_site(
+    profile = await repo.create_site(
         user.id,
         name=body.name.strip(),
         type=body.type,

@@ -14,6 +14,7 @@ const year = new Date().getFullYear();
       &copy; {year} {SITE.name}. All rights reserved.
     </p>
     <nav aria-label="Legal" class="flex flex-wrap gap-x-5 gap-y-2">
+      <a href="/contact" class="hover:text-slate-900">Contact</a>
       {
         LEGAL_ORDER.map((slug) => (
           <a href={`/${slug}`} class="hover:text-slate-900">
