@@ -152,7 +152,11 @@ export function SiteProvider({ children }: { children: ReactNode }) {
     [mutate, sites, showToast]
   );
 
-  const current = sites?.find((s) => s.id === selectedSiteId);
+  // Resolve against the loaded list, falling back to the first site - the same
+  // site the default-selection effect above lands on one commit later. Without
+  // the fallback there is a rendered frame (sites loaded, selectedSiteId still
+  // null) where role-gated UI flashes owner-only items at team members.
+  const current = sites?.find((s) => s.id === selectedSiteId) ?? sites?.[0];
   // An absent role (older API) means owner. While sites are still loading,
   // stay permissive so owner UI doesn't flicker away on every reload.
   const isOwner = current ? current.role !== "member" : true;
