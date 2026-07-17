@@ -14,6 +14,7 @@ interface Props {
 export function SetPasswordPanel({ onDone }: Props) {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [agreed, setAgreed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -26,6 +27,10 @@ export function SetPasswordPanel({ onDone }: Props) {
     }
     if (password !== confirm) {
       setError("The passwords don't match.");
+      return;
+    }
+    if (!agreed) {
+      setError("Please accept the Terms of Service and Privacy Policy.");
       return;
     }
     setBusy(true);
@@ -86,11 +91,42 @@ export function SetPasswordPanel({ onDone }: Props) {
           />
         </label>
 
+        <label className="flex items-start gap-2.5 text-sm text-slate-600">
+          <input
+            type="checkbox"
+            required
+            checked={agreed}
+            onChange={(e) => setAgreed(e.target.checked)}
+            className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+          />
+          <span>
+            I agree to the{" "}
+            <a
+              href="https://plugandplay.gr/terms-of-service"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-sky-700 underline hover:text-sky-800"
+            >
+              Terms of Service
+            </a>{" "}
+            and{" "}
+            <a
+              href="https://plugandplay.gr/privacy-policy"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-sky-700 underline hover:text-sky-800"
+            >
+              Privacy Policy
+            </a>
+            .
+          </span>
+        </label>
+
         {error && <p className="text-sm text-red-600">{error}</p>}
 
         <button
           type="submit"
-          disabled={busy}
+          disabled={busy || !agreed}
           className="w-full rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-sky-700 disabled:opacity-60"
         >
           {busy ? "Saving…" : "Save password and continue"}

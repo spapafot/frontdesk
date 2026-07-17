@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_selected_site, require_site_owner
+from app.core.auth import AdminUser, require_admin
 from app.core.db import get_session
 from app.core.config import settings
 from app.core.origins import normalize_origin
@@ -11,6 +12,7 @@ from app.models.profile import AssistantProfile
 from app.repositories.profile_repository import ProfileRepository
 from app.repositories.widget_repository import WidgetRepository
 from app.schemas.settings import SettingsOut, SettingsUpdate
+from app.services import billing
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -70,7 +72,24 @@ async def update_settings(
     session: AsyncSession = Depends(get_session),
     # Reads are team-readable (the app shell needs them); writes are owner-only.
     profile: AssistantProfile = Depends(require_site_owner),
+    user: AdminUser = Depends(require_admin),
 ) -> SettingsOut:
+    # Plan-gated feature writes: enabling live handoff or removing branding both
+    # require the entitlement. Turning either back off is always allowed.
+    if body.live_human_escalation_enabled is True or body.show_branding is False:
+        entitlements = await billing.resolve_entitlements(
+            session, user, profile.owner_user_id
+        )
+        if body.live_human_escalation_enabled is True and not entitlements.live_handoff:
+            raise HTTPException(
+                status_code=402,
+                detail="Live human handoff is available on the Pro and Business plans. Upgrade to enable it.",
+            )
+        if body.show_branding is False and not entitlements.remove_branding:
+            raise HTTPException(
+                status_code=402,
+                detail="Removing branding is available on the Pro and Business plans. Upgrade to hide it.",
+            )
     await ProfileRepository(session).update_settings(
         profile,
         name=body.business_name,

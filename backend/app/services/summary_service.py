@@ -21,6 +21,9 @@ def _transcript(messages: list[dict]) -> str:
 
 async def summarize_conversation(messages: list[dict]) -> str:
     """Generate a short plain-text summary of a conversation via DeepSeek."""
+    if not settings.conversation_summaries_enabled:
+        return ""
+
     transcript = _transcript(messages)
     if not transcript:
         return ""

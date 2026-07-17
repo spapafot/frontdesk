@@ -13,6 +13,8 @@ _REDACTED_SETTINGS = frozenset(
         "supabase_jwt_secret",
         "supabase_service_role_key",
         "ingestion_queue_url",
+        "stripe_secret_key",
+        "stripe_webhook_secret",
     }
 )
 
@@ -29,6 +31,10 @@ class Settings(BaseSettings):
     # V4-Flash defaults thinking ON; we keep it OFF since answers come straight
     # from the knowledge base (lower latency/cost, simpler streaming).
     deepseek_thinking: bool = False
+    # Optional on-demand LLM summaries for conversation history. Disabled by
+    # default because the stored transcripts are usually short and already
+    # readable, making the extra model call mostly latency and cost.
+    conversation_summaries_enabled: bool = False
 
     # OpenAI embeddings. Uses the real OpenAI API, separate from the
     # DeepSeek-compatible chat client above.
@@ -156,8 +162,25 @@ class Settings(BaseSettings):
     supabase_service_role_key: str = ""
     # Public URL of the admin app; used as the redirect target for invite links
     # (must be in Supabase Auth's Redirect URLs allow-list). Empty falls back to
-    # the Supabase project's configured Site URL.
+    # the Supabase project's configured Site URL. Also the base for Stripe
+    # Checkout success/cancel and billing-portal return URLs.
     app_base_url: str = ""
+
+    # --- Stripe billing (all optional; empty = billing disabled, so local dev
+    # and self-hosting run without payments) --------------------------------
+    # Secret API key and webhook signing secret. Both redacted (see
+    # _REDACTED_SETTINGS). Price ids are not secret and identify the plan/interval
+    # a Checkout session subscribes to; keep them in sync with app.core.plans.
+    stripe_secret_key: str = ""
+    stripe_webhook_secret: str = ""
+    stripe_price_starter_month: str = ""
+    stripe_price_starter_year: str = ""
+    stripe_price_pro_month: str = ""
+    stripe_price_pro_year: str = ""
+    stripe_price_business_month: str = ""
+    stripe_price_business_year: str = ""
+    # One-time "1,000 messages" top-up pack (Phase 2).
+    stripe_price_topup: str = ""
 
     @property
     def supabase_jwks_url(self) -> str:

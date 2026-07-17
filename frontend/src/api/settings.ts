@@ -64,6 +64,7 @@ export async function updateSettings(
     launcher_position: LauncherPosition;
     greeting: string;
     launcher_label: string;
+    show_branding: boolean;
   }
 ): Promise<Settings> {
   return handle(

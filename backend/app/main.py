@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import (
     analytics,
+    billing,
     chat,
     conversations,
     health,
@@ -40,6 +41,10 @@ app.include_router(health.router)
 app.include_router(chat.router)
 app.include_router(widget.router)
 app.include_router(live.router)
+# Billing: the Stripe webhook is public (signature-verified); the customer-facing
+# endpoints in this router apply require_admin per-endpoint (and check account
+# ownership), so the router is not blanket-gated.
+app.include_router(billing.router)
 
 # Admin routes: require a valid Supabase JWT (no-op when auth is disabled in
 # local dev). See app.core.auth.require_admin.

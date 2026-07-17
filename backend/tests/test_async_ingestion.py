@@ -56,7 +56,7 @@ async def test_upload_stores_and_queues_document(monkeypatch):
     monkeypatch.setattr(knowledge.aws_ingestion, "enqueue", _enqueue)
 
     result = await knowledge.upload_document(
-        file=_Upload(), session=_Session(), profile=SimpleNamespace(id=7)
+        file=_Upload(), session=_Session(), profile=SimpleNamespace(id=7, owner_user_id="owner-1")
     )
 
     assert result.processing_status == "queued"
@@ -83,6 +83,6 @@ async def test_pending_document_cannot_be_toggled(monkeypatch):
             document_id=1,
             body=SimpleNamespace(is_active=True),
             session=_Session(),
-            profile=SimpleNamespace(id=7),
+            profile=SimpleNamespace(id=7, owner_user_id="owner-1"),
         )
     assert getattr(exc.value, "status_code", None) == 409

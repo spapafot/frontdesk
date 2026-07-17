@@ -20,6 +20,10 @@ interface AuthContextValue {
    * user id, so it can be compared against e.g. a ticket's assignee. */
   userId: string | null;
   userEmail: string | null;
+  /** Manual Supabase role (`app_metadata.role == "superadmin"`). Purely a UI
+   * hint - the backend independently verifies the claim. Lifts billing/plan
+   * limits on the holder's own account; grants no cross-tenant access. */
+  isSuperAdmin: boolean;
 }
 
 const AuthContext = createContext<AuthContextValue>({
@@ -27,6 +31,7 @@ const AuthContext = createContext<AuthContextValue>({
   signOut: () => {},
   userId: null,
   userEmail: null,
+  isSuperAdmin: false,
 });
 
 /** Lets any descendant (e.g. the sidebar) trigger sign-out. */
@@ -89,6 +94,9 @@ export function AuthGate({ children }: { children: ReactNode }) {
         signOut,
         userId: session.user.id,
         userEmail: session.user.email ?? null,
+        isSuperAdmin:
+          (session.user.app_metadata as { role?: string } | undefined)?.role ===
+          "superadmin",
       }}
     >
       {children}
@@ -122,12 +130,13 @@ function AuthConfigurationError() {
 function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [agreed, setAgreed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!supabase) return;
+    if (!supabase || !agreed) return;
     setBusy(true);
     setError(null);
     const { error } = await supabase.auth.signInWithPassword({
@@ -182,6 +191,37 @@ function LoginForm() {
           />
         </label>
 
+        <label className="flex items-start gap-2.5 text-sm text-slate-600">
+          <input
+            type="checkbox"
+            required
+            checked={agreed}
+            onChange={(e) => setAgreed(e.target.checked)}
+            className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+          />
+          <span>
+            I agree to the{" "}
+            <a
+              href="https://plugandplay.gr/terms-of-service"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-sky-700 underline hover:text-sky-800"
+            >
+              Terms of Service
+            </a>{" "}
+            and{" "}
+            <a
+              href="https://plugandplay.gr/privacy-policy"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-sky-700 underline hover:text-sky-800"
+            >
+              Privacy Policy
+            </a>
+            .
+          </span>
+        </label>
+
         {error && (
           <p className="flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
             <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
@@ -191,7 +231,7 @@ function LoginForm() {
 
         <button
           type="submit"
-          disabled={busy}
+          disabled={busy || !agreed}
           className="w-full rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-sky-700 disabled:opacity-60"
         >
           {busy ? "Signing in…" : "Sign in"}

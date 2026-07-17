@@ -72,6 +72,22 @@ class AdminUser:
         self.claims = claims
 
 
+# A manual, dashboard-set Supabase role that lifts all billing/plan limits on
+# the holder's OWN account (unlimited quota/sites/seats/docs, every feature on),
+# so an operator's account is unaffected by Stripe. It grants NO cross-tenant
+# access: a super-admin still cannot see or act on another owner's sites or data
+# (tenant isolation is enforced independently in get_site_access). Supabase
+# surfaces custom roles under ``app_metadata`` in the access token; the claim is
+# never issued or changed by Stripe.
+SUPERADMIN_ROLE = "superadmin"
+
+
+def is_superadmin(user: "AdminUser") -> bool:
+    claims = getattr(user, "claims", None) or {}
+    app_metadata = claims.get("app_metadata") or {}
+    return app_metadata.get("role") == SUPERADMIN_ROLE
+
+
 # In-process JWKS cache. Supabase signing keys rotate rarely, so we fetch the
 # key set once and reuse it for ``supabase_jwks_cache_seconds``. The lock keeps
 # a burst of concurrent requests from all fetching on a cold/expired cache.

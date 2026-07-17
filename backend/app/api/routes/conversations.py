@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.db import get_session
 from app.api.dependencies import get_selected_site
+from app.core.config import settings
+from app.core.db import get_session
 from app.models.profile import AssistantProfile
 from app.repositories.conversation_repository import ConversationRepository
 from app.schemas.conversation import (
@@ -22,7 +23,9 @@ def _to_out(conversation) -> ConversationOut:
         title=conversation.title,
         started_at=conversation.started_at,
         rating=conversation.rating,
-        summary=conversation.summary,
+        summary=(
+            conversation.summary if settings.conversation_summaries_enabled else None
+        ),
         mode=conversation.mode,
         assigned_user_id=conversation.assigned_user_id,
         escalation_requested_at=conversation.escalation_requested_at,
@@ -94,7 +97,7 @@ async def get_conversation(
     profile: AssistantProfile = Depends(get_selected_site),
 ) -> ConversationOut:
     repo, conversation = await _get_owned(conversation_id, profile.id, session)
-    if not conversation.summary:
+    if settings.conversation_summaries_enabled and not conversation.summary:
         messages = await repo.get_messages(conversation_id)
         history = [
             {"role": m.role, "content": m.content}

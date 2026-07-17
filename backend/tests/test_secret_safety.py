@@ -21,6 +21,8 @@ def test_settings_repr_redacts_every_sensitive_value():
         "edge_shared_secret": "edge-sentinel-secret",
         "supabase_jwt_secret": "supabase-sentinel-secret",
         "supabase_service_role_key": "service-role-sentinel-secret",
+        "stripe_secret_key": "stripe-secret-sentinel",
+        "stripe_webhook_secret": "stripe-webhook-sentinel",
     }
     rendered = repr(Settings(_env_file=None, **secrets))
 

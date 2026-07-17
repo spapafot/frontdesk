@@ -21,10 +21,11 @@ def _install_client(monkeypatch, *, response=None, raises=None, capture=None):
         async def __aexit__(self, *exc):
             return False
 
-        async def post(self, url, headers=None, json=None):
+        async def post(self, url, headers=None, params=None, json=None):
             if capture is not None:
                 capture["url"] = url
                 capture["headers"] = headers
+                capture["params"] = params
                 capture["json"] = json
             if raises is not None:
                 raise raises
@@ -61,11 +62,30 @@ async def test_generates_action_link(monkeypatch, settings):
     assert result.warning is None
     assert capture["url"].endswith("/auth/v1/admin/generate_link")
     assert capture["headers"]["Authorization"] == "Bearer service-role-key"
+    assert capture["params"] == {"redirect_to": "https://app.example.com"}
     assert capture["json"] == {
         "type": "invite",
         "email": _EMAIL,
-        "redirect_to": "https://app.example.com",
     }
+
+
+async def test_rejects_fallback_redirect(monkeypatch, settings):
+    _configure(monkeypatch, settings, app_base_url="https://app.example.com")
+    fallback_link = f"{_LINK}&redirect_to=http%3A%2F%2Flocalhost%3A3000"
+    _install_client(
+        monkeypatch,
+        response=_response(
+            body={
+                "action_link": fallback_link,
+                "redirect_to": "http://localhost:3000",
+            }
+        ),
+    )
+
+    result = await supabase_admin.generate_invite_link(_EMAIL)
+
+    assert result.action_link is None
+    assert "Redirect URLs" in (result.warning or "")
 
 
 async def test_reports_existing_account(monkeypatch, settings):

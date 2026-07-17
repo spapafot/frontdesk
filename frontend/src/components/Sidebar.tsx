@@ -8,12 +8,14 @@ import { SiteSwitcher } from "./SiteSwitcher";
 import {
   BarChart3,
   BookOpen,
+  CreditCard,
   Headphones,
   HelpCircle,
   LogOut,
   MessageSquare,
   Plus,
   Settings,
+  ShieldCheck,
   Tag,
   X,
 } from "lucide-react";
@@ -25,6 +27,7 @@ export type View =
   | "admin"
   | "settings"
   | "analytics"
+  | "billing"
   | "widgetDocs";
 
 interface Props {
@@ -67,13 +70,15 @@ function NavIcon({ view }: { view: View }) {
         ? BookOpen
         : view === "analytics"
           ? BarChart3
-          : view === "widgetDocs"
-            ? HelpCircle
-            : view === "tickets"
-              ? Tag
-              : view === "live"
-                ? Headphones
-                : MessageSquare;
+          : view === "billing"
+            ? CreditCard
+            : view === "widgetDocs"
+              ? HelpCircle
+              : view === "tickets"
+                ? Tag
+                : view === "live"
+                  ? Headphones
+                  : MessageSquare;
   return <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />;
 }
 
@@ -97,8 +102,8 @@ export function Sidebar({
   onRenameConversation,
   onDeleteConversation,
 }: Props) {
-  const { canSignOut, signOut } = useAuth();
-  const { isOwner } = useSite();
+  const { canSignOut, signOut, isSuperAdmin } = useAuth();
+  const { isOwner, ownsAnySite } = useSite();
   const [editingId, setEditingId] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
   const [pendingDelete, setPendingDelete] =
@@ -296,10 +301,16 @@ export function Sidebar({
           [
             ["settings", "Settings"],
             ["admin", "Knowledge base"],
+            ["billing", "Billing"],
           ] as const
         )
-          // Site settings are owner-only; members never see the entry.
-          .filter(([target]) => target !== "settings" || isOwner)
+          // Site settings are owner-only; billing is account-owner-only. Members
+          // see neither.
+          .filter(
+            ([target]) =>
+              (target !== "settings" || isOwner) &&
+              (target !== "billing" || ownsAnySite),
+          )
           .map(([target, label]) => (
             <button
               key={target}
@@ -345,6 +356,15 @@ export function Sidebar({
             </button>
           )}
         </div>
+        {isSuperAdmin && (
+          <div
+            className="mt-2 flex items-center gap-1.5 rounded-lg bg-sky-50 px-2.5 py-1.5 text-[11px] font-semibold text-sky-800"
+            title="Internal super-admin - all features unlocked, no billing"
+          >
+            <ShieldCheck className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            Super-admin · full access
+          </div>
+        )}
         <div className="mt-2 flex items-center gap-2 px-3 py-2">
           <div className="flex h-7 w-7 items-center justify-center rounded-full bg-sky-600 text-xs font-semibold text-white">
             {(businessName ?? "?").charAt(0).toUpperCase()}

@@ -9,8 +9,10 @@ from app.core.auth import require_admin
 from app.core.db import get_session
 from app.repositories.profile_repository import ProfileRepository
 from app.repositories.conversation_repository import ConversationRepository
+from app.repositories.subscription_repository import SubscriptionRepository
 from app.repositories.widget_repository import WidgetRepository
 from app.schemas.chat import ChatRequest
+from app.services import billing
 from app.services.chat_service import stream_chat
 from app.services.widget_auth import decode_widget_token
 from app.services.live_auth import (
@@ -45,9 +47,20 @@ async def chat_stream(
             or not installation.is_enabled
         ):
             raise HTTPException(status_code=401, detail="Widget installation is unavailable.")
-        if not await WidgetRepository(session).reserve_message(installation, _period()):
+        # Quota is enforced account-wide (pooled across all the owner's sites)
+        # against the owner's plan; the per-site counter below is display-only.
+        profile = await ProfileRepository(session).get(profile_id)
+        if profile is None:
+            raise HTTPException(status_code=401, detail="Widget installation is unavailable.")
+        subscription_repo = SubscriptionRepository(session)
+        subscription = await subscription_repo.get_or_create_trial(profile.owner_user_id)
+        base_limit = billing.limits_for(subscription).messages
+        if base_limit is not None and not await subscription_repo.reserve_account_message(
+            profile.owner_user_id, _period(), base_limit
+        ):
             await session.rollback()
-            raise HTTPException(status_code=429, detail="Monthly widget message quota exceeded.")
+            raise HTTPException(status_code=429, detail="Monthly message quota exceeded.")
+        await WidgetRepository(session).increment_usage(installation, _period())
         if body.conversation_id is not None:
             conversation = await ConversationRepository(session).get(body.conversation_id)
             if conversation is None or conversation.profile_id != profile_id:

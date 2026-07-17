@@ -36,6 +36,24 @@ class WidgetRepository:
         )
         return int(result.scalar_one_or_none() or 0)
 
+    async def increment_usage(self, installation: WidgetInstallation, period: date) -> None:
+        """Bump a site's per-period message counter for analytics display.
+
+        Unlike ``reserve_message`` this has no ceiling guard - the monthly quota
+        is now enforced account-wide (pooled across all the owner's sites) by
+        ``SubscriptionRepository.reserve_account_message``. This counter is kept
+        only so per-site usage stays visible in Settings.
+        """
+        await self.session.execute(
+            text(
+                "INSERT INTO widget_usage (installation_id, period, message_count) "
+                "VALUES (:installation_id, :period, 1) "
+                "ON CONFLICT (installation_id, period) DO UPDATE "
+                "SET message_count = widget_usage.message_count + 1"
+            ),
+            {"installation_id": installation.id, "period": period},
+        )
+
     async def reserve_message(self, installation: WidgetInstallation, period: date) -> bool:
         result = await self.session.execute(
             text(
