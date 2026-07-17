@@ -402,9 +402,124 @@ describe("embedded widget verification flow", () => {
     await vi.waitFor(() => expect(talk.disabled).toBe(false));
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(sockets).toHaveLength(1);
-    expect(document.getElementById("wx-messages")).toHaveTextContent(
-      "Looking for someone from the team…",
+    // The connecting bubble keeps its loader for the whole waiting phase…
+    const messages = document.getElementById("wx-messages") as HTMLDivElement;
+    expect(messages).toHaveTextContent("Give us a moment while we connect you…");
+    expect(messages.querySelector(".wx-live-status .wx-typing")).not.toBeNull();
+
+    // …and resolves in place once an operator accepts.
+    sockets[0].onmessage?.({
+      data: JSON.stringify({
+        version: 1,
+        type: "state",
+        conversation_id: 42,
+        mode: "human",
+        transitioned: true,
+      }),
+    } as MessageEvent);
+    expect(messages).toHaveTextContent("You’re now connected to the team.");
+    expect(messages).not.toHaveTextContent("Give us a moment while we connect you…");
+    expect(messages.querySelector(".wx-live-status .wx-typing")).toBeNull();
+  });
+
+  it("resolves the waiting loader into a cancellation notice when the visitor cancels", async () => {
+    window.turnstile = {
+      render: vi.fn(() => "widget-id"),
+      reset: vi.fn(),
+    };
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ticket: "live-ticket",
+          websocket_path: "/live/conversations/42",
+          conversation_id: 42,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )
     );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const sockets: MockWebSocket[] = [];
+    class MockWebSocket {
+      static OPEN = 1;
+      readyState = 0;
+      onopen: (() => void) | null = null;
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onclose: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      send = vi.fn();
+
+      constructor(_url: string, _protocols: string[]) {
+        sockets.push(this);
+        queueMicrotask(() => {
+          this.readyState = MockWebSocket.OPEN;
+          this.onopen?.();
+        });
+      }
+
+      close() {}
+    }
+    vi.stubGlobal("WebSocket", MockWebSocket);
+
+    const storageKey = `wx_conv_17_${encodeURIComponent("https://customer.example")}`;
+    localStorage.setItem(storageKey, "42");
+    localStorage.setItem(`${storageKey}_token`, "conversation-token");
+    localStorage.setItem(`${storageKey}_visitor_count`, "3");
+
+    const widget = await import("./app");
+    widget.handleParentMessage(
+      new MessageEvent("message", {
+        origin: location.origin,
+        source: window,
+        data: {
+          type: "wx-session",
+          session: {
+            token: "signed-session",
+            installation_id: 17,
+            origin: "https://customer.example",
+            assistant_name: "Helper",
+            business_name: "Acme",
+            live_human_escalation_enabled: true,
+          },
+        },
+      })
+    );
+
+    // A reconnect straight into "waiting" (e.g. page reload) shows the same
+    // connecting loader as a fresh request.
+    await vi.waitFor(() => expect(sockets).toHaveLength(1));
+    sockets[0].onmessage?.({
+      data: JSON.stringify({
+        version: 1,
+        type: "state",
+        conversation_id: 42,
+        mode: "waiting",
+      }),
+    } as MessageEvent);
+    const messages = document.getElementById("wx-messages") as HTMLDivElement;
+    expect(messages).toHaveTextContent("Give us a moment while we connect you…");
+    expect(messages.querySelector(".wx-live-status .wx-typing")).not.toBeNull();
+
+    const talk = document.getElementById("wx-talk") as HTMLButtonElement;
+    expect(document.getElementById("wx-talk-label")).toHaveTextContent("Cancel request");
+    talk.click();
+    await vi.waitFor(() =>
+      expect(
+        sockets[0].send.mock.calls
+          .map((call) => JSON.parse(call[0] as string))
+          .some((event) => event.type === "cancel")
+      ).toBe(true)
+    );
+    sockets[0].onmessage?.({
+      data: JSON.stringify({
+        version: 1,
+        type: "state",
+        conversation_id: 42,
+        mode: "ai",
+      }),
+    } as MessageEvent);
+    expect(messages).toHaveTextContent("Request cancelled. You’re back with the AI assistant.");
+    expect(messages.querySelector(".wx-live-status .wx-typing")).toBeNull();
   });
 
   it("offers human support only after three visitor messages", async () => {
@@ -902,6 +1017,117 @@ describe("embedded widget verification flow", () => {
     expect(document.getElementById("wx-messages")).not.toHaveTextContent(
       "(no response)"
     );
+  });
+
+  it("shows operator typing dots and sends the visitor's own typing signal", async () => {
+    window.turnstile = {
+      render: vi.fn(() => "widget-id"),
+      reset: vi.fn(),
+    };
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          ticket: "live-ticket",
+          websocket_path: "/live/conversations/42",
+          conversation_id: 42,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const sockets: MockWebSocket[] = [];
+    class MockWebSocket {
+      static OPEN = 1;
+      readyState = 0;
+      onopen: (() => void) | null = null;
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onclose: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      send = vi.fn();
+
+      constructor(_url: string, _protocols: string[]) {
+        sockets.push(this);
+        queueMicrotask(() => {
+          this.readyState = MockWebSocket.OPEN;
+          this.onopen?.();
+        });
+      }
+
+      close() {}
+    }
+    vi.stubGlobal("WebSocket", MockWebSocket);
+
+    const storageKey = `wx_conv_17_${encodeURIComponent("https://customer.example")}`;
+    localStorage.setItem(storageKey, "42");
+    localStorage.setItem(`${storageKey}_token`, "conversation-token");
+
+    const widget = await import("./app");
+    widget.handleParentMessage(
+      new MessageEvent("message", {
+        origin: location.origin,
+        source: window,
+        data: {
+          type: "wx-session",
+          session: {
+            token: "signed-session",
+            installation_id: 17,
+            origin: "https://customer.example",
+            assistant_name: "Helper",
+            business_name: "Acme",
+            live_human_escalation_enabled: true,
+          },
+        },
+      })
+    );
+
+    await vi.waitFor(() => expect(sockets).toHaveLength(1));
+    sockets[0].onmessage?.({
+      data: JSON.stringify({
+        version: 1,
+        type: "state",
+        conversation_id: 42,
+        mode: "human",
+      }),
+    } as MessageEvent);
+
+    const messages = document.getElementById("wx-messages") as HTMLDivElement;
+
+    // Operator typing shows the dots; the delivered message replaces them.
+    sockets[0].onmessage?.({
+      data: JSON.stringify({
+        version: 1,
+        type: "typing",
+        actor_type: "operator",
+        typing: true,
+      }),
+    } as MessageEvent);
+    expect(messages.querySelector(".wx-typing")).not.toBeNull();
+    sockets[0].onmessage?.({
+      data: JSON.stringify({
+        version: 1,
+        type: "message",
+        message: { id: 7, sender_type: "operator", content: "Hello from the team" },
+      }),
+    } as MessageEvent);
+    expect(messages.querySelector(".wx-typing")).toBeNull();
+    expect(messages).toHaveTextContent("Hello from the team");
+
+    // Composing sends one throttled typing signal; clearing sends the stop.
+    const input = document.getElementById("wx-input") as HTMLInputElement;
+    input.value = "typ";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.value = "typing";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.value = "";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    const sent = sockets[0].send.mock.calls
+      .map((call) => JSON.parse(call[0] as string))
+      .filter((event) => event.type === "typing");
+    expect(sent).toEqual([
+      { version: 1, type: "typing", typing: true },
+      { version: 1, type: "typing", typing: false },
+    ]);
   });
 });
 

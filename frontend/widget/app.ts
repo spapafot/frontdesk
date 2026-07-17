@@ -192,6 +192,16 @@ let activeStream: AbortController | null = null;
 let hydrateLiveHistory = false;
 const displayedLiveMessageIds = new Set<number>();
 
+// Typing indicator: while composing, refresh the outbound signal at most every
+// TYPING_REFRESH_MS; the inbound indicator hides after TYPING_EXPIRE_MS without
+// a refresh so a lost "stopped typing" event can never strand the dots.
+const TYPING_REFRESH_MS = 2000;
+const TYPING_EXPIRE_MS = 5000;
+let typingSent = false;
+let typingSentAt = 0;
+let operatorTypingRow: HTMLElement | null = null;
+let operatorTypingTimer = 0;
+
 function postToParent(message: object) {
   if (params.origin) parent.postMessage(message, params.origin);
 }
@@ -398,6 +408,11 @@ function showConnectionStatus(message: string, loading = false) {
   if (!connectionStatusBubble?.isConnected) {
     connectionStatusBubble = addBubble("assistant", "");
     connectionStatusBubble.classList.add("wx-live-status");
+  } else if (loading) {
+    // A repeat request reuses the resolved status bubble from the previous
+    // attempt; bring it below any messages exchanged since.
+    const row = connectionStatusBubble.closest(".wx-row");
+    if (row) messagesEl.appendChild(row);
   }
   connectionStatusBubble.replaceChildren(document.createTextNode(message));
   if (loading) {
@@ -409,6 +424,40 @@ function showConnectionStatus(message: string, loading = false) {
   scrollToBottom();
 }
 
+function notifyTyping(active: boolean) {
+  if (liveMode !== "human" || liveSocket?.readyState !== WebSocket.OPEN) return;
+  const now = Date.now();
+  if (active && typingSent && now - typingSentAt < TYPING_REFRESH_MS) return;
+  if (!active && !typingSent) return;
+  typingSent = active;
+  typingSentAt = now;
+  try {
+    liveSocket.send(JSON.stringify({ version: 1, type: "typing", typing: active }));
+  } catch {
+    // Best-effort: a typing hint must never surface an error.
+  }
+}
+
+function showOperatorTyping(active: boolean) {
+  window.clearTimeout(operatorTypingTimer);
+  if (!active) {
+    operatorTypingRow?.remove();
+    operatorTypingRow = null;
+    return;
+  }
+  if (!operatorTypingRow?.isConnected) {
+    const bubble = addBubble("assistant", "");
+    bubble.classList.add("pending");
+    bubble.innerHTML = TYPING;
+    operatorTypingRow = bubble.closest<HTMLElement>(".wx-row") ?? bubble;
+  } else {
+    // Keep the dots below any message that arrived while they were up.
+    messagesEl.appendChild(operatorTypingRow);
+  }
+  scrollToBottom();
+  operatorTypingTimer = window.setTimeout(() => showOperatorTyping(false), TYPING_EXPIRE_MS);
+}
+
 async function liveResponseError(response: Response): Promise<string> {
   const body = await response.json().catch(() => null) as { detail?: unknown } | null;
   return typeof body?.detail === "string"
@@ -417,6 +466,10 @@ async function liveResponseError(response: Response): Promise<string> {
 }
 
 function setLiveMode(mode: LiveMode) {
+  if (mode !== "human") {
+    typingSent = false;
+    showOperatorTyping(false);
+  }
   liveMode = mode;
   const actionsWereHidden = liveActionsEl.hidden;
   const callbackWasHidden = callbackEl.hidden;
@@ -619,23 +672,41 @@ async function openLiveConnection(): Promise<WebSocket> {
         const pending = pendingHandoffResult;
         pendingHandoffResult = null;
         window.clearTimeout(pending.timer);
-        const statusMessage =
-          nextMode === "waiting" ? "Looking for someone from the team…" :
-          nextMode === "human" ? "You’re now connected to the team." :
-          "No one is available right now. You can request a callback below.";
-        showConnectionStatus(statusMessage);
         pending.resolve(nextMode);
       }
-      if (previous !== nextMode && !completesHandoff) {
-        if (nextMode === "waiting") addBubble("assistant", "Looking for someone from the team…");
-        if (nextMode === "human") addBubble("assistant", "You’re now connected to the team.");
-        if (nextMode === "pending_ticket") addBubble("assistant", "No one is available right now. You can request a callback below.");
-        if (nextMode === "closed") addBubble("assistant", "This conversation has been closed.");
+      if (previous !== nextMode) {
+        // The "connecting" status bubble keeps its loader for the whole
+        // waiting phase (a static "looking for someone" note reads as
+        // stalled) and resolves in place into the outcome: accepted,
+        // callback offer, cancelled, or closed.
+        const fromWaiting = previous === "waiting" || completesHandoff;
+        if (nextMode === "waiting") {
+          showConnectionStatus("Give us a moment while we connect you…", true);
+        } else if (nextMode === "human") {
+          const message = "You’re now connected to the team.";
+          if (fromWaiting) showConnectionStatus(message);
+          else addBubble("assistant", message);
+        } else if (nextMode === "pending_ticket") {
+          const message = "No one is available right now. You can request a callback below.";
+          if (fromWaiting) showConnectionStatus(message);
+          else addBubble("assistant", message);
+        } else if (nextMode === "ai" && previous === "waiting") {
+          showConnectionStatus("Request cancelled. You’re back with the AI assistant.");
+        } else if (nextMode === "closed") {
+          const message = "This conversation has been closed.";
+          if (previous === "waiting") showConnectionStatus(message);
+          else addBubble("assistant", message);
+        }
       }
     } else if (event.type === "message" && typeof event.message === "object" && event.message) {
       const item = event.message as { id?: number; sender_type?: string; content?: string };
       if (item.id) displayedLiveMessageIds.add(item.id);
-      if (item.sender_type === "operator" && item.content) addBubble("assistant", item.content);
+      if (item.sender_type === "operator" && item.content) {
+        showOperatorTyping(false);
+        addBubble("assistant", item.content);
+      }
+    } else if (event.type === "typing" && event.actor_type === "operator") {
+      showOperatorTyping(event.typing === true);
     } else if (event.type === "error") {
       const error = new Error(String(event.message || "Live support error."));
       if (pendingHandoffResult) {
@@ -652,6 +723,7 @@ async function openLiveConnection(): Promise<WebSocket> {
     if (liveSocket === socket) {
       liveSocket = null;
       liveConnectionPromise = null;
+      typingSent = false;
       if (pendingHandoffResult) {
         const pending = pendingHandoffResult;
         pendingHandoffResult = null;
@@ -744,6 +816,7 @@ async function send(text: string) {
   if (liveMode === "human") {
     addBubble("user", trimmed);
     inputEl.value = "";
+    notifyTyping(false);
     try {
       await liveAction("message", { content: trimmed, client_message_id: crypto.randomUUID() });
     } catch (error) {
@@ -927,6 +1000,10 @@ callbackEl.addEventListener("submit", async (event) => {
 formEl.addEventListener("submit", (event) => {
   event.preventDefault();
   void send(inputEl.value);
+});
+
+inputEl.addEventListener("input", () => {
+  notifyTyping(inputEl.value.trim().length > 0);
 });
 
 window.addEventListener("load", renderVerification, { once: true });

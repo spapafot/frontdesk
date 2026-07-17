@@ -12,7 +12,15 @@ interface WireEvent extends Partial<LiveState> {
   message?: LiveMessage | string;
   created?: boolean;
   online?: boolean;
+  actor_type?: string;
+  typing?: boolean;
 }
+
+// While composing, refresh the outbound typing signal at most every
+// TYPING_REFRESH_MS; the inbound indicator hides after TYPING_EXPIRE_MS
+// without a refresh so a lost "stopped typing" event can never strand it.
+const TYPING_REFRESH_MS = 2000;
+const TYPING_EXPIRE_MS = 5000;
 
 function mergeMessages(
   current: LiveMessage[] = [],
@@ -131,8 +139,12 @@ export function useLiveConversation(
   const modeRef = useRef<LiveState["mode"] | null>(null);
   const stateRef = useRef<LiveState | null>(null);
   const onStateChangeRef = useRef(onStateChange);
+  const typingSentRef = useRef(false);
+  const typingSentAtRef = useRef(0);
+  const typingExpiryRef = useRef<number | undefined>(undefined);
   const [state, setState] = useState<LiveState | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [visitorTyping, setVisitorTyping] = useState(false);
 
   useEffect(() => {
     onStateChangeRef.current = onStateChange;
@@ -140,8 +152,11 @@ export function useLiveConversation(
 
   useEffect(() => {
     setState(null);
+    setVisitorTyping(false);
     stateRef.current = null;
     modeRef.current = null;
+    typingSentRef.current = false;
+    window.clearTimeout(typingExpiryRef.current);
     if (!enabled || siteId === null || conversationId === null) return;
     let stopped = false;
     let reconnect: number | undefined;
@@ -168,17 +183,28 @@ export function useLiveConversation(
             setState(next);
             onStateChangeRef.current?.(next);
           } else if (message.type === "message" && typeof message.message === "object") {
+            const incoming = message.message as LiveMessage;
+            if (incoming.sender_type === "visitor") {
+              window.clearTimeout(typingExpiryRef.current);
+              setVisitorTyping(false);
+            }
             const current = stateRef.current;
             if (current) {
               const next = {
                 ...current,
-                messages: mergeMessages(
-                  current.messages,
-                  [message.message as LiveMessage],
-                ),
+                messages: mergeMessages(current.messages, [incoming]),
               };
               stateRef.current = next;
               setState(next);
+            }
+          } else if (message.type === "typing" && message.actor_type === "visitor") {
+            window.clearTimeout(typingExpiryRef.current);
+            setVisitorTyping(message.typing === true);
+            if (message.typing === true) {
+              typingExpiryRef.current = window.setTimeout(
+                () => setVisitorTyping(false),
+                TYPING_EXPIRE_MS,
+              );
             }
           } else if (message.type === "error") {
             setError(typeof message.message === "string" ? message.message : "Live action failed.");
@@ -186,6 +212,7 @@ export function useLiveConversation(
         };
         socket.onclose = () => {
           if (socketRef.current === socket) socketRef.current = null;
+          typingSentRef.current = false;
           if (!stopped && modeRef.current !== "closed") {
             reconnect = window.setTimeout(connect, 1500);
           }
@@ -215,5 +242,20 @@ export function useLiveConversation(
     }
   }, []);
 
-  return { state, error, action };
+  const notifyTyping = useCallback((active: boolean) => {
+    const now = Date.now();
+    if (active && typingSentRef.current && now - typingSentAtRef.current < TYPING_REFRESH_MS) {
+      return;
+    }
+    if (!active && !typingSentRef.current) return;
+    try {
+      send(socketRef.current, "typing", { typing: active });
+      typingSentRef.current = active;
+      typingSentAtRef.current = now;
+    } catch {
+      // Best-effort: a typing hint must never surface an error.
+    }
+  }, []);
+
+  return { state, error, action, visitorTyping, notifyTyping };
 }
