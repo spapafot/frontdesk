@@ -16,7 +16,6 @@ class SettingsOut(BaseModel):
     public_key: str | None = None
     widget_origin: str | None = None
     widget_enabled: bool = True
-    widget_monthly_limit: int = 5000
     widget_monthly_usage: int = 0
     widget_resets_at: str
     # Appearance

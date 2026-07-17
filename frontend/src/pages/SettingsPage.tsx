@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import useSWR from "swr";
 import {
   Settings,
@@ -283,8 +283,11 @@ export function SettingsPage() {
                 />
               </div>
               <p className="mt-2 text-xs text-slate-500">
-                {(data.widget_monthly_usage ?? 0).toLocaleString()} of{" "}
-                {(data.widget_monthly_limit ?? 0).toLocaleString()} messages used this month
+                {(data.widget_monthly_usage ?? 0).toLocaleString()} messages from
+                this site this month · check your total quota on the{" "}
+                <Link to="/billing" className="text-sky-600 hover:underline">
+                  Billing page
+                </Link>
               </p>
             </section>
 

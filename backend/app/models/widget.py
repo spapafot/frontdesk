@@ -16,7 +16,6 @@ class WidgetInstallation(Base):
     public_key: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     allowed_origin: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    monthly_limit: Mapped[int] = mapped_column(Integer, default=5000)
     # Appearance. Delivered to the embedded widget via the generated snippet's
     # data-* attributes; persisted here so the dashboard remembers the choices
     # and can regenerate a matching snippet.

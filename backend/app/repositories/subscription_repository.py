@@ -54,8 +54,8 @@ class SubscriptionRepository:
         allowance (``base_limit`` + any current-period top-up ``bonus_messages``).
 
         Returns False (caller should 429) when the account is at its ceiling.
-        Same single-row UPSERT-with-guard shape as
-        ``WidgetRepository.reserve_message``, keyed by account instead of site.
+        A single-row UPSERT-with-guard keyed by the account owner, so concurrent
+        reservations across all the owner's sites serialize on one row.
         """
         result = await self.session.execute(
             text(

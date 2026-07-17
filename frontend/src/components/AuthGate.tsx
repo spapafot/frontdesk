@@ -8,6 +8,8 @@ import {
 } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { authEnabled, supabase } from "../lib/supabase";
+import { ForgotPasswordPanel } from "./ForgotPasswordPanel";
+import { MfaChallenge } from "./MfaChallenge";
 import { SetPasswordPanel } from "./SetPasswordPanel";
 import { Spinner } from "./Spinner";
 import { AlertTriangle } from "lucide-react";
@@ -55,6 +57,24 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const [invitePending, setInvitePending] = useState(() =>
     window.location.hash.includes("type=invite"),
   );
+  // A password-recovery link lands the same way (`type=recovery` in the hash,
+  // captured synchronously for the same reason as invites).
+  const [recoveryPending, setRecoveryPending] = useState(() =>
+    window.location.hash.includes("type=recovery"),
+  );
+  // An expired/used action link arrives as an error hash instead of a session.
+  const [expiredLink] = useState(() =>
+    window.location.hash.includes("error_code=otp_expired"),
+  );
+  const [screen, setScreen] = useState<"login" | "forgot">("login");
+  // Assurance level of the current session vs. what the account can reach:
+  // null while the check is in flight (never flash the app before it lands).
+  const [aal, setAal] = useState<{ current: string; next: string } | null>(null);
+  // Sticky for the lifetime of the signed-in user: mid-app re-logins (the
+  // Account page verifies the current password via signInWithPassword, which
+  // downgrades the client session to aal1) must not unmount the app. The
+  // backend still rejects aal1 API calls, so this is UX, not enforcement.
+  const [mfaVerified, setMfaVerified] = useState(false);
 
   useEffect(() => {
     if (!authEnabled || !supabase) return;
@@ -67,6 +87,24 @@ export function AuthGate({ children }: { children: ReactNode }) {
     });
     return () => sub.subscription.unsubscribe();
   }, []);
+
+  const userId = session?.user.id ?? null;
+  useEffect(() => {
+    setAal(null);
+    setMfaVerified(false);
+    if (!supabase || !userId) return;
+    let cancelled = false;
+    supabase.auth.mfa.getAuthenticatorAssuranceLevel().then(({ data }) => {
+      if (cancelled) return;
+      setAal({
+        current: data?.currentLevel ?? "aal1",
+        next: data?.nextLevel ?? "aal1",
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
 
   const signOut = () => {
     void supabase?.auth.signOut();
@@ -82,7 +120,44 @@ export function AuthGate({ children }: { children: ReactNode }) {
       </div>
     );
   }
-  if (!session) return <LoginForm />;
+  if (!session) {
+    if (screen === "forgot") {
+      return <ForgotPasswordPanel onBack={() => setScreen("login")} />;
+    }
+    return (
+      <LoginForm
+        expiredLink={expiredLink}
+        onForgotPassword={() => setScreen("forgot")}
+      />
+    );
+  }
+  if (aal === null) {
+    return (
+      <div className="flex h-full items-center justify-center bg-slate-50">
+        <Spinner className="h-8 w-8" label="Checking session" />
+      </div>
+    );
+  }
+  // The MFA gate comes BEFORE the recovery/invite panels: for an enrolled
+  // account a recovery email alone must not be enough to set a new password
+  // (Supabase would refuse updateUser at aal1 anyway), so the code challenge
+  // runs first. Invitees have no factors and pass straight through.
+  if (aal.current === "aal1" && aal.next === "aal2" && !mfaVerified) {
+    return (
+      <MfaChallenge onVerified={() => setMfaVerified(true)} onSignOut={signOut} />
+    );
+  }
+  if (recoveryPending) {
+    return (
+      <SetPasswordPanel
+        title="Choose a new password"
+        description="Enter a new password for your account. You'll use it to sign in from now on."
+        submitLabel="Save new password"
+        requireAgreement={false}
+        onDone={() => setRecoveryPending(false)}
+      />
+    );
+  }
   if (invitePending) {
     return <SetPasswordPanel onDone={() => setInvitePending(false)} />;
   }
@@ -127,16 +202,22 @@ function AuthConfigurationError() {
   );
 }
 
-function LoginForm() {
+function LoginForm({
+  expiredLink = false,
+  onForgotPassword,
+}: {
+  /** The user followed an expired/used reset link; explain and offer a redo. */
+  expiredLink?: boolean;
+  onForgotPassword?: () => void;
+}) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [agreed, setAgreed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!supabase || !agreed) return;
+    if (!supabase) return;
     setBusy(true);
     setError(null);
     const { error } = await supabase.auth.signInWithPassword({
@@ -167,6 +248,13 @@ function LoginForm() {
           </p>
         </div>
 
+        {expiredLink && (
+          <p className="flex items-center gap-1.5 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            That reset link has expired — request a new one below.
+          </p>
+        )}
+
         <label className="block text-sm font-medium text-slate-700">
           Email
           <input
@@ -191,36 +279,17 @@ function LoginForm() {
           />
         </label>
 
-        <label className="flex items-start gap-2.5 text-sm text-slate-600">
-          <input
-            type="checkbox"
-            required
-            checked={agreed}
-            onChange={(e) => setAgreed(e.target.checked)}
-            className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
-          />
-          <span>
-            I agree to the{" "}
-            <a
-              href="https://plugandplay.gr/terms-of-service"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-medium text-sky-700 underline hover:text-sky-800"
+        {onForgotPassword && (
+          <div className="-mt-3 text-right">
+            <button
+              type="button"
+              onClick={onForgotPassword}
+              className="text-sm font-medium text-sky-700 hover:text-sky-800"
             >
-              Terms of Service
-            </a>{" "}
-            and{" "}
-            <a
-              href="https://plugandplay.gr/privacy-policy"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-medium text-sky-700 underline hover:text-sky-800"
-            >
-              Privacy Policy
-            </a>
-            .
-          </span>
-        </label>
+              Forgot password?
+            </button>
+          </div>
+        )}
 
         {error && (
           <p className="flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
@@ -231,7 +300,7 @@ function LoginForm() {
 
         <button
           type="submit"
-          disabled={busy || !agreed}
+          disabled={busy}
           className="w-full rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-sky-700 disabled:opacity-60"
         >
           {busy ? "Signing in…" : "Sign in"}

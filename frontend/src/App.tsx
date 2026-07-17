@@ -36,6 +36,7 @@ import { Sidebar, View } from "./components/Sidebar";
 import { SiteProvider, useSite } from "./components/SiteProvider";
 import { Spinner } from "./components/Spinner";
 import { ToastProvider, useToast } from "./components/Toast";
+import { AccountPage } from "./pages/AccountPage";
 import { AdminPage } from "./pages/AdminPage";
 import { AnalyticsPage } from "./pages/AnalyticsPage";
 import { BillingPage } from "./pages/BillingPage";
@@ -57,6 +58,7 @@ const VIEW_PATHS: Record<View, string> = {
   settings: "/settings",
   billing: "/billing",
   widgetDocs: "/widget-guide",
+  account: "/account",
 };
 
 function viewFromPath(pathname: string): View {
@@ -68,6 +70,7 @@ function viewFromPath(pathname: string): View {
   if (pathname.startsWith("/settings")) return "settings";
   if (pathname.startsWith("/billing")) return "billing";
   if (pathname.startsWith("/widget-guide")) return "widgetDocs";
+  if (pathname.startsWith("/account")) return "account";
   return "history";
 }
 
@@ -657,6 +660,8 @@ function AppShell() {
                 <AnalyticsPage onOpenConversation={onOpenConversation} />
               }
             />
+            {/* Personal account settings: user-level, so members get it too. */}
+            <Route path="/account" element={<AccountPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>

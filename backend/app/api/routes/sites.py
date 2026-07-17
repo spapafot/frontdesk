@@ -37,7 +37,6 @@ async def _to_summary(
         public_key=installation.public_key if installation else None,
         widget_origin=installation.allowed_origin if installation else None,
         widget_enabled=installation.is_enabled if installation else True,
-        widget_monthly_limit=installation.monthly_limit if installation else 0,
         widget_monthly_usage=(
             await repo.usage(installation.id, period) if installation else 0
         ),

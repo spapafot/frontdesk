@@ -83,9 +83,6 @@ async def test_widget_chat_never_requests_source_metadata(
     async def get_installation(_self, profile_id):
         return installation if profile_id == 11 else None
 
-    async def reserve_message(_self, _installation, _period):
-        return True
-
     monkeypatch.setattr(
         "app.api.routes.chat.decode_widget_token",
         lambda _token: (11, 17, "pk_live_test"),
@@ -93,10 +90,6 @@ async def test_widget_chat_never_requests_source_metadata(
     monkeypatch.setattr(
         "app.repositories.widget_repository.WidgetRepository.get_for_profile",
         get_installation,
-    )
-    monkeypatch.setattr(
-        "app.repositories.widget_repository.WidgetRepository.reserve_message",
-        reserve_message,
     )
     monkeypatch.setattr("app.api.routes.chat.stream_chat", make_fake_stream(record))
 

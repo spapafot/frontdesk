@@ -1,8 +1,9 @@
-"""Create invited users via the Supabase Admin API (service-role key).
+"""Account links via the Supabase Admin API (service-role key).
 
-Only ``generate_link`` is used: it creates the account and returns a one-time
-set-password action link WITHOUT Supabase sending any email - delivery happens
-at the edge via Cloudflare Email Sending (see the Worker's invite interception).
+Only ``generate_link`` is used: it returns a one-time action link (invite
+signup or password recovery) WITHOUT Supabase sending any email - delivery
+happens at the edge via Cloudflare Email Sending (see the Worker's invite and
+recovery interceptions).
 
 Best-effort by design: the membership row is the real access mechanism (it
 activates by email match at the member's first login), so a failure here must
@@ -126,3 +127,77 @@ async def generate_invite_link(email: str) -> InviteLinkResult:
 
     logger.warning("Supabase generate_link failed with status %s", response.status_code)
     return InviteLinkResult(None, False, _FAILED_WARNING)
+
+
+def _is_user_not_found(response: httpx.Response) -> bool:
+    try:
+        body = response.json()
+    except ValueError:
+        return False
+    if not isinstance(body, dict):
+        return False
+    if body.get("error_code") == "user_not_found":
+        return True
+    message = str(body.get("msg") or body.get("message") or "")
+    return "user not found" in message.lower()
+
+
+async def generate_recovery_link(email: str) -> str | None:
+    """One-time password-reset link via ``generate_link`` (type="recovery").
+
+    Anti-enumeration: the caller must not be able to tell whether the account
+    exists, so every failure - unconfigured stack, unknown user, HTTP error,
+    rejected redirect - collapses to ``None`` with nothing user-visible.
+    Never raises, and warnings carry status codes only, never the link.
+    """
+    if not invites_configured():
+        return None
+
+    payload: dict = {"type": "recovery", "email": email}
+    params = (
+        {"redirect_to": settings.app_base_url} if settings.app_base_url else None
+    )
+    key = settings.supabase_service_role_key
+    url = f"{settings.supabase_url.rstrip('/')}/auth/v1/admin/generate_link"
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                url,
+                headers={"apikey": key, "Authorization": f"Bearer {key}"},
+                params=params,
+                json=payload,
+            )
+    except httpx.HTTPError:
+        logger.warning(
+            "Supabase generate_link (recovery) request failed", exc_info=True
+        )
+        return None
+
+    if not response.is_success:
+        # An unknown account is the expected quiet path; anything else is
+        # worth a status-code-only warning.
+        if not _is_user_not_found(response):
+            logger.warning(
+                "Supabase generate_link (recovery) failed with status %s",
+                response.status_code,
+            )
+        return None
+
+    try:
+        body = response.json()
+    except ValueError:
+        body = {}
+    action_link = body.get("action_link")
+    if not action_link:
+        logger.warning("Supabase generate_link (recovery) returned no action_link")
+        return None
+    returned_redirect = _returned_redirect(body, action_link)
+    if (
+        settings.app_base_url
+        and returned_redirect
+        and not _same_redirect(returned_redirect, settings.app_base_url)
+    ):
+        logger.warning("Supabase rejected the configured recovery redirect URL")
+        return None
+    return action_link

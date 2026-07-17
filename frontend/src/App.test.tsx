@@ -41,7 +41,6 @@ const SITES = [
     public_key: "pk_live_test",
     widget_origin: null,
     widget_enabled: true,
-    widget_monthly_limit: 0,
     widget_monthly_usage: 0,
     created_at: "2026-01-01T00:00:00Z",
   },
@@ -367,7 +366,10 @@ describe("App shell", () => {
   it("renders settings when optional widget usage values are missing", async () => {
     renderApp();
     await userEvent.click(await screen.findByRole("button", { name: "Settings" }));
-    expect(await screen.findByText("0 of 0 messages used this month")).toBeInTheDocument();
+    expect(
+      await screen.findByText(/0 messages from this site this month/)
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Billing page" })).toBeInTheDocument();
   });
 
   it("hides owner-only navigation for team members", async () => {
@@ -397,6 +399,12 @@ describe("App shell", () => {
     expect(
       screen.queryByRole("button", { name: "Settings" })
     ).not.toBeInTheDocument();
+
+    // The account page is user-level: members reach it (no bounce to history).
+    await userEvent.click(screen.getByRole("button", { name: /account settings/i }));
+    expect(
+      await screen.findByRole("heading", { name: /^account$/i })
+    ).toBeInTheDocument();
   });
 
   it("shows a first-run panel with name and URL fields when there are no sites", async () => {

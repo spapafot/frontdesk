@@ -9,7 +9,6 @@ export interface Settings {
   public_key: string | null;
   widget_origin: string | null;
   widget_enabled: boolean;
-  widget_monthly_limit: number;
   widget_monthly_usage: number;
   widget_resets_at: string;
   // Appearance

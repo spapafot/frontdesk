@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import (
     analytics,
+    auth_recovery,
     billing,
     chat,
     conversations,
@@ -45,6 +46,10 @@ app.include_router(live.router)
 # endpoints in this router apply require_admin per-endpoint (and check account
 # ownership), so the router is not blanket-gated.
 app.include_router(billing.router)
+# Password recovery: public by nature (the requester has no session); the reset
+# link never reaches the browser (Worker strips it) and the Worker rate-limits
+# the endpoint per IP.
+app.include_router(auth_recovery.router)
 
 # Admin routes: require a valid Supabase JWT (no-op when auth is disabled in
 # local dev). See app.core.auth.require_admin.

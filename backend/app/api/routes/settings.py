@@ -40,7 +40,6 @@ async def _to_out(profile: AssistantProfile, session: AsyncSession) -> SettingsO
         public_key=installation.public_key,
         widget_origin=installation.allowed_origin,
         widget_enabled=installation.is_enabled,
-        widget_monthly_limit=installation.monthly_limit,
         widget_monthly_usage=await repo.usage(installation.id, period),
         widget_resets_at=reset,
         accent_color=installation.accent_color,

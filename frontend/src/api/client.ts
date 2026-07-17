@@ -25,6 +25,10 @@ export function isPlanLimitError(error: unknown): boolean {
   return error instanceof ApiError && error.status === 402;
 }
 
+/** The backend's distinct 401 detail for "valid token, but this MFA-enrolled
+ * account must present an aal2 session" (see require_admin in core/auth.py). */
+export const MFA_REQUIRED_DETAIL = "mfa_required";
+
 /** Parse a fetch Response, throwing ApiError with the backend's detail message
  * (and status) on failure. Shared by the api/* modules. */
 export async function parse<T>(response: Response): Promise<T> {
@@ -35,6 +39,13 @@ export async function parse<T>(response: Response): Promise<T> {
       if (body?.detail && typeof body.detail === "string") detail = body.detail;
     } catch {
       // non-JSON body; keep the generic message
+    }
+    if (response.status === 401 && detail === MFA_REQUIRED_DETAIL) {
+      // The session lost its MFA verification (e.g. enrollment in another tab,
+      // or a re-login mid-flow). A reload remounts AuthGate, which re-checks
+      // the assurance level and shows the code challenge; it cannot loop
+      // because the gate blocks until the challenge passes.
+      window.location.reload();
     }
     throw new ApiError(detail, response.status);
   }

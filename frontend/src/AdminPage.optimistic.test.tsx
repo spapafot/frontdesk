@@ -14,7 +14,6 @@ const SITE = {
   public_key: "pk_test",
   widget_origin: null,
   widget_enabled: true,
-  widget_monthly_limit: 0,
   widget_monthly_usage: 0,
   created_at: "2026-01-01T00:00:00Z",
 };

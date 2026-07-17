@@ -23,6 +23,7 @@ os.environ.update(
         "EDGE_SHARED_SECRET": "",
         "SUPABASE_URL": "",
         "SUPABASE_JWT_SECRET": "",
+        "SUPABASE_SERVICE_ROLE_KEY": "",
         "STRIPE_SECRET_KEY": "",
         "STRIPE_WEBHOOK_SECRET": "",
         "STRIPE_PRICE_STARTER_MONTH": "",

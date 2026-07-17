@@ -111,7 +111,6 @@ class Settings(BaseSettings):
     widget_allowed_origins: str = ""
     widget_session_secret: str = ""
     widget_session_ttl_seconds: int = 900
-    widget_monthly_limit: int = 5000
     live_human_escalation_enabled: bool = False
     live_conversation_token_ttl_seconds: int = 14400
     live_socket_ticket_ttl_seconds: int = 60
@@ -156,10 +155,19 @@ class Settings(BaseSettings):
     supabase_jwt_audience: str = "authenticated"
     # Cache lifetime for the fetched JWKS (seconds). Signing keys rotate rarely.
     supabase_jwks_cache_seconds: int = 600
-    # Service-role key for the Supabase Admin API - used only to create invited
-    # team members' accounts (generate_link). Empty disables account creation;
-    # invites still work for people who already have an account.
+    # Service-role key for the Supabase Admin API - used to create invited team
+    # members' accounts, generate password-recovery links (generate_link), and
+    # look up a user's MFA factors for aal2 enforcement. Empty disables all
+    # three; invites still work for people who already have an account.
     supabase_service_role_key: str = ""
+    # Require an aal2 (MFA-verified) token on admin routes for users who have a
+    # verified MFA factor. The factor lookup uses the Supabase Admin API
+    # (supabase_service_role_key); an unset key/url or a lookup error fails
+    # OPEN - same philosophy as moderation - so an auxiliary outage never locks
+    # the dashboard out. This flag is the operator kill-switch.
+    mfa_enforcement_enabled: bool = True
+    # Cache lifetime for a user's has-verified-factor answer (seconds).
+    supabase_mfa_cache_seconds: int = 300
     # Public URL of the admin app; used as the redirect target for invite links
     # (must be in Supabase Auth's Redirect URLs allow-list). Empty falls back to
     # the Supabase project's configured Site URL. Also the base for Stripe
@@ -188,9 +196,6 @@ class Settings(BaseSettings):
         if not self.supabase_url:
             return ""
         return f"{self.supabase_url.rstrip('/')}/auth/v1/.well-known/jwks.json"
-
-    # Tool loop safety
-    max_tool_iterations: int = 5
 
     def __repr_args__(self):
         """Keep credentials out of tracebacks, pytest fixture dumps, and logs."""
