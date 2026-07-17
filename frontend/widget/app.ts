@@ -18,6 +18,8 @@ interface WidgetSession {
   assistant_name: string;
   business_name: string;
   live_human_escalation_enabled: boolean;
+  // Optional: backends predating the configurable threshold omit it.
+  talk_to_person_after?: number;
 }
 
 type LiveMode = "ai" | "waiting" | "human" | "pending_ticket" | "closed";
@@ -177,6 +179,11 @@ let turnstileWidgetId: string | null = null;
 let refreshResolver: ((token: string | null) => void) | null = null;
 let chatInitialized = false;
 let liveEnabled = false;
+// Must equal DEFAULT_TALK_THRESHOLD (declared below the state block); showChat
+// re-derives it from the session before any message can be sent.
+let talkThreshold = 3;
+let humanRequested = false; // visitor's message matched HUMAN_REQUEST_PATTERN
+let unansweredTurn = false; // a done event carried answered === false
 let liveMode: LiveMode = "ai";
 let liveSocket: WebSocket | null = null;
 let liveConnectionPromise: Promise<WebSocket> | null = null;
@@ -191,6 +198,44 @@ let pendingHandoffResult: {
 let activeStream: AbortController | null = null;
 let hydrateLiveHistory = false;
 const displayedLiveMessageIds = new Set<number>();
+
+// Typing indicator: while composing, refresh the outbound signal at most every
+// TYPING_REFRESH_MS; the inbound indicator hides after TYPING_EXPIRE_MS without
+// a refresh so a lost "stopped typing" event can never strand the dots.
+const TYPING_REFRESH_MS = 2000;
+const TYPING_EXPIRE_MS = 5000;
+// An edge Worker predating the typing relay rejects the hint with exactly
+// "Unsupported live action." — feature-detected per connection so the visitor
+// never sees that as an error bubble.
+const LEGACY_TYPING_REJECTION = "Unsupported live action.";
+let typingSupported = true;
+let typingSent = false;
+let typingSentAt = 0;
+let operatorTypingRow: HTMLElement | null = null;
+let operatorTypingTimer = 0;
+
+// "Talk to a person" appears after this many visitor messages unless a signal
+// (the visitor asked for a human / a turn went unanswered) reveals it sooner.
+const DEFAULT_TALK_THRESHOLD = 3;
+// Highest configurable threshold; also bounds the persisted message counter so
+// raising the threshold later still credits messages already sent.
+const MAX_TALK_THRESHOLD = 50;
+// The conversation-rating offer is deliberately independent of the
+// configurable talk threshold.
+const RATING_MESSAGE_THRESHOLD = 3;
+// High-precision on purpose: a false positive surfaces the bar too early,
+// while a miss still falls back to the message-count threshold.
+const HUMAN_REQUEST_PATTERN = new RegExp(
+  [
+    "\\b(?:talk|speak|chat)(?:ing)?\\s+(?:to|with)\\s+(?:a\\s+|an\\s+)?(?:real\\s+|live\\s+|actual\\s+)?(?:human|person|agent|representative|operator|someone|somebody)\\b",
+    "\\b(?:real|live|actual)\\s+(?:human|person|agent)\\b",
+    "\\bhuman\\s+(?:agent|support|being)\\b",
+    "\\b(?:connect|transfer)\\s+me\\b",
+    "\\bput\\s+me\\s+through\\b",
+    "\\bnot\\s+(?:a\\s+)?(?:bot|robot)\\b",
+  ].join("|"),
+  "i",
+);
 
 function postToParent(message: object) {
   if (params.origin) parent.postMessage(message, params.origin);
@@ -240,7 +285,7 @@ function showChat(session: WidgetSession) {
   );
   visitorMessageCount = conversationId && conversationToken &&
       Number.isInteger(storedVisitorMessageCount) && storedVisitorMessageCount >= 0
-    ? Math.min(storedVisitorMessageCount, 3)
+    ? Math.min(storedVisitorMessageCount, MAX_TALK_THRESHOLD)
     : 0;
   if (!conversationId || !conversationToken) {
     localStorage.removeItem(visitorMessageCountStorageKey);
@@ -258,6 +303,14 @@ function showChat(session: WidgetSession) {
   }
   renderRatingSelection();
   liveEnabled = session.live_human_escalation_enabled === true;
+  const configuredThreshold = session.talk_to_person_after;
+  talkThreshold =
+    typeof configuredThreshold === "number" &&
+    Number.isInteger(configuredThreshold) &&
+    configuredThreshold >= 0 &&
+    configuredThreshold <= MAX_TALK_THRESHOLD
+      ? configuredThreshold
+      : DEFAULT_TALK_THRESHOLD;
   hydrateLiveHistory = conversationId !== null;
   verificationEl.hidden = true;
   messagesEl.hidden = false;
@@ -385,6 +438,8 @@ function clearConversationSession() {
   conversationId = null;
   conversationToken = "";
   visitorMessageCount = 0;
+  humanRequested = false;
+  unansweredTurn = false;
   conversationRated = "";
   ratingDismissed = false;
   localStorage.removeItem(conversationStorageKey);
@@ -398,6 +453,11 @@ function showConnectionStatus(message: string, loading = false) {
   if (!connectionStatusBubble?.isConnected) {
     connectionStatusBubble = addBubble("assistant", "");
     connectionStatusBubble.classList.add("wx-live-status");
+  } else if (loading) {
+    // A repeat request reuses the resolved status bubble from the previous
+    // attempt; bring it below any messages exchanged since.
+    const row = connectionStatusBubble.closest(".wx-row");
+    if (row) messagesEl.appendChild(row);
   }
   connectionStatusBubble.replaceChildren(document.createTextNode(message));
   if (loading) {
@@ -409,6 +469,41 @@ function showConnectionStatus(message: string, loading = false) {
   scrollToBottom();
 }
 
+function notifyTyping(active: boolean) {
+  if (!typingSupported) return;
+  if (liveMode !== "human" || liveSocket?.readyState !== WebSocket.OPEN) return;
+  const now = Date.now();
+  if (active && typingSent && now - typingSentAt < TYPING_REFRESH_MS) return;
+  if (!active && !typingSent) return;
+  typingSent = active;
+  typingSentAt = now;
+  try {
+    liveSocket.send(JSON.stringify({ version: 1, type: "typing", typing: active }));
+  } catch {
+    // Best-effort: a typing hint must never surface an error.
+  }
+}
+
+function showOperatorTyping(active: boolean) {
+  window.clearTimeout(operatorTypingTimer);
+  if (!active) {
+    operatorTypingRow?.remove();
+    operatorTypingRow = null;
+    return;
+  }
+  if (!operatorTypingRow?.isConnected) {
+    const bubble = addBubble("assistant", "");
+    bubble.classList.add("pending");
+    bubble.innerHTML = TYPING;
+    operatorTypingRow = bubble.closest<HTMLElement>(".wx-row") ?? bubble;
+  } else {
+    // Keep the dots below any message that arrived while they were up.
+    messagesEl.appendChild(operatorTypingRow);
+  }
+  scrollToBottom();
+  operatorTypingTimer = window.setTimeout(() => showOperatorTyping(false), TYPING_EXPIRE_MS);
+}
+
 async function liveResponseError(response: Response): Promise<string> {
   const body = await response.json().catch(() => null) as { detail?: unknown } | null;
   return typeof body?.detail === "string"
@@ -417,13 +512,17 @@ async function liveResponseError(response: Response): Promise<string> {
 }
 
 function setLiveMode(mode: LiveMode) {
+  if (mode !== "human") {
+    typingSent = false;
+    showOperatorTyping(false);
+  }
   liveMode = mode;
   const actionsWereHidden = liveActionsEl.hidden;
   const callbackWasHidden = callbackEl.hidden;
   const showTalk = liveEnabled && (
     mode === "waiting" || (
       mode === "ai" &&
-      visitorMessageCount >= 3 &&
+      (humanRequested || unansweredTurn || visitorMessageCount >= talkThreshold) &&
       !streaming &&
       conversationId !== null &&
       conversationToken.length > 0
@@ -436,7 +535,8 @@ function setLiveMode(mode: LiveMode) {
   // (and briefly thanked), the offer is gone for good.
   const showRating = !ratingDismissed &&
     conversationId !== null && conversationToken.length > 0 && (
-      mode === "closed" || (mode === "ai" && visitorMessageCount >= 3 && !streaming)
+      mode === "closed" ||
+      (mode === "ai" && visitorMessageCount >= RATING_MESSAGE_THRESHOLD && !streaming)
     );
   liveActionsEl.hidden = !showTalk && !showNewChat && !showRating;
   livePromptEl.hidden = !showTalk;
@@ -465,7 +565,7 @@ function setLiveMode(mode: LiveMode) {
 }
 
 function recordVisitorMessage() {
-  visitorMessageCount = Math.min(visitorMessageCount + 1, 3);
+  visitorMessageCount = Math.min(visitorMessageCount + 1, MAX_TALK_THRESHOLD);
   if (visitorMessageCountStorageKey) {
     localStorage.setItem(visitorMessageCountStorageKey, String(visitorMessageCount));
   }
@@ -583,6 +683,7 @@ async function openLiveConnection(): Promise<WebSocket> {
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   const socket = new WebSocket(url, ["live-v1", `ticket.${ticket.ticket}`]);
   liveSocket = socket;
+  typingSupported = true; // a fresh connection may reach an upgraded Worker
   let opened = false;
   socket.onmessage = (message) => {
     let event: Record<string, unknown>;
@@ -619,25 +720,50 @@ async function openLiveConnection(): Promise<WebSocket> {
         const pending = pendingHandoffResult;
         pendingHandoffResult = null;
         window.clearTimeout(pending.timer);
-        const statusMessage =
-          nextMode === "waiting" ? "Looking for someone from the team…" :
-          nextMode === "human" ? "You’re now connected to the team." :
-          "No one is available right now. You can request a callback below.";
-        showConnectionStatus(statusMessage);
         pending.resolve(nextMode);
       }
-      if (previous !== nextMode && !completesHandoff) {
-        if (nextMode === "waiting") addBubble("assistant", "Looking for someone from the team…");
-        if (nextMode === "human") addBubble("assistant", "You’re now connected to the team.");
-        if (nextMode === "pending_ticket") addBubble("assistant", "No one is available right now. You can request a callback below.");
-        if (nextMode === "closed") addBubble("assistant", "This conversation has been closed.");
+      if (previous !== nextMode) {
+        // The "connecting" status bubble keeps its loader for the whole
+        // waiting phase (a static "looking for someone" note reads as
+        // stalled) and resolves in place into the outcome: accepted,
+        // callback offer, cancelled, or closed.
+        const fromWaiting = previous === "waiting" || completesHandoff;
+        if (nextMode === "waiting") {
+          showConnectionStatus("Give us a moment while we connect you…", true);
+        } else if (nextMode === "human") {
+          const message = "You’re now connected to the team.";
+          if (fromWaiting) showConnectionStatus(message);
+          else addBubble("assistant", message);
+        } else if (nextMode === "pending_ticket") {
+          const message = "No one is available right now. You can request a callback below.";
+          if (fromWaiting) showConnectionStatus(message);
+          else addBubble("assistant", message);
+        } else if (nextMode === "ai" && previous === "waiting") {
+          showConnectionStatus("Request cancelled. You’re back with the AI assistant.");
+        } else if (nextMode === "closed") {
+          const message = "This conversation has been closed.";
+          if (previous === "waiting") showConnectionStatus(message);
+          else addBubble("assistant", message);
+        }
       }
     } else if (event.type === "message" && typeof event.message === "object" && event.message) {
       const item = event.message as { id?: number; sender_type?: string; content?: string };
       if (item.id) displayedLiveMessageIds.add(item.id);
-      if (item.sender_type === "operator" && item.content) addBubble("assistant", item.content);
+      if (item.sender_type === "operator" && item.content) {
+        showOperatorTyping(false);
+        addBubble("assistant", item.content);
+      }
+    } else if (event.type === "typing" && event.actor_type === "operator") {
+      showOperatorTyping(event.typing === true);
     } else if (event.type === "error") {
       const error = new Error(String(event.message || "Live support error."));
+      // Every event the widget sends besides `typing` is understood by all
+      // Worker versions, so this rejection can only be the typing hint
+      // bouncing off an older Worker. Go quiet instead of showing it.
+      if (error.message === LEGACY_TYPING_REJECTION) {
+        typingSupported = false;
+        return;
+      }
       if (pendingHandoffResult) {
         const pending = pendingHandoffResult;
         pendingHandoffResult = null;
@@ -652,6 +778,7 @@ async function openLiveConnection(): Promise<WebSocket> {
     if (liveSocket === socket) {
       liveSocket = null;
       liveConnectionPromise = null;
+      typingSent = false;
       if (pendingHandoffResult) {
         const pending = pendingHandoffResult;
         pendingHandoffResult = null;
@@ -744,6 +871,7 @@ async function send(text: string) {
   if (liveMode === "human") {
     addBubble("user", trimmed);
     inputEl.value = "";
+    notifyTyping(false);
     try {
       await liveAction("message", { content: trimmed, client_message_id: crypto.randomUUID() });
     } catch (error) {
@@ -752,9 +880,11 @@ async function send(text: string) {
     return;
   }
   if (liveMode !== "ai") return;
+  const asksForHuman = HUMAN_REQUEST_PATTERN.test(trimmed);
   addBubble("user", trimmed);
   inputEl.value = "";
   setStreaming(true);
+  if (asksForHuman) humanRequested = true;
   recordVisitorMessage();
 
   const pending = addBubble("assistant", "");
@@ -793,12 +923,23 @@ async function send(text: string) {
           clearConversationSession();
           displayedLiveMessageIds.clear();
           hydrateLiveHistory = false;
+          // clearConversationSession dropped the signal; the message being
+          // retried still applies to the replacement conversation.
+          if (asksForHuman) humanRequested = true;
           recordVisitorMessage();
           res = await request();
         }
       }
     }
-    if (!res.ok || !res.body) throw new Error(`Request failed (${res.status})`);
+    if (!res.ok) {
+      // Surface the server's own message when it sends one (e.g. the daily
+      // message limit 429) instead of a bare status code.
+      const body = (await res.json().catch(() => null)) as { detail?: unknown } | null;
+      throw new Error(
+        typeof body?.detail === "string" ? body.detail : `Request failed (${res.status})`,
+      );
+    }
+    if (!res.body) throw new Error(`Request failed (${res.status})`);
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -838,6 +979,12 @@ async function send(text: string) {
             pending.classList.add("wx-error");
             pending.textContent =
               (event.message as string) || "Something went wrong.";
+            break;
+          case "done":
+            // Backends predating the flag omit it, and moderation warnings
+            // omit it on purpose - only an explicit false marks the turn
+            // unanswered. setStreaming(false) in finally re-runs setLiveMode.
+            if (event.answered === false) unansweredTurn = true;
             break;
           case "mode_changed":
           case "interrupted":
@@ -927,6 +1074,10 @@ callbackEl.addEventListener("submit", async (event) => {
 formEl.addEventListener("submit", (event) => {
   event.preventDefault();
   void send(inputEl.value);
+});
+
+inputEl.addEventListener("input", () => {
+  notifyTyping(inputEl.value.trim().length > 0);
 });
 
 window.addEventListener("load", renderVerification, { once: true });

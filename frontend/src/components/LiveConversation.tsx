@@ -1,22 +1,34 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { LiveState } from "../api/live";
 
 export function LiveConversation({
   state,
   error,
   onAction,
+  visitorTyping = false,
+  onTyping,
 }: {
   state: LiveState;
   error: string | null;
   onAction: (type: string, payload?: object) => void;
+  visitorTyping?: boolean;
+  onTyping?: (active: boolean) => void;
 }) {
   const [message, setMessage] = useState("");
+  const endRef = useRef<HTMLDivElement>(null);
+  const messages = state.messages ?? [];
+  const lastMessageId = messages.length ? messages[messages.length - 1].id : null;
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [lastMessageId, visitorTyping]);
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const content = message.trim();
     if (!content || state.mode !== "human") return;
     onAction("message", { content, client_message_id: crypto.randomUUID() });
     setMessage("");
+    onTyping?.(false);
   };
 
   const status = {
@@ -90,7 +102,7 @@ export function LiveConversation({
       )}
       <div className="flex-1 overflow-y-auto p-6">
         <div className="mx-auto w-full max-w-3xl space-y-3">
-          {(state.messages ?? []).map((item) => {
+          {messages.map((item) => {
             const visitor = item.sender_type === "visitor";
             const label = senderLabel(item.sender_type, item.sender_display_name);
             return (
@@ -102,6 +114,22 @@ export function LiveConversation({
               </div>
             );
           })}
+          {visitorTyping && (
+            <div className="flex justify-start">
+              <div
+                className="rounded-2xl rounded-bl-sm border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm"
+                role="status"
+                aria-label="Visitor is typing"
+              >
+                <span className="inline-flex gap-1 text-slate-400">
+                  <span className="animate-pulse">●</span>
+                  <span className="animate-pulse [animation-delay:150ms]">●</span>
+                  <span className="animate-pulse [animation-delay:300ms]">●</span>
+                </span>
+              </div>
+            </div>
+          )}
+          <div ref={endRef} />
         </div>
       </div>
       {error && <p className="mx-auto w-full max-w-2xl px-4 pb-2 text-xs text-red-600">{error}</p>}
@@ -109,7 +137,10 @@ export function LiveConversation({
         <form onSubmit={submit} className="mx-auto flex w-full max-w-3xl gap-2">
           <input
             value={message}
-            onChange={(event) => setMessage(event.target.value)}
+            onChange={(event) => {
+              setMessage(event.target.value);
+              if (state.mode === "human") onTyping?.(event.target.value.trim().length > 0);
+            }}
             disabled={state.mode !== "human"}
             placeholder={composerPlaceholder}
             className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50"

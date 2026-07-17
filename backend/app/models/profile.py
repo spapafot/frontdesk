@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, String, Text, func
+from sqlalchemy import Boolean, DateTime, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -22,6 +22,9 @@ class AssistantProfile(Base):
     )
     moderation_enabled: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default="true"
+    )
+    talk_to_person_after: Mapped[int] = mapped_column(
+        Integer, default=3, server_default="3"
     )
     notification_email: Mapped[str | None] = mapped_column(String(254), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

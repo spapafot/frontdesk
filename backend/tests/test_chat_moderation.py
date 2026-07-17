@@ -83,6 +83,9 @@ def _setup(
                 {"role": role, "content": content, "meta": kwargs.get("meta")}
             )
 
+        async def count_user_messages(self, conversation_id):
+            return 0
+
         async def get_messages(self, conversation_id):
             return []
 
@@ -140,6 +143,9 @@ async def test_first_strike_warns_and_skips_rag_and_llm(monkeypatch):
 
     assert [e["type"] for e in events] == ["conversation", "token", "done"]
     assert events[1]["content"] == MODERATION_WARNINGS["en"]
+    # A moderation warning must not carry the "answered" flag: the widget only
+    # treats an explicit answered=False as its talk-to-a-person signal.
+    assert "answered" not in events[2]
     # Both the abusive message and the canned reply are stored, marked flagged.
     roles = [(m["role"], m["meta"].get("flagged")) for m in record["messages"]]
     assert roles == [("user", True), ("assistant", True)]
@@ -203,6 +209,9 @@ async def test_no_verdict_fails_open_to_a_normal_answer(monkeypatch):
     assert record["search_calls"] == ["you are garbage"]
     assert [e["type"] for e in events] == ["conversation", "token", "done"]
     assert events[1]["content"] == chat_service.safe_fallback("you are garbage")
+    # No sources -> the done event marks the turn unanswered so the widget can
+    # offer a human right away.
+    assert events[2]["answered"] is False
 
 
 async def test_admin_test_chat_is_never_moderated(monkeypatch):

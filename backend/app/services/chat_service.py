@@ -67,6 +67,20 @@ MODERATION_CLOSED = {
         "If you still need help, you're welcome to start a new conversation."
     ),
 }
+# Canned reply when a widget conversation hits the per-conversation message
+# cap. Language mirrors the visitor's message, like MODERATION_CLOSED.
+LIMIT_CLOSED = {
+    "el": (
+        "Αυτή η συνομιλία έφτασε το όριο μηνυμάτων της και έκλεισε. "
+        "Ξεκινήστε μια νέα συνομιλία για να συνεχίσουμε, ή επικοινωνήστε "
+        "απευθείας με την ομάδα μας αν χρειάζεστε περισσότερη βοήθεια."
+    ),
+    "en": (
+        "This conversation has reached its message limit and has been closed. "
+        "Please start a new conversation to continue, or reach out to our team "
+        "directly if you need further help."
+    ),
+}
 
 _GREEK_RE = re.compile(r"[\u0370-\u03ff\u1f00-\u1fff]")
 _DISCLOSURE_PATTERNS = tuple(
@@ -223,6 +237,57 @@ async def run_turn(
             )
         yield conversation_event
 
+        # --- Per-conversation message cap (widget traffic only) ---------------
+        # Checked before moderation: a capped turn is rejected outright, so it
+        # must not pay a moderation call or record a strike. Counts all stored
+        # user messages (flagged included); the over-cap message itself is
+        # never persisted - the auto_closed event keeps the audit trail.
+        cap = settings.chat_conversation_message_limit
+        if installation_id is not None and cap > 0:
+            if await conversation_repo.count_user_messages(conversation.id) >= cap:
+                live_repo = LiveRepository(session)
+                closed = await live_repo.close_flagged(
+                    conversation.id, datetime.now(timezone.utc)
+                )
+                if closed is None:
+                    # Lost a race (concurrent escalation/close): report the
+                    # real mode instead of guessing; persist nothing.
+                    await session.refresh(conversation, attribute_names=["mode"])
+                    yield {
+                        "type": "mode_changed",
+                        "mode": conversation.mode,
+                        "conversation_id": conversation.id,
+                    }
+                    return
+                await live_repo.add_event(
+                    conversation.id,
+                    "auto_closed",
+                    "system",
+                    meta={"reason": "message_limit", "limit": cap},
+                )
+                reply = LIMIT_CLOSED[_reply_language(message)]
+                await conversation_repo.add_message(
+                    conversation.id,
+                    "assistant",
+                    reply,
+                    meta={
+                        "limit_closed": True,
+                        "answered": False,
+                        "searched": False,
+                        "had_sources": False,
+                    },
+                )
+                # Commit before yielding: a client disconnect closes the
+                # generator at the next yield, and the close must be durable.
+                await session.commit()
+                yield {"type": "token", "content": reply}
+                yield {
+                    "type": "mode_changed",
+                    "mode": "closed",
+                    "conversation_id": conversation.id,
+                }
+                return
+
         # --- Visitor abuse moderation (widget traffic only) -------------------
         # installation_id is present on every widget turn; admin test chat and
         # live-operator messages never pass through here. classify() is
@@ -286,6 +351,8 @@ async def run_turn(
                         "conversation_id": conversation.id,
                     }
                 else:
+                    # No "answered" flag on purpose: a moderation warning must
+                    # not trigger the widget's talk-to-a-person reveal.
                     yield {"type": "done", "conversation_id": conversation.id}
                 return
 
@@ -387,7 +454,11 @@ async def run_turn(
                 },
             )
             await session.commit()
-            yield {"type": "done", "conversation_id": conversation.id}
+            yield {
+                "type": "done",
+                "conversation_id": conversation.id,
+                "answered": had_sources,
+            }
         except Exception as exc:  # noqa: BLE001 - surface any failure to the client
             yield {"type": "error", "message": f"Assistant error: {exc}"}
 

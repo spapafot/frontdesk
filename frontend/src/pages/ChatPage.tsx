@@ -139,7 +139,13 @@ export function ChatPage({
         </div>
       ) : isLiveConversation ? (
         live.state ? (
-          <LiveConversation state={live.state} error={live.error} onAction={live.action} />
+          <LiveConversation
+            state={live.state}
+            error={live.error}
+            onAction={live.action}
+            visitorTyping={live.visitorTyping}
+            onTyping={live.notifyTyping}
+          />
         ) : (
           <div className="mx-auto w-full max-w-2xl flex-1 space-y-3 p-4" role="status" aria-label="Loading live conversation">
             <Skeleton className="h-16 w-full rounded-xl" />

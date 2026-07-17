@@ -6,6 +6,7 @@ from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_admin
+from app.core.config import settings
 from app.core.db import get_session
 from app.repositories.profile_repository import ProfileRepository
 from app.repositories.conversation_repository import ConversationRepository
@@ -18,6 +19,7 @@ from app.services.widget_auth import decode_widget_token
 from app.services.live_auth import (
     conversation_token_matches,
     new_visitor_session_id,
+    visitor_session_hash,
 )
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -26,6 +28,10 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 def _period() -> date:
     now = datetime.now(timezone.utc)
     return date(now.year, now.month, 1)
+
+
+def _today() -> date:
+    return datetime.now(timezone.utc).date()
 
 
 @router.post("/stream")
@@ -47,6 +53,25 @@ async def chat_stream(
             or not installation.is_enabled
         ):
             raise HTTPException(status_code=401, detail="Widget installation is unavailable.")
+        # Daily per-IP budget, checked before any subscription work so a
+        # rejected visitor consumes no monthly quota and creates no trial row.
+        # The edge Worker attests the IP (spoofed inbound copies are stripped);
+        # no header (local dev, no Worker) skips the check. If the later
+        # monthly-quota reservation fails, its rollback undoes this one too -
+        # intended, since the message is never served.
+        if settings.chat_daily_ip_message_limit > 0:
+            visitor_ip = request.headers.get(settings.visitor_ip_header)
+            if visitor_ip and not await WidgetRepository(session).reserve_visitor_message(
+                installation_id,
+                visitor_session_hash(visitor_ip),
+                _today(),
+                settings.chat_daily_ip_message_limit,
+            ):
+                await session.rollback()
+                raise HTTPException(
+                    status_code=429,
+                    detail="Daily message limit reached. Please try again tomorrow.",
+                )
         # Quota is enforced account-wide (pooled across all the owner's sites)
         # against the owner's plan; the per-site counter below is display-only.
         profile = await ProfileRepository(session).get(profile_id)

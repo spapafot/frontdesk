@@ -132,7 +132,8 @@ class LiveRepository:
     async def close_flagged(
         self, conversation_id: int, closed_at: datetime
     ) -> Conversation | None:
-        """Atomically close an AI conversation (moderation auto-close).
+        """Atomically close an AI conversation (system auto-close: moderation
+        strike limit or the per-conversation message cap).
 
         ``None`` on a lost race - e.g. a concurrent escalation already left
         ``ai`` - in which case the caller must not record an auto-close.

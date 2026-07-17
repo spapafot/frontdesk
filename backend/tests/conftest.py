@@ -115,6 +115,9 @@ def no_database_billing(monkeypatch):
     async def _increment(self, installation, period):
         return None
 
+    async def _reserve_visitor(self, installation_id, ip_hash, day, limit):
+        return True
+
     async def _get_profile(self, profile_id):
         return SimpleNamespace(id=profile_id, owner_user_id="owner-1")
 
@@ -141,6 +144,10 @@ def no_database_billing(monkeypatch):
     monkeypatch.setattr(
         "app.repositories.widget_repository.WidgetRepository.increment_usage",
         _increment,
+    )
+    monkeypatch.setattr(
+        "app.repositories.widget_repository.WidgetRepository.reserve_visitor_message",
+        _reserve_visitor,
     )
     monkeypatch.setattr(
         "app.repositories.profile_repository.ProfileRepository.get",
