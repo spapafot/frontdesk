@@ -202,6 +202,8 @@ function showVerificationError(
   verificationEl.hidden = false;
   messagesEl.hidden = true;
   formEl.hidden = true;
+  liveActionsEl.hidden = true;
+  callbackEl.hidden = true;
   verificationMessageEl.textContent = message;
   verificationMessageEl.classList.add("wx-error");
   retryEl.hidden = false;
@@ -212,6 +214,12 @@ function showChat(session: WidgetSession) {
   if (chatInitialized && refreshResolver) {
     refreshResolver(session.token);
     refreshResolver = null;
+    // A mid-session wx-verify hid the chat behind the verification pane;
+    // bring it back now that the fresh session is here. setLiveMode restores
+    // the mode-driven panels (composer, live actions, callback form).
+    verificationEl.hidden = true;
+    messagesEl.hidden = false;
+    setLiveMode(liveMode);
     return;
   }
   titleEl.textContent = session.assistant_name || "Chat";
@@ -274,6 +282,8 @@ function renderVerification() {
   verificationEl.hidden = false;
   messagesEl.hidden = true;
   formEl.hidden = true;
+  liveActionsEl.hidden = true;
+  callbackEl.hidden = true;
 
   // Local development can run without Turnstile. Production enforcement at
   // the Worker/backend still rejects an empty token, so this cannot fail open.
@@ -547,6 +557,19 @@ async function openLiveConnection(): Promise<WebSocket> {
     if (refreshed) {
       widgetToken = refreshed;
       response = await liveTicketRequest();
+      if (response.status === 401) {
+        // A fresh widget token still gets 401, so the stored conversation
+        // session is expired and cannot be re-minted. Drop it (mirrors the
+        // /chat/stream recovery in send()) so the visitor gets a working
+        // chat instead of hitting this dead end on every open.
+        clearConversationSession();
+        displayedLiveMessageIds.clear();
+        hydrateLiveHistory = false;
+        setLiveMode("ai");
+        throw new Error(
+          "Your previous conversation has expired. Send a message to start a new one.",
+        );
+      }
     }
   }
   if (!response.ok) throw new Error(await liveResponseError(response));

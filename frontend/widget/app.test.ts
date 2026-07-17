@@ -231,6 +231,85 @@ describe("embedded widget verification flow", () => {
     expect(localStorage.getItem(`${storageKey}_token`)).toBe("fresh-token");
   });
 
+  it("restores the chat and drops an expired live conversation after re-verification", async () => {
+    window.turnstile = {
+      render: vi.fn(() => "widget-id"),
+      reset: vi.fn(),
+    };
+    // The stored conversation token is expired: the socket-ticket endpoint
+    // keeps returning 401 even after the widget token is refreshed.
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({ detail: "Invalid or expired conversation session." }),
+        { status: 401, headers: { "content-type": "application/json" } }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const storageKey = `wx_conv_17_${encodeURIComponent("https://customer.example")}`;
+    localStorage.setItem(storageKey, "999");
+    localStorage.setItem(`${storageKey}_token`, "expired-conversation-token");
+    localStorage.setItem(`${storageKey}_visitor_count`, "3");
+
+    const widget = await import("./app");
+    const sessionMessage = (token: string) =>
+      new MessageEvent("message", {
+        origin: location.origin,
+        source: window,
+        data: {
+          type: "wx-session",
+          session: {
+            token,
+            installation_id: 17,
+            origin: "https://customer.example",
+            assistant_name: "Helper",
+            business_name: "Acme",
+            live_human_escalation_enabled: true,
+          },
+        },
+      });
+
+    const postMessage = vi.spyOn(window, "postMessage");
+    widget.handleParentMessage(sessionMessage("signed-session"));
+
+    // The auto live-connect gets 401 and asks the loader for a fresh session.
+    await vi.waitFor(() =>
+      expect(postMessage).toHaveBeenCalledWith({ type: "wx-refresh" }, location.origin)
+    );
+    // The loader answers with wx-verify: verification takes over the UI and
+    // must not leave the "Talk to a person" bar floating underneath.
+    widget.handleParentMessage(
+      new MessageEvent("message", {
+        origin: location.origin,
+        source: window,
+        data: { type: "wx-verify" },
+      })
+    );
+    const verification = document.getElementById("wx-verification") as HTMLElement;
+    const form = document.getElementById("wx-form") as HTMLFormElement;
+    const actions = document.getElementById("wx-live-actions") as HTMLDivElement;
+    expect(verification.hidden).toBe(false);
+    expect(form.hidden).toBe(true);
+    expect(actions.hidden).toBe(true);
+
+    // Turnstile re-solves and the fresh session arrives: the chat must come
+    // back instead of sticking on "Finishing verification…".
+    widget.handleParentMessage(sessionMessage("signed-session-2"));
+    await vi.waitFor(() => expect(verification.hidden).toBe(true));
+    expect(form.hidden).toBe(false);
+
+    // The retry still 401s, so the dead conversation session is dropped and
+    // the visitor can simply chat again on the next open.
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(localStorage.getItem(storageKey)).toBeNull());
+    expect(localStorage.getItem(`${storageKey}_token`)).toBeNull();
+    expect(localStorage.getItem(`${storageKey}_visitor_count`)).toBeNull();
+    await vi.waitFor(() =>
+      expect((document.getElementById("wx-talk") as HTMLButtonElement).hidden).toBe(true)
+    );
+    expect(form.hidden).toBe(false);
+  });
+
   it("coalesces rapid handoff clicks into one ticket, socket, and escalation", async () => {
     window.turnstile = {
       render: vi.fn(() => "widget-id"),
