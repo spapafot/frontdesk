@@ -231,6 +231,53 @@ describe("embedded widget verification flow", () => {
     expect(localStorage.getItem(`${storageKey}_token`)).toBe("fresh-token");
   });
 
+  it("surfaces the server's daily-limit message when a send is rejected", async () => {
+    window.turnstile = {
+      render: vi.fn(() => "widget-id"),
+      reset: vi.fn(),
+    };
+    const detail = "Daily message limit reached. Please try again tomorrow.";
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ detail }), {
+          status: 429,
+          headers: { "content-type": "application/json" },
+        })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const widget = await import("./app");
+    widget.handleParentMessage(
+      new MessageEvent("message", {
+        origin: location.origin,
+        source: window,
+        data: {
+          type: "wx-session",
+          session: {
+            token: "signed-session",
+            installation_id: 17,
+            origin: "https://customer.example",
+            assistant_name: "Helper",
+            business_name: "Acme",
+            live_human_escalation_enabled: false,
+          },
+        },
+      })
+    );
+
+    const form = document.getElementById("wx-form") as HTMLFormElement;
+    const input = document.getElementById("wx-input") as HTMLInputElement;
+    input.value = "Hello";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() =>
+      expect(document.getElementById("wx-messages")).toHaveTextContent(detail)
+    );
+    expect(document.querySelector(".wx-error")).not.toBeNull();
+    // A rejected send is not a closed conversation: the composer stays usable.
+    expect(form.hidden).toBe(false);
+  });
+
   it("restores the chat and drops an expired live conversation after re-verification", async () => {
     window.turnstile = {
       render: vi.fn(() => "widget-id"),
@@ -584,6 +631,410 @@ describe("embedded widget verification flow", () => {
     expect(actions).toHaveTextContent("Talk to a person");
     const storageKey = `wx_conv_17_${encodeURIComponent("https://customer.example")}`;
     expect(localStorage.getItem(`${storageKey}_visitor_count`)).toBe("3");
+  });
+
+  it("honors a per-site talk-to-person threshold from the session", async () => {
+    window.turnstile = {
+      render: vi.fn(() => "widget-id"),
+      reset: vi.fn(),
+    };
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        [
+          `data: ${JSON.stringify({
+            type: "conversation",
+            conversation_id: 42,
+            conversation_token: "conversation-token",
+          })}`,
+          `data: ${JSON.stringify({ type: "token", content: "Answer" })}`,
+          // Explicit answered:true must not reveal the bar early.
+          `data: ${JSON.stringify({ type: "done", answered: true })}`,
+          "",
+        ].join("\n\n"),
+        { status: 200, headers: { "content-type": "text/event-stream" } }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const widget = await import("./app");
+    widget.handleParentMessage(
+      new MessageEvent("message", {
+        origin: location.origin,
+        source: window,
+        data: {
+          type: "wx-session",
+          session: {
+            token: "signed-session",
+            installation_id: 17,
+            origin: "https://customer.example",
+            assistant_name: "Helper",
+            business_name: "Acme",
+            live_human_escalation_enabled: true,
+            talk_to_person_after: 5,
+          },
+        },
+      })
+    );
+
+    const talk = document.getElementById("wx-talk") as HTMLButtonElement;
+    const form = document.getElementById("wx-form") as HTMLFormElement;
+    const input = document.getElementById("wx-input") as HTMLInputElement;
+    const send = document.getElementById("wx-send") as HTMLButtonElement;
+
+    for (let messageNumber = 1; messageNumber <= 5; messageNumber += 1) {
+      input.value = `Question ${messageNumber}`;
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(messageNumber));
+      await vi.waitFor(() => expect(send.disabled).toBe(false));
+      // The talk button waits for the configured threshold (the rating offer
+      // keeps its own fixed threshold and may appear earlier in the actions bar).
+      expect(talk.hidden).toBe(messageNumber < 5);
+    }
+
+    const storageKey = `wx_conv_17_${encodeURIComponent("https://customer.example")}`;
+    expect(localStorage.getItem(`${storageKey}_visitor_count`)).toBe("5");
+  });
+
+  it("shows talk-to-person from the first message when the threshold is 0", async () => {
+    window.turnstile = {
+      render: vi.fn(() => "widget-id"),
+      reset: vi.fn(),
+    };
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        [
+          `data: ${JSON.stringify({
+            type: "conversation",
+            conversation_id: 42,
+            conversation_token: "conversation-token",
+          })}`,
+          `data: ${JSON.stringify({ type: "token", content: "Answer" })}`,
+          `data: ${JSON.stringify({ type: "done", answered: true })}`,
+          "",
+        ].join("\n\n"),
+        { status: 200, headers: { "content-type": "text/event-stream" } }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const widget = await import("./app");
+    widget.handleParentMessage(
+      new MessageEvent("message", {
+        origin: location.origin,
+        source: window,
+        data: {
+          type: "wx-session",
+          session: {
+            token: "signed-session",
+            installation_id: 17,
+            origin: "https://customer.example",
+            assistant_name: "Helper",
+            business_name: "Acme",
+            live_human_escalation_enabled: true,
+            talk_to_person_after: 0,
+          },
+        },
+      })
+    );
+
+    const talk = document.getElementById("wx-talk") as HTMLButtonElement;
+    const form = document.getElementById("wx-form") as HTMLFormElement;
+    const input = document.getElementById("wx-input") as HTMLInputElement;
+    const send = document.getElementById("wx-send") as HTMLButtonElement;
+    // No conversation exists yet, so there is nothing to hand off.
+    expect(talk.hidden).toBe(true);
+
+    input.value = "Hello";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(send.disabled).toBe(false));
+    expect(talk.hidden).toBe(false);
+  });
+
+  it("falls back to the default threshold when the session value is invalid", async () => {
+    window.turnstile = {
+      render: vi.fn(() => "widget-id"),
+      reset: vi.fn(),
+    };
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        [
+          `data: ${JSON.stringify({
+            type: "conversation",
+            conversation_id: 42,
+            conversation_token: "conversation-token",
+          })}`,
+          `data: ${JSON.stringify({ type: "token", content: "Answer" })}`,
+          `data: ${JSON.stringify({ type: "done", answered: true })}`,
+          "",
+        ].join("\n\n"),
+        { status: 200, headers: { "content-type": "text/event-stream" } }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const widget = await import("./app");
+    widget.handleParentMessage(
+      new MessageEvent("message", {
+        origin: location.origin,
+        source: window,
+        data: {
+          type: "wx-session",
+          session: {
+            token: "signed-session",
+            installation_id: 17,
+            origin: "https://customer.example",
+            assistant_name: "Helper",
+            business_name: "Acme",
+            live_human_escalation_enabled: true,
+            talk_to_person_after: 99,
+          },
+        },
+      })
+    );
+
+    const talk = document.getElementById("wx-talk") as HTMLButtonElement;
+    const form = document.getElementById("wx-form") as HTMLFormElement;
+    const input = document.getElementById("wx-input") as HTMLInputElement;
+    const send = document.getElementById("wx-send") as HTMLButtonElement;
+
+    for (let messageNumber = 1; messageNumber <= 3; messageNumber += 1) {
+      input.value = `Question ${messageNumber}`;
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(messageNumber));
+      await vi.waitFor(() => expect(send.disabled).toBe(false));
+      expect(talk.hidden).toBe(messageNumber < 3);
+    }
+  });
+
+  it("reveals talk-to-person immediately when a turn goes unanswered", async () => {
+    window.turnstile = {
+      render: vi.fn(() => "widget-id"),
+      reset: vi.fn(),
+    };
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        [
+          `data: ${JSON.stringify({
+            type: "conversation",
+            conversation_id: 42,
+            conversation_token: "conversation-token",
+          })}`,
+          `data: ${JSON.stringify({ type: "token", content: "I could not find that." })}`,
+          `data: ${JSON.stringify({ type: "done", answered: false })}`,
+          "",
+        ].join("\n\n"),
+        { status: 200, headers: { "content-type": "text/event-stream" } }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const widget = await import("./app");
+    widget.handleParentMessage(
+      new MessageEvent("message", {
+        origin: location.origin,
+        source: window,
+        data: {
+          type: "wx-session",
+          session: {
+            token: "signed-session",
+            installation_id: 17,
+            origin: "https://customer.example",
+            assistant_name: "Helper",
+            business_name: "Acme",
+            live_human_escalation_enabled: true,
+          },
+        },
+      })
+    );
+
+    const talk = document.getElementById("wx-talk") as HTMLButtonElement;
+    const form = document.getElementById("wx-form") as HTMLFormElement;
+    const input = document.getElementById("wx-input") as HTMLInputElement;
+    const send = document.getElementById("wx-send") as HTMLButtonElement;
+
+    input.value = "Something the knowledge base does not cover";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(send.disabled).toBe(false));
+    // First message, but the assistant had no sources - offer a human now.
+    expect(talk.hidden).toBe(false);
+  });
+
+  it("reveals talk-to-person when the visitor asks for a human", async () => {
+    window.turnstile = {
+      render: vi.fn(() => "widget-id"),
+      reset: vi.fn(),
+    };
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        [
+          `data: ${JSON.stringify({
+            type: "conversation",
+            conversation_id: 42,
+            conversation_token: "conversation-token",
+          })}`,
+          `data: ${JSON.stringify({ type: "token", content: "Answer" })}`,
+          `data: ${JSON.stringify({ type: "done", answered: true })}`,
+          "",
+        ].join("\n\n"),
+        { status: 200, headers: { "content-type": "text/event-stream" } }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const widget = await import("./app");
+    widget.handleParentMessage(
+      new MessageEvent("message", {
+        origin: location.origin,
+        source: window,
+        data: {
+          type: "wx-session",
+          session: {
+            token: "signed-session",
+            installation_id: 17,
+            origin: "https://customer.example",
+            assistant_name: "Helper",
+            business_name: "Acme",
+            live_human_escalation_enabled: true,
+          },
+        },
+      })
+    );
+
+    const talk = document.getElementById("wx-talk") as HTMLButtonElement;
+    const form = document.getElementById("wx-form") as HTMLFormElement;
+    const input = document.getElementById("wx-input") as HTMLInputElement;
+    const send = document.getElementById("wx-send") as HTMLButtonElement;
+
+    input.value = "What are your opening hours?";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(send.disabled).toBe(false));
+    expect(talk.hidden).toBe(true);
+
+    input.value = "Can I talk to a real person?";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(send.disabled).toBe(false));
+    expect(talk.hidden).toBe(false);
+  });
+
+  it("clears the reveal signals when a new conversation starts", async () => {
+    window.turnstile = {
+      render: vi.fn(() => "widget-id"),
+      reset: vi.fn(),
+    };
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        [
+          `data: ${JSON.stringify({
+            type: "conversation",
+            conversation_id: 42,
+            conversation_token: "conversation-token",
+          })}`,
+          `data: ${JSON.stringify({ type: "token", content: "Answer" })}`,
+          `data: ${JSON.stringify({ type: "done", answered: true })}`,
+          "",
+        ].join("\n\n"),
+        { status: 200, headers: { "content-type": "text/event-stream" } }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const widget = await import("./app");
+    widget.handleParentMessage(
+      new MessageEvent("message", {
+        origin: location.origin,
+        source: window,
+        data: {
+          type: "wx-session",
+          session: {
+            token: "signed-session",
+            installation_id: 17,
+            origin: "https://customer.example",
+            assistant_name: "Helper",
+            business_name: "Acme",
+            live_human_escalation_enabled: true,
+          },
+        },
+      })
+    );
+
+    const talk = document.getElementById("wx-talk") as HTMLButtonElement;
+    const newChat = document.getElementById("wx-new-chat") as HTMLButtonElement;
+    const form = document.getElementById("wx-form") as HTMLFormElement;
+    const input = document.getElementById("wx-input") as HTMLInputElement;
+    const send = document.getElementById("wx-send") as HTMLButtonElement;
+
+    input.value = "I want to speak to a human agent";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(send.disabled).toBe(false));
+    expect(talk.hidden).toBe(false);
+
+    newChat.click();
+    expect(talk.hidden).toBe(true);
+
+    // A neutral message on the fresh conversation must not re-reveal the bar:
+    // the signal belonged to the previous conversation.
+    input.value = "What are your opening hours?";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(send.disabled).toBe(false));
+    expect(talk.hidden).toBe(true);
+  });
+
+  it("keeps the rating offer on its own fixed threshold", async () => {
+    window.turnstile = {
+      render: vi.fn(() => "widget-id"),
+      reset: vi.fn(),
+    };
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        [
+          `data: ${JSON.stringify({
+            type: "conversation",
+            conversation_id: 42,
+            conversation_token: "conversation-token",
+          })}`,
+          `data: ${JSON.stringify({ type: "token", content: "Answer" })}`,
+          `data: ${JSON.stringify({ type: "done", answered: true })}`,
+          "",
+        ].join("\n\n"),
+        { status: 200, headers: { "content-type": "text/event-stream" } }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const widget = await import("./app");
+    widget.handleParentMessage(
+      new MessageEvent("message", {
+        origin: location.origin,
+        source: window,
+        data: {
+          type: "wx-session",
+          session: {
+            token: "signed-session",
+            installation_id: 17,
+            origin: "https://customer.example",
+            assistant_name: "Helper",
+            business_name: "Acme",
+            live_human_escalation_enabled: true,
+            talk_to_person_after: 1,
+          },
+        },
+      })
+    );
+
+    const talk = document.getElementById("wx-talk") as HTMLButtonElement;
+    const rating = document.getElementById("wx-rating") as HTMLDivElement;
+    const form = document.getElementById("wx-form") as HTMLFormElement;
+    const input = document.getElementById("wx-input") as HTMLInputElement;
+    const send = document.getElementById("wx-send") as HTMLButtonElement;
+
+    input.value = "Question 1";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(send.disabled).toBe(false));
+    // Threshold 1 reveals the talk button, but the rating still waits for 3.
+    expect(talk.hidden).toBe(false);
+    expect(rating.hidden).toBe(true);
   });
 
   it("lets a visitor rate the conversation after a few AI messages", async () => {

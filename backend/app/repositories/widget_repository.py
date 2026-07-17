@@ -53,3 +53,32 @@ class WidgetRepository:
             ),
             {"installation_id": installation.id, "period": period},
         )
+
+    async def reserve_visitor_message(
+        self, installation_id: int, ip_hash: str, day: date, limit: int
+    ) -> bool:
+        """Atomically reserve one message against a visitor IP's daily budget
+        for this installation.
+
+        Returns False (caller should 429) when the IP is at its ceiling for
+        the day. Same guarded single-row UPSERT as
+        ``SubscriptionRepository.reserve_account_message``, so concurrent
+        turns from one IP serialize on one row.
+        """
+        result = await self.session.execute(
+            text(
+                "INSERT INTO visitor_usage (installation_id, ip_hash, day, message_count) "
+                "VALUES (:installation_id, :ip_hash, :day, 1) "
+                "ON CONFLICT (installation_id, ip_hash, day) DO UPDATE "
+                "SET message_count = visitor_usage.message_count + 1 "
+                "WHERE visitor_usage.message_count < :limit "
+                "RETURNING message_count"
+            ),
+            {
+                "installation_id": installation_id,
+                "ip_hash": ip_hash,
+                "day": day,
+                "limit": limit,
+            },
+        )
+        return result.scalar_one_or_none() is not None

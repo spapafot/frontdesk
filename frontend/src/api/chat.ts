@@ -17,7 +17,7 @@ export type StreamEvent =
   | { type: "tool_call"; name: string; arguments: Record<string, unknown>; result: unknown }
   | { type: "sources"; sources: Source[] }
   | { type: "token"; content: string }
-  | { type: "done"; conversation_id: number }
+  | { type: "done"; conversation_id: number; answered?: boolean }
   | { type: "error"; message: string };
 
 export interface ChatRequest {

@@ -103,4 +103,44 @@ describe("LiveConversation", () => {
     render(<LiveConversation state={humanState} error={null} onAction={vi.fn()} />);
     expect(screen.queryByRole("status", { name: "Visitor is typing" })).not.toBeInTheDocument();
   });
+
+  it("keeps the view pinned to the newest message and the typing dots", () => {
+    const scrollIntoView = vi
+      .spyOn(Element.prototype, "scrollIntoView")
+      .mockImplementation(() => {});
+    const { rerender } = render(
+      <LiveConversation state={humanState} error={null} onAction={vi.fn()} />,
+    );
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <LiveConversation
+        state={{
+          ...humanState,
+          messages: [
+            ...humanState.messages,
+            {
+              id: 3,
+              client_message_id: null,
+              role: "user" as const,
+              content: "One more thing",
+              sender_type: "visitor" as const,
+              sender_user_id: null,
+              sender_display_name: null,
+              created_at: "2026-07-14T08:03:00Z",
+            },
+          ],
+        }}
+        error={null}
+        onAction={vi.fn()}
+      />,
+    );
+    expect(scrollIntoView).toHaveBeenCalledTimes(2);
+
+    rerender(
+      <LiveConversation state={humanState} error={null} onAction={vi.fn()} visitorTyping />,
+    );
+    expect(scrollIntoView).toHaveBeenCalledTimes(3);
+    scrollIntoView.mockRestore();
+  });
 });

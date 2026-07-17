@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { LiveState } from "../api/live";
 
 export function LiveConversation({
@@ -15,6 +15,13 @@ export function LiveConversation({
   onTyping?: (active: boolean) => void;
 }) {
   const [message, setMessage] = useState("");
+  const endRef = useRef<HTMLDivElement>(null);
+  const messages = state.messages ?? [];
+  const lastMessageId = messages.length ? messages[messages.length - 1].id : null;
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [lastMessageId, visitorTyping]);
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const content = message.trim();
@@ -95,7 +102,7 @@ export function LiveConversation({
       )}
       <div className="flex-1 overflow-y-auto p-6">
         <div className="mx-auto w-full max-w-3xl space-y-3">
-          {(state.messages ?? []).map((item) => {
+          {messages.map((item) => {
             const visitor = item.sender_type === "visitor";
             const label = senderLabel(item.sender_type, item.sender_display_name);
             return (
@@ -122,6 +129,7 @@ export function LiveConversation({
               </div>
             </div>
           )}
+          <div ref={endRef} />
         </div>
       </div>
       {error && <p className="mx-auto w-full max-w-2xl px-4 pb-2 text-xs text-red-600">{error}</p>}

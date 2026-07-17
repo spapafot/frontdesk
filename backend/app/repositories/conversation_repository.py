@@ -2,7 +2,7 @@ from typing import Any
 
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.conversation import Conversation, ConversationMessage
@@ -87,6 +87,18 @@ class ConversationRepository:
             conversation.last_message_at = datetime.now(timezone.utc)
         await self.session.flush()
         return message
+
+    async def count_user_messages(self, conversation_id: int) -> int:
+        """All persisted visitor turns, including moderation-flagged ones."""
+        result = await self.session.execute(
+            select(func.count())
+            .select_from(ConversationMessage)
+            .where(
+                ConversationMessage.conversation_id == conversation_id,
+                ConversationMessage.role == "user",
+            )
+        )
+        return int(result.scalar_one())
 
     async def get_messages(self, conversation_id: int) -> list[ConversationMessage]:
         stmt = (

@@ -48,6 +48,7 @@ export function SettingsPage() {
   const [widgetOrigin, setWidgetOrigin] = useState("");
   const [widgetEnabled, setWidgetEnabled] = useState(true);
   const [liveHumanEscalationEnabled, setLiveHumanEscalationEnabled] = useState(false);
+  const [talkToPersonAfter, setTalkToPersonAfter] = useState("3");
   const [moderationEnabled, setModerationEnabled] = useState(true);
   const [notificationEmail, setNotificationEmail] = useState("");
   const [showBranding, setShowBranding] = useState(true);
@@ -64,6 +65,7 @@ export function SettingsPage() {
       setWidgetOrigin(data.widget_origin ?? "");
       setWidgetEnabled(data.widget_enabled ?? true);
       setLiveHumanEscalationEnabled(data.live_human_escalation_enabled ?? false);
+      setTalkToPersonAfter(String(data.talk_to_person_after ?? 3));
       setModerationEnabled(data.moderation_enabled ?? true);
       setNotificationEmail(data.notification_email ?? "");
       setShowBranding(data.show_branding ?? true);
@@ -90,6 +92,8 @@ export function SettingsPage() {
         widget_origin: widgetOrigin,
         widget_enabled: widgetEnabled,
         live_human_escalation_enabled: liveHumanEscalationEnabled,
+        talk_to_person_after:
+          talkToPersonAfter === "" ? undefined : Math.min(50, Number(talkToPersonAfter)),
         moderation_enabled: moderationEnabled,
         notification_email: notificationEmail.trim() || undefined,
         accent_color: appearance.accentColor.trim(),
@@ -252,6 +256,27 @@ export function SettingsPage() {
                   </p>
                 )
               )}
+              <div className="mt-3">
+                <label className="block text-sm font-medium text-slate-700">
+                  Show &ldquo;Talk to a person&rdquo; after
+                </label>
+                <p className="text-xs text-slate-400">
+                  Number of visitor messages before the option appears (0 = from the first
+                  message). It also appears sooner if the assistant can&apos;t answer or the
+                  visitor asks for a human.
+                </p>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={talkToPersonAfter}
+                  disabled={!data.live_human_escalation_available || !liveHumanEscalationEnabled}
+                  onChange={(e) => setTalkToPersonAfter(e.target.value.replace(/\D/g, ""))}
+                  maxLength={2}
+                  placeholder="3"
+                  className="mt-1.5 w-24 rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50 disabled:text-slate-400"
+                />
+              </div>
               <label className="mt-3 flex items-center gap-2 text-sm text-slate-700">
                 <input
                   type="checkbox"

@@ -121,6 +121,15 @@ class Settings(BaseSettings):
     moderation_model: str = "omni-moderation-latest"
     moderation_timeout: float = 5.0
     moderation_strike_limit: int = 3
+    # Widget abuse budgets (widget traffic only; admin test chat is exempt).
+    # 0 disables a limit. The visitor IP is attested by the edge Worker in
+    # ``visitor_ip_header`` (spoof-safe: the Worker strips inbound copies
+    # before setting its own). When the header is absent (local dev, no
+    # Worker) the daily budget is skipped - fail-open like the other
+    # unconfigured gates.
+    chat_conversation_message_limit: int = 30
+    chat_daily_ip_message_limit: int = 100
+    visitor_ip_header: str = "x-visitor-ip"
 
     @property
     def allowed_origins(self) -> list[str]:

@@ -18,6 +18,8 @@ interface WidgetSession {
   assistant_name: string;
   business_name: string;
   live_human_escalation_enabled: boolean;
+  // Optional: backends predating the configurable threshold omit it.
+  talk_to_person_after?: number;
 }
 
 type LiveMode = "ai" | "waiting" | "human" | "pending_ticket" | "closed";
@@ -177,6 +179,11 @@ let turnstileWidgetId: string | null = null;
 let refreshResolver: ((token: string | null) => void) | null = null;
 let chatInitialized = false;
 let liveEnabled = false;
+// Must equal DEFAULT_TALK_THRESHOLD (declared below the state block); showChat
+// re-derives it from the session before any message can be sent.
+let talkThreshold = 3;
+let humanRequested = false; // visitor's message matched HUMAN_REQUEST_PATTERN
+let unansweredTurn = false; // a done event carried answered === false
 let liveMode: LiveMode = "ai";
 let liveSocket: WebSocket | null = null;
 let liveConnectionPromise: Promise<WebSocket> | null = null;
@@ -206,6 +213,29 @@ let typingSent = false;
 let typingSentAt = 0;
 let operatorTypingRow: HTMLElement | null = null;
 let operatorTypingTimer = 0;
+
+// "Talk to a person" appears after this many visitor messages unless a signal
+// (the visitor asked for a human / a turn went unanswered) reveals it sooner.
+const DEFAULT_TALK_THRESHOLD = 3;
+// Highest configurable threshold; also bounds the persisted message counter so
+// raising the threshold later still credits messages already sent.
+const MAX_TALK_THRESHOLD = 50;
+// The conversation-rating offer is deliberately independent of the
+// configurable talk threshold.
+const RATING_MESSAGE_THRESHOLD = 3;
+// High-precision on purpose: a false positive surfaces the bar too early,
+// while a miss still falls back to the message-count threshold.
+const HUMAN_REQUEST_PATTERN = new RegExp(
+  [
+    "\\b(?:talk|speak|chat)(?:ing)?\\s+(?:to|with)\\s+(?:a\\s+|an\\s+)?(?:real\\s+|live\\s+|actual\\s+)?(?:human|person|agent|representative|operator|someone|somebody)\\b",
+    "\\b(?:real|live|actual)\\s+(?:human|person|agent)\\b",
+    "\\bhuman\\s+(?:agent|support|being)\\b",
+    "\\b(?:connect|transfer)\\s+me\\b",
+    "\\bput\\s+me\\s+through\\b",
+    "\\bnot\\s+(?:a\\s+)?(?:bot|robot)\\b",
+  ].join("|"),
+  "i",
+);
 
 function postToParent(message: object) {
   if (params.origin) parent.postMessage(message, params.origin);
@@ -255,7 +285,7 @@ function showChat(session: WidgetSession) {
   );
   visitorMessageCount = conversationId && conversationToken &&
       Number.isInteger(storedVisitorMessageCount) && storedVisitorMessageCount >= 0
-    ? Math.min(storedVisitorMessageCount, 3)
+    ? Math.min(storedVisitorMessageCount, MAX_TALK_THRESHOLD)
     : 0;
   if (!conversationId || !conversationToken) {
     localStorage.removeItem(visitorMessageCountStorageKey);
@@ -273,6 +303,14 @@ function showChat(session: WidgetSession) {
   }
   renderRatingSelection();
   liveEnabled = session.live_human_escalation_enabled === true;
+  const configuredThreshold = session.talk_to_person_after;
+  talkThreshold =
+    typeof configuredThreshold === "number" &&
+    Number.isInteger(configuredThreshold) &&
+    configuredThreshold >= 0 &&
+    configuredThreshold <= MAX_TALK_THRESHOLD
+      ? configuredThreshold
+      : DEFAULT_TALK_THRESHOLD;
   hydrateLiveHistory = conversationId !== null;
   verificationEl.hidden = true;
   messagesEl.hidden = false;
@@ -400,6 +438,8 @@ function clearConversationSession() {
   conversationId = null;
   conversationToken = "";
   visitorMessageCount = 0;
+  humanRequested = false;
+  unansweredTurn = false;
   conversationRated = "";
   ratingDismissed = false;
   localStorage.removeItem(conversationStorageKey);
@@ -482,7 +522,7 @@ function setLiveMode(mode: LiveMode) {
   const showTalk = liveEnabled && (
     mode === "waiting" || (
       mode === "ai" &&
-      visitorMessageCount >= 3 &&
+      (humanRequested || unansweredTurn || visitorMessageCount >= talkThreshold) &&
       !streaming &&
       conversationId !== null &&
       conversationToken.length > 0
@@ -495,7 +535,8 @@ function setLiveMode(mode: LiveMode) {
   // (and briefly thanked), the offer is gone for good.
   const showRating = !ratingDismissed &&
     conversationId !== null && conversationToken.length > 0 && (
-      mode === "closed" || (mode === "ai" && visitorMessageCount >= 3 && !streaming)
+      mode === "closed" ||
+      (mode === "ai" && visitorMessageCount >= RATING_MESSAGE_THRESHOLD && !streaming)
     );
   liveActionsEl.hidden = !showTalk && !showNewChat && !showRating;
   livePromptEl.hidden = !showTalk;
@@ -524,7 +565,7 @@ function setLiveMode(mode: LiveMode) {
 }
 
 function recordVisitorMessage() {
-  visitorMessageCount = Math.min(visitorMessageCount + 1, 3);
+  visitorMessageCount = Math.min(visitorMessageCount + 1, MAX_TALK_THRESHOLD);
   if (visitorMessageCountStorageKey) {
     localStorage.setItem(visitorMessageCountStorageKey, String(visitorMessageCount));
   }
@@ -839,9 +880,11 @@ async function send(text: string) {
     return;
   }
   if (liveMode !== "ai") return;
+  const asksForHuman = HUMAN_REQUEST_PATTERN.test(trimmed);
   addBubble("user", trimmed);
   inputEl.value = "";
   setStreaming(true);
+  if (asksForHuman) humanRequested = true;
   recordVisitorMessage();
 
   const pending = addBubble("assistant", "");
@@ -880,12 +923,23 @@ async function send(text: string) {
           clearConversationSession();
           displayedLiveMessageIds.clear();
           hydrateLiveHistory = false;
+          // clearConversationSession dropped the signal; the message being
+          // retried still applies to the replacement conversation.
+          if (asksForHuman) humanRequested = true;
           recordVisitorMessage();
           res = await request();
         }
       }
     }
-    if (!res.ok || !res.body) throw new Error(`Request failed (${res.status})`);
+    if (!res.ok) {
+      // Surface the server's own message when it sends one (e.g. the daily
+      // message limit 429) instead of a bare status code.
+      const body = (await res.json().catch(() => null)) as { detail?: unknown } | null;
+      throw new Error(
+        typeof body?.detail === "string" ? body.detail : `Request failed (${res.status})`,
+      );
+    }
+    if (!res.body) throw new Error(`Request failed (${res.status})`);
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -925,6 +979,12 @@ async function send(text: string) {
             pending.classList.add("wx-error");
             pending.textContent =
               (event.message as string) || "Something went wrong.";
+            break;
+          case "done":
+            // Backends predating the flag omit it, and moderation warnings
+            // omit it on purpose - only an explicit false marks the turn
+            // unanswered. setStreaming(false) in finally re-runs setLiveMode.
+            if (event.answered === false) unansweredTurn = true;
             break;
           case "mode_changed":
           case "interrupted":

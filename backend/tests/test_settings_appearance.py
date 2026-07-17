@@ -84,3 +84,21 @@ def test_notification_email_optional():
     body = SettingsUpdate(business_name="Acme")
     assert body.notification_email is None
     assert "notification_email" not in body.model_fields_set
+
+
+@pytest.mark.parametrize("value", [0, 3, 50])
+def test_talk_to_person_after_accepts_valid_range(value):
+    assert SettingsUpdate(talk_to_person_after=value).talk_to_person_after == value
+
+
+@pytest.mark.parametrize("bad", [-1, 51, "abc"])
+def test_talk_to_person_after_rejects_out_of_range(bad):
+    with pytest.raises(ValidationError):
+        SettingsUpdate(talk_to_person_after=bad)
+
+
+def test_talk_to_person_after_optional():
+    # Absent = leave unchanged (update_settings skips None fields).
+    body = SettingsUpdate(business_name="Acme")
+    assert body.talk_to_person_after is None
+    assert "talk_to_person_after" not in body.model_fields_set

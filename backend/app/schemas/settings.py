@@ -30,6 +30,7 @@ class SettingsOut(BaseModel):
     moderation_enabled: bool = True
     moderation_available: bool = False
     notification_email: str | None = None
+    talk_to_person_after: int = 3
 
 
 class SettingsUpdate(BaseModel):
@@ -41,6 +42,7 @@ class SettingsUpdate(BaseModel):
     live_human_escalation_enabled: bool | None = None
     moderation_enabled: bool | None = None
     notification_email: str | None = Field(default=None, max_length=254)
+    talk_to_person_after: int | None = Field(default=None, ge=0, le=50)
     # Appearance
     accent_color: str | None = Field(default=None, pattern=_HEX_COLOR)
     launcher_icon: str | None = Field(default=None, max_length=32)
