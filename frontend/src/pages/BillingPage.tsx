@@ -147,11 +147,11 @@ export function BillingPage() {
       : 0;
   // ~100 chunks ≈ 1 MB of database (see plans.CHUNKS_PER_MB).
   const mb = (chunks: number) => Math.round(chunks / 100);
-  // Message top-ups are a Pro/Business affordance for months that run over.
+  // Every active paid plan can add messages for a month that runs over.
   const canTopup =
     manageable &&
     status === "active" &&
-    (plan === "pro" || plan === "business");
+    (plan === "starter" || plan === "pro" || plan === "business");
   // With a live subscription, a tier button becomes a plan *switch*: the
   // backend returns a portal subscription-update link instead of a new
   // Checkout (a second Checkout subscription would double-bill).
