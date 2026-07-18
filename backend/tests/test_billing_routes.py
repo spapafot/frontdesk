@@ -516,7 +516,7 @@ async def test_topup_returns_hosted_stripe_url(client, settings, monkeypatch):
     assert captured["metadata"] == {"kind": "topup", "packs": "3"}
 
 
-async def test_topup_rejected_on_starter_plan(client, settings, monkeypatch):
+async def test_topup_available_on_starter_plan(client, settings, monkeypatch):
     monkeypatch.setattr(settings, "edge_shared_secret", "")
     monkeypatch.setattr(settings, "supabase_jwt_secret", JWT_SECRET)
     monkeypatch.setattr(settings, "app_base_url", "https://app.example.com")
@@ -539,8 +539,16 @@ async def test_topup_rejected_on_starter_plan(client, settings, monkeypatch):
         _starter,
     )
 
+    async def _create(**_kwargs):
+        return "https://checkout.stripe.com/c/pay/starter_topup"
+
+    monkeypatch.setattr(
+        "app.services.stripe_service.create_checkout_session", _create
+    )
+
     response = await client.post("/billing/topup", json={"packs": 1}, headers=_auth())
-    assert response.status_code == 402
+    assert response.status_code == 200
+    assert response.json()["url"].endswith("starter_topup")
 
 
 async def test_webhook_topup_credits_bonus_messages(client, settings, monkeypatch):

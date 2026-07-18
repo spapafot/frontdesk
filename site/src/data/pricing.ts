@@ -62,3 +62,8 @@ export const PRICING_TIERS: PricingTier[] = [
 
 export const TRIAL_NOTE =
   "Every plan starts with a free 7-day trial - no credit card required.";
+
+export const MESSAGE_TOPUP = {
+  messages: 1_000,
+  price: 5,
+} as const;

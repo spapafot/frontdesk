@@ -197,7 +197,7 @@ export const LEGAL_PAGES: Record<string, LegalPage> = {
         body: [
           "Payments are processed securely by Stripe. We do not receive or store your full card details. Prices are in euro (EUR) and exclusive of any VAT or taxes that may apply, which are shown at checkout.",
           "Paid subscriptions renew automatically at the end of each billing cycle (monthly or annual) using your saved payment method, until you cancel. You can view invoices, update your payment method, change plan, or cancel at any time from the Stripe billing portal linked in your account's Billing page.",
-          "On the Pro and Business plans you can also buy one-time message top-up packs for the current month if you reach your allowance; top-up messages apply to the current billing month and do not roll over when the monthly quota resets.",
+          "On any paid plan you can also buy one-time message top-up packs for the current month if you reach your allowance; top-up messages apply to the current billing month and do not roll over when the monthly quota resets.",
         ],
       },
       {

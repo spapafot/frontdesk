@@ -225,9 +225,8 @@ async def create_portal(
     return PortalResponse(url=url)
 
 
-# Plans on which message top-ups can be bought. Free/Starter hard-cap instead
-# (the cap is the upgrade prompt); overage is a Pro/Business affordance.
-TOPUP_PLANS = ("pro", "business")
+# Every paid plan can buy extra messages without changing subscription tier.
+TOPUP_PLANS = ("starter", "pro", "business")
 TOPUP_PACK_SIZE = 1_000  # messages per pack (kept in sync with the webhook)
 
 
@@ -241,7 +240,7 @@ async def create_topup(
 
     A one-time Checkout (``payment`` mode); the webhook credits
     ``account_usage.bonus_messages`` for the current period, which resets with
-    the monthly quota. Gated to active Pro/Business accounts.
+    the monthly quota. Gated to active paid accounts.
     """
     if is_superadmin(user):
         raise HTTPException(status_code=400, detail="This account is not billed.")
@@ -260,7 +259,7 @@ async def create_topup(
     ):
         raise HTTPException(
             status_code=402,
-            detail="Message top-ups are available on the Pro and Business plans.",
+            detail="Message top-ups are available on active paid plans.",
         )
 
     base = settings.app_base_url.rstrip("/")
