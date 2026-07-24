@@ -13,7 +13,7 @@ from app.models.knowledge import KnowledgeDocument
 from app.repositories.knowledge_repository import KnowledgeRepository
 from app.services.embeddings import embed_passage
 
-SUPPORTED_EXTENSIONS = {".txt", ".pdf", ".doc", ".docx", ".xls", ".xlsx"}
+SUPPORTED_EXTENSIONS = {".txt", ".md", ".pdf", ".doc", ".docx", ".xls", ".xlsx"}
 
 
 class UnsupportedFileType(ValueError):
@@ -108,6 +108,7 @@ def _extract_doc(data: bytes) -> str:
 
 _EXTRACTORS = {
     ".txt": _extract_txt,
+    ".md": _extract_txt,
     ".pdf": _extract_pdf,
     ".docx": _extract_docx,
     ".xlsx": _extract_xlsx,

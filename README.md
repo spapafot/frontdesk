@@ -26,7 +26,7 @@ review, ratings, and analytics.
 
 ### Document and link knowledge base
 
-Administrators can upload PDF, DOC, DOCX, TXT, XLS, and XLSX files, or add a web page
+Administrators can upload PDF, DOC, DOCX, TXT, MD, XLS, and XLSX files, or add a web page
 by URL, then watch each source move through its processing states (queued,
 processing, ready, or failed) as a background Lambda extracts, chunks, and embeds it.
 Pages are fetched and cleaned by Jina Reader and ingested through the same pipeline as
