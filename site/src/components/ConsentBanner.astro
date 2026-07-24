@@ -10,10 +10,10 @@
   role="dialog"
   aria-live="polite"
   aria-label="Cookie consent"
-  class="fixed inset-x-0 bottom-0 z-50 hidden border-t border-slate-200 bg-white/95 shadow-lg backdrop-blur"
+  class="fixed inset-x-0 bottom-0 z-50 hidden max-h-[85dvh] overflow-y-auto border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-lg backdrop-blur"
 >
   <div
-    class="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-4 text-sm text-slate-600 sm:flex-row sm:items-center sm:justify-between"
+    class="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-4 text-sm text-slate-600 sm:flex-row sm:items-center sm:justify-between sm:px-6"
   >
     <p class="max-w-2xl">
       We use cookies to analyse site traffic and improve your experience. You
@@ -22,18 +22,18 @@
         Cookie Policy
       </a>.
     </p>
-    <div class="flex shrink-0 gap-3">
+    <div class="grid w-full shrink-0 grid-cols-2 gap-3 sm:flex sm:w-auto">
       <button
         type="button"
         id="consent-decline"
-        class="rounded-lg border border-slate-300 px-4 py-2 font-medium text-slate-700 transition hover:bg-slate-100"
+        class="min-h-11 rounded-lg border border-slate-300 px-4 py-2 font-medium text-slate-700 transition hover:bg-slate-100"
       >
         Decline
       </button>
       <button
         type="button"
         id="consent-accept"
-        class="rounded-lg bg-slate-900 px-4 py-2 font-medium text-white transition hover:bg-slate-700"
+        class="min-h-11 rounded-lg bg-slate-900 px-4 py-2 font-medium text-white transition hover:bg-slate-700"
       >
         Accept
       </button>

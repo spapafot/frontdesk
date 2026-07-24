@@ -1,3 +1,5 @@
+import json
+from collections.abc import AsyncGenerator
 from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -21,6 +23,11 @@ from app.services.live_auth import (
     new_visitor_session_id,
     visitor_session_hash,
 )
+from app.services.sensitive_data_policy import (
+    blocked_input_event,
+    record_policy_decision,
+    sensitive_data_policy,
+)
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -32,6 +39,22 @@ def _period() -> date:
 
 def _today() -> date:
     return datetime.now(timezone.utc).date()
+
+
+async def _single_sse_event(event: dict) -> AsyncGenerator[str, None]:
+    yield f"data: {json.dumps(event)}\n\n"
+
+
+def _stream_response(stream) -> StreamingResponse:
+    return StreamingResponse(
+        stream,
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("/stream")
@@ -53,6 +76,28 @@ async def chat_stream(
             or not installation.is_enabled
         ):
             raise HTTPException(status_code=401, detail="Widget installation is unavailable.")
+        if body.conversation_id is not None:
+            conversation = await ConversationRepository(session).get(body.conversation_id)
+            if conversation is None or conversation.profile_id != profile_id:
+                raise HTTPException(status_code=404, detail="Conversation not found.")
+            if not body.conversation_token:
+                raise HTTPException(status_code=401, detail="Conversation session is required.")
+            conversation_token_matches(
+                body.conversation_token,
+                profile_id=profile_id,
+                conversation_id=conversation.id,
+                stored_hash=conversation.visitor_session_id_hash,
+            )
+
+        decision = sensitive_data_policy.evaluate(body.message)
+        if decision.blocked:
+            record_policy_decision(
+                decision,
+                profile_id=profile_id,
+                installation_id=installation_id,
+            )
+            return _stream_response(_single_sse_event(blocked_input_event(body.message)))
+
         # Daily per-IP budget, checked before any subscription work so a
         # rejected visitor consumes no monthly quota and creates no trial row.
         # The edge Worker attests the IP (spoofed inbound copies are stripped);
@@ -72,11 +117,11 @@ async def chat_stream(
                     status_code=429,
                     detail="Daily message limit reached. Please try again tomorrow.",
                 )
-        # Quota is enforced account-wide (pooled across all the owner's sites)
-        # against the owner's plan; the per-site counter below is display-only.
         profile = await ProfileRepository(session).get(profile_id)
         if profile is None:
             raise HTTPException(status_code=401, detail="Widget installation is unavailable.")
+        # Quota is enforced account-wide (pooled across all the owner's sites)
+        # against the owner's plan; the per-site counter below is display-only.
         subscription_repo = SubscriptionRepository(session)
         subscription = await subscription_repo.get_or_create_trial(profile.owner_user_id)
         base_limit = billing.limits_for(subscription).messages
@@ -86,19 +131,7 @@ async def chat_stream(
             await session.rollback()
             raise HTTPException(status_code=429, detail="Monthly message quota exceeded.")
         await WidgetRepository(session).increment_usage(installation, _period())
-        if body.conversation_id is not None:
-            conversation = await ConversationRepository(session).get(body.conversation_id)
-            if conversation is None or conversation.profile_id != profile_id:
-                raise HTTPException(status_code=404, detail="Conversation not found.")
-            if not body.conversation_token:
-                raise HTTPException(status_code=401, detail="Conversation session is required.")
-            conversation_token_matches(
-                body.conversation_token,
-                profile_id=profile_id,
-                conversation_id=conversation.id,
-                stored_hash=conversation.visitor_session_id_hash,
-            )
-        else:
+        if body.conversation_id is None:
             visitor_session_id = new_visitor_session_id()
         await session.commit()
     else:
@@ -140,7 +173,16 @@ async def chat_stream(
                     detail="Visitor conversations are read-only from the dashboard.",
                 )
 
-    return StreamingResponse(
+        decision = sensitive_data_policy.evaluate(body.message)
+        if decision.blocked:
+            record_policy_decision(
+                decision,
+                profile_id=profile_id,
+                installation_id=None,
+            )
+            return _stream_response(_single_sse_event(blocked_input_event(body.message)))
+
+    return _stream_response(
         stream_chat(
             message=body.message,
             profile_id=profile_id,
@@ -148,11 +190,5 @@ async def chat_stream(
             include_sources=not is_widget,
             installation_id=installation_id,
             visitor_session_id=visitor_session_id,
-        ),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
+        )
     )

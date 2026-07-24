@@ -1,14 +1,20 @@
+import json
+import logging
 from types import SimpleNamespace
 
 import pytest
 
 from app.prompts.system_prompt import build_system_prompt
-from app.services import rag_service
+from app.services import chat_service, rag_service
 from app.services.chat_service import (
     KB_CONTEXT_TEMPLATE,
+    PUBLIC_ERROR_CODE,
+    PUBLIC_ERROR_MESSAGES,
+    _chat_failure_event,
     _stream_completion,
     contains_internal_disclosure,
     safe_fallback,
+    stream_chat,
 )
 
 
@@ -45,6 +51,65 @@ def test_deterministic_fallback_matches_greek_or_english():
     assert safe_fallback("Do you know Stratos Papafotiou?") == (
         "I'm sorry, I don't have that information."
     )
+
+
+@pytest.mark.parametrize(
+    ("message", "language"),
+    [
+        ("Can you help?", "en"),
+        ("Μπορείτε να βοηθήσετε;", "el"),
+    ],
+)
+def test_public_chat_failures_use_localized_safe_copy(message, language, caplog):
+    provider_detail = (
+        "DeepSeek https://provider.example/v1 failed with sk-super-secret"
+    )
+
+    with caplog.at_level(logging.ERROR):
+        event = _chat_failure_event(
+            message,
+            profile_id=7,
+            conversation_id=42,
+            reason="turn_failed",
+            exc=RuntimeError(provider_detail),
+        )
+
+    assert event["type"] == "error"
+    assert event["code"] == PUBLIC_ERROR_CODE
+    assert event["message"] == PUBLIC_ERROR_MESSAGES[language]
+    assert len(event["correlation_id"]) == 32
+    assert event["correlation_id"] in caplog.text
+    assert "RuntimeError" in caplog.text
+    assert provider_detail not in caplog.text
+    assert provider_detail not in json.dumps(event)
+
+
+async def test_stream_boundary_maps_uncaught_failures_to_safe_sse(monkeypatch, caplog):
+    provider_detail = "upstream response contained database_password=secret"
+
+    async def failing_turn(*_args, **_kwargs):
+        raise RuntimeError(provider_detail)
+        yield  # pragma: no cover - makes this an async generator
+
+    monkeypatch.setattr(chat_service, "run_turn", failing_turn)
+
+    with caplog.at_level(logging.ERROR):
+        chunks = [
+            chunk
+            async for chunk in stream_chat(
+                "Can you help?",
+                profile_id=7,
+                conversation_id=42,
+            )
+        ]
+
+    assert len(chunks) == 1
+    event = json.loads(chunks[0].removeprefix("data: ").strip())
+    assert event["code"] == PUBLIC_ERROR_CODE
+    assert event["message"] == PUBLIC_ERROR_MESSAGES["en"]
+    assert event["correlation_id"] in caplog.text
+    assert provider_detail not in chunks[0]
+    assert provider_detail not in caplog.text
 
 
 def test_reference_material_is_explicitly_untrusted():

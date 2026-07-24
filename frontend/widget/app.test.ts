@@ -85,6 +85,125 @@ describe("embedded widget verification flow", () => {
     expect(document.getElementById("wx-title")).toHaveTextContent("Helper");
   });
 
+  it("shows safe chat errors with a shortened support reference", async () => {
+    window.turnstile = {
+      render: vi.fn(() => "widget-id"),
+      reset: vi.fn(),
+    };
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        [
+          `data: ${JSON.stringify({
+            type: "error",
+            code: "assistant_unavailable",
+            message: "I couldn't complete that response.",
+            correlation_id: "abcdef1234567890abcdef1234567890",
+          })}`,
+          "",
+        ].join("\n\n"),
+        { status: 200, headers: { "content-type": "text/event-stream" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const widget = await import("./app");
+    widget.handleParentMessage(
+      new MessageEvent("message", {
+        origin: location.origin,
+        source: window,
+        data: {
+          type: "wx-session",
+          session: {
+            token: "signed-session",
+            installation_id: 17,
+            origin: "https://customer.example",
+            assistant_name: "Helper",
+            business_name: "Acme",
+            live_human_escalation_enabled: false,
+          },
+        },
+      }),
+    );
+
+    const form = document.getElementById("wx-form") as HTMLFormElement;
+    const input = document.getElementById("wx-input") as HTMLInputElement;
+    input.value = "Can you help?";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    await vi.waitFor(() =>
+      expect(document.getElementById("wx-messages")).toHaveTextContent(
+        "I couldn't complete that response. Reference: ABCDEF123456.",
+      ),
+    );
+    expect(document.getElementById("wx-messages")).not.toHaveTextContent(
+      "provider",
+    );
+  });
+
+  it("removes blocked input, preserves counters, and shows the AI composer warning", async () => {
+    window.turnstile = {
+      render: vi.fn(() => "widget-id"),
+      reset: vi.fn(),
+    };
+    const warning =
+      "This message appears to contain a password, security key, verification code, or payment-card number.";
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        [
+          `data: ${JSON.stringify({
+            type: "input_blocked",
+            code: "sensitive_data_detected",
+            message: warning,
+          })}`,
+          "",
+        ].join("\n\n"),
+        { status: 200, headers: { "content-type": "text/event-stream" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const widget = await import("./app");
+    widget.handleParentMessage(
+      new MessageEvent("message", {
+        origin: location.origin,
+        source: window,
+        data: {
+          type: "wx-session",
+          session: {
+            token: "signed-session",
+            installation_id: 17,
+            origin: "https://customer.example",
+            assistant_name: "Helper",
+            business_name: "Acme",
+            live_human_escalation_enabled: true,
+            talk_to_person_after: 1,
+          },
+        },
+      }),
+    );
+
+    const composerWarning = document.getElementById(
+      "wx-sensitive-warning",
+    ) as HTMLParagraphElement;
+    expect(composerWarning.hidden).toBe(false);
+    expect(composerWarning).toHaveTextContent(/do not send passwords/i);
+
+    const form = document.getElementById("wx-form") as HTMLFormElement;
+    const input = document.getElementById("wx-input") as HTMLInputElement;
+    input.value = "password=hunter2";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() =>
+      expect(document.getElementById("wx-messages")).toHaveTextContent(warning),
+    );
+    expect(document.getElementById("wx-messages")).not.toHaveTextContent("hunter2");
+    expect(localStorage.getItem("wx_conv_17_https%3A%2F%2Fcustomer.example_visitor_count"))
+      .toBeNull();
+    expect((document.getElementById("wx-talk") as HTMLButtonElement).hidden).toBe(true);
+    expect(localStorage.getItem("wx_conv_17_https%3A%2F%2Fcustomer.example")).toBeNull();
+  });
+
   it("keeps a stale conversation explicit and never creates a replacement", async () => {
     window.turnstile = {
       render: vi.fn(() => "widget-id"),
@@ -467,6 +586,9 @@ describe("embedded widget verification flow", () => {
     expect(messages).toHaveTextContent("You’re now connected to the team.");
     expect(messages).not.toHaveTextContent("Give us a moment while we connect you…");
     expect(messages.querySelector(".wx-live-status .wx-typing")).toBeNull();
+    expect(
+      (document.getElementById("wx-sensitive-warning") as HTMLParagraphElement).hidden,
+    ).toBe(true);
   });
 
   it("resolves the waiting loader into a cancellation notice when the visitor cancels", async () => {

@@ -1,5 +1,11 @@
 import { useCallback, useRef, useState } from "react";
-import { Source, StreamEvent, ToolCall, streamChat } from "../api/chat";
+import {
+  Source,
+  StreamEvent,
+  ToolCall,
+  formatChatError,
+  streamChat,
+} from "../api/chat";
 import { getConversationMessages } from "../api/conversations";
 
 export interface ChatMessage {
@@ -110,8 +116,24 @@ export function useChatStream(options?: Options) {
           case "error":
             updateAssistant(assistantId, (m) => ({
               ...m,
-              content: m.content || `\u26a0\ufe0f ${event.message}`,
+              content: [
+                m.content,
+                `\u26a0\ufe0f ${formatChatError(event)}`,
+              ]
+                .filter(Boolean)
+                .join("\n\n"),
             }));
+            break;
+          case "input_blocked":
+            setMessages((prev) =>
+              prev
+                .filter((message) => message.id !== userMessage.id)
+                .map((message) =>
+                  message.id === assistantId
+                    ? { ...message, content: `\u26a0\ufe0f ${event.message}` }
+                    : message
+                )
+            );
             break;
           case "done":
             break;

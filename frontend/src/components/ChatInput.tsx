@@ -19,6 +19,9 @@ export function ChatInput({ onSend, disabled }: Props) {
   return (
     <div className="border-t border-slate-200 bg-white px-6 py-4">
       <div className="mx-auto w-full max-w-3xl">
+        <p className="mb-2 text-xs text-slate-500">
+          Do not send passwords, verification codes, payment-card details, or API keys.
+        </p>
         <form onSubmit={submit} className="flex gap-2">
         <input
           type="text"

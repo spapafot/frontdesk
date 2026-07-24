@@ -12,13 +12,34 @@ export interface Source {
   snippet: string;
 }
 
+export interface ChatErrorEvent {
+  type: "error";
+  code: "assistant_unavailable";
+  message: string;
+  correlation_id: string;
+}
+
+export interface InputBlockedEvent {
+  type: "input_blocked";
+  code: "sensitive_data_detected";
+  message: string;
+}
+
 export type StreamEvent =
   | { type: "conversation"; conversation_id: number }
   | { type: "tool_call"; name: string; arguments: Record<string, unknown>; result: unknown }
   | { type: "sources"; sources: Source[] }
   | { type: "token"; content: string }
   | { type: "done"; conversation_id: number; answered?: boolean }
-  | { type: "error"; message: string };
+  | InputBlockedEvent
+  | ChatErrorEvent;
+
+export function formatChatError(event: ChatErrorEvent): string {
+  const correlationId =
+    typeof event.correlation_id === "string" ? event.correlation_id : "";
+  const reference = correlationId.slice(0, 12).toUpperCase();
+  return reference ? `${event.message} Reference: ${reference}.` : event.message;
+}
 
 export interface ChatRequest {
   message: string;

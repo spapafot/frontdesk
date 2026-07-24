@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+import uuid
 from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -22,6 +23,11 @@ from app.services.live_auth import (
     create_conversation_token,
     visitor_session_hash,
 )
+from app.services.sensitive_data_policy import (
+    blocked_input_event,
+    record_policy_decision,
+    sensitive_data_policy,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +46,18 @@ by the main rules.
 SAFE_FALLBACKS = {
     "el": "Λυπάμαι, δεν έχω αυτή την πληροφορία.",
     "en": "I'm sorry, I don't have that information.",
+}
+
+PUBLIC_ERROR_CODE = "assistant_unavailable"
+PUBLIC_ERROR_MESSAGES = {
+    "el": (
+        "Δεν μπόρεσα να ολοκληρώσω αυτή την απάντηση. Δοκιμάστε ξανά ή "
+        "επικοινωνήστε με την ομάδα αν το πρόβλημα συνεχιστεί."
+    ),
+    "en": (
+        "I couldn't complete that response. Please try again, or contact the team "
+        "if the problem continues."
+    ),
 }
 
 # Canned replies for moderated (abusive) visitor messages - flagged turns never
@@ -112,6 +130,40 @@ def _reply_language(message: str) -> str:
 def safe_fallback(message: str) -> str:
     """Return a deterministic no-information response in a supported language."""
     return SAFE_FALLBACKS[_reply_language(message)]
+
+
+def _public_error_event(message: str, correlation_id: str) -> dict:
+    """Build a stable error event that is safe to expose to chat clients."""
+    return {
+        "type": "error",
+        "code": PUBLIC_ERROR_CODE,
+        "message": PUBLIC_ERROR_MESSAGES[_reply_language(message)],
+        "correlation_id": correlation_id,
+    }
+
+
+def _chat_failure_event(
+    message: str,
+    *,
+    profile_id: int,
+    conversation_id: int | None,
+    reason: str,
+    exc: Exception | None = None,
+) -> dict:
+    """Log safe diagnostic context and return the matching public error event."""
+    correlation_id = uuid.uuid4().hex
+    logger.error(
+        (
+            "Chat response failed correlation_id=%s profile_id=%s "
+            "conversation_id=%s reason=%s exception_type=%s"
+        ),
+        correlation_id,
+        profile_id,
+        conversation_id,
+        reason,
+        type(exc).__name__ if exc is not None else "none",
+    )
+    return _public_error_event(message, correlation_id)
 
 
 def contains_internal_disclosure(text: str) -> bool:
@@ -198,13 +250,28 @@ async def run_turn(
 
     ``profile_id`` is resolved and authorized by the transport layer.
     """
+    decision = sensitive_data_policy.evaluate(message)
+    if decision.blocked:
+        record_policy_decision(
+            decision,
+            profile_id=profile_id,
+            installation_id=installation_id,
+        )
+        yield blocked_input_event(message)
+        return
+
     async with SessionLocal() as session:
         profile_repo = ProfileRepository(session)
         conversation_repo = ConversationRepository(session)
 
         profile = await profile_repo.get(profile_id)
         if profile is None:
-            yield {"type": "error", "message": "Assistant profile not found."}
+            yield _chat_failure_event(
+                message,
+                profile_id=profile_id,
+                conversation_id=conversation_id,
+                reason="profile_not_found",
+            )
             return
 
         conversation = await _resolve_conversation(
@@ -406,7 +473,12 @@ async def run_turn(
                 yield {"type": "token", "content": final_text}
             else:
                 if not settings.deepseek_api_key:
-                    yield {"type": "error", "message": "DEEPSEEK_API_KEY is not configured."}
+                    yield _chat_failure_event(
+                        message,
+                        profile_id=profile.id,
+                        conversation_id=conversation.id,
+                        reason="generation_configuration_missing",
+                    )
                     return
                 # Stream deltas straight to the client as the model produces them.
                 # With token streaming we can no longer rewrite a bad draft before
@@ -459,8 +531,14 @@ async def run_turn(
                 "conversation_id": conversation.id,
                 "answered": had_sources,
             }
-        except Exception as exc:  # noqa: BLE001 - surface any failure to the client
-            yield {"type": "error", "message": f"Assistant error: {exc}"}
+        except Exception as exc:  # noqa: BLE001 - map all failures to safe public copy
+            yield _chat_failure_event(
+                message,
+                profile_id=profile.id,
+                conversation_id=conversation.id,
+                reason="turn_failed",
+                exc=exc,
+            )
 
 
 async def stream_chat(
@@ -472,12 +550,23 @@ async def stream_chat(
     visitor_session_id: str | None = None,
 ) -> AsyncGenerator[str, None]:
     """SSE wrapper over ``run_turn`` for the HTTP chat endpoint."""
-    async for event in run_turn(
-        message,
-        profile_id,
-        conversation_id,
-        include_sources=include_sources,
-        installation_id=installation_id,
-        visitor_session_id=visitor_session_id,
-    ):
-        yield _sse(event)
+    try:
+        async for event in run_turn(
+            message,
+            profile_id,
+            conversation_id,
+            include_sources=include_sources,
+            installation_id=installation_id,
+            visitor_session_id=visitor_session_id,
+        ):
+            yield _sse(event)
+    except Exception as exc:  # noqa: BLE001 - final SSE safety boundary
+        yield _sse(
+            _chat_failure_event(
+                message,
+                profile_id=profile_id,
+                conversation_id=conversation_id,
+                reason="stream_failed",
+                exc=exc,
+            )
+        )

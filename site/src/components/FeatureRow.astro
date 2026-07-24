@@ -11,13 +11,13 @@ const { eyebrow, title, body, bullets = [], reverse = false, tone } = Astro.prop
 ---
 
 <section class={tone === "muted" ? "bg-slate-50" : "bg-white"}>
-  <div class="mx-auto grid max-w-6xl items-center gap-12 px-6 py-20 md:grid-cols-2 lg:gap-16">
-    <div class={reverse ? "md:order-2" : "md:order-1"}>
-      <p class="text-sm font-semibold uppercase tracking-widest text-sky-700">{eyebrow}</p>
+  <div class="mx-auto grid max-w-6xl items-center gap-10 px-4 py-14 sm:px-6 sm:py-20 md:grid-cols-2 lg:gap-16">
+    <div class={`min-w-0 ${reverse ? "md:order-2" : "md:order-1"}`}>
+      <p class="text-xs font-semibold uppercase leading-5 tracking-widest text-sky-700 sm:text-sm">{eyebrow}</p>
       <h2 class="mt-4 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
         {title}
       </h2>
-      <p class="mt-5 text-lg leading-8 text-slate-600">{body}</p>
+      <p class="mt-5 text-base leading-7 text-slate-600 sm:text-lg sm:leading-8">{body}</p>
       {
         bullets.length > 0 && (
           <ul class="mt-6 space-y-3">
@@ -33,7 +33,7 @@ const { eyebrow, title, body, bullets = [], reverse = false, tone } = Astro.prop
         )
       }
     </div>
-    <div class={reverse ? "md:order-1" : "md:order-2"}>
+    <div class={`min-w-0 ${reverse ? "md:order-1" : "md:order-2"}`}>
       <slot />
     </div>
   </div>

@@ -58,36 +58,36 @@ const schema = [
     >
     </div>
     <div
-      class="relative mx-auto grid max-w-6xl items-center gap-14 px-6 py-20 sm:py-28 lg:grid-cols-2"
+      class="relative mx-auto grid max-w-6xl items-center gap-10 px-4 py-14 sm:gap-14 sm:px-6 sm:py-24 lg:grid-cols-2 lg:py-28"
     >
-      <div>
-        <p class="text-sm font-semibold uppercase tracking-widest text-sky-700">
+      <div class="min-w-0">
+        <p class="text-xs font-semibold uppercase leading-5 tracking-widest text-sky-700 sm:text-sm">
           Customer support, grounded in your own documents
         </p>
-        <h1 class="mt-5 text-4xl font-semibold tracking-tight text-slate-950 sm:text-6xl">
+        <h1 class="mt-5 text-3xl font-semibold leading-tight tracking-tight text-slate-950 sm:text-5xl lg:text-6xl">
           Answers your customers can trust, right on your website.
         </h1>
-        <p class="mt-6 max-w-xl text-lg leading-8 text-slate-600">
+        <p class="mt-6 max-w-xl text-base leading-7 text-slate-600 sm:text-lg sm:leading-8">
           {SITE.name} turns the documents you already have into a support assistant that
           replies in your customer's language- and only from what you've approved. Drop in
           one line of code and it's live.
         </p>
-        <div class="mt-9 flex flex-wrap items-center gap-4">
+        <div class="mt-8 flex flex-col gap-3 sm:mt-9 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
           <a
             href={NAV.register}
-            class="inline-flex rounded-lg bg-sky-600 px-5 py-3 text-sm font-medium text-white transition hover:bg-sky-700"
+            class="inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-sky-600 px-5 py-3 text-sm font-medium text-white transition hover:bg-sky-700 sm:w-auto"
           >
             Go to your workspace
           </a>
           <a
             href="#features"
-            class="inline-flex rounded-lg border border-slate-300 bg-white px-5 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+            class="inline-flex min-h-11 w-full items-center justify-center rounded-lg border border-slate-300 bg-white px-5 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50 sm:w-auto"
           >
             See how it works
           </a>
         </div>
       </div>
-      <div class="lg:pl-6">
+      <div class="min-w-0 lg:pl-6">
         <ChatShowcase
           label="assistant.yoursite.com"
           question="Do you ship to Canada, and how long does it take?"
@@ -244,20 +244,20 @@ const schema = [
 
     <!-- 10 · three-column wrap-up: sites, team, tickets -->
     <section class="border-t border-slate-200 bg-slate-50">
-      <div class="mx-auto max-w-6xl px-6 py-20">
+      <div class="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20">
         <div class="mx-auto max-w-2xl text-center">
-          <p class="text-sm font-semibold uppercase tracking-widest text-sky-700">
+          <p class="text-xs font-semibold uppercase leading-5 tracking-widest text-sky-700 sm:text-sm">
             Built for teams
           </p>
           <h2 class="mt-4 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
             Run it all from one place.
           </h2>
-          <p class="mt-5 text-lg leading-8 text-slate-600">
+          <p class="mt-5 text-base leading-7 text-slate-600 sm:text-lg sm:leading-8">
             Every site, every teammate, every request- managed from a single login.
           </p>
         </div>
 
-        <div class="mt-14 grid gap-6 md:grid-cols-3">
+        <div class="mt-10 grid gap-5 sm:mt-14 sm:gap-6 md:grid-cols-3">
           <!-- Multiple sites -->
           <div class="flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-6">
             <span
@@ -348,15 +348,15 @@ const schema = [
 
   <!-- Pricing -->
   <section id="pricing" class="border-t border-slate-200 bg-white">
-    <div class="mx-auto max-w-6xl px-6 py-20">
+    <div class="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20">
       <div class="mx-auto max-w-2xl text-center">
-        <p class="text-sm font-semibold uppercase tracking-widest text-sky-700">
+        <p class="text-xs font-semibold uppercase leading-5 tracking-widest text-sky-700 sm:text-sm">
           Pricing
         </p>
         <h2 class="mt-4 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
           Simple plans that grow with you.
         </h2>
-        <p class="mt-5 text-lg leading-8 text-slate-600">
+        <p class="mt-5 text-base leading-7 text-slate-600 sm:text-lg sm:leading-8">
           {TRIAL_NOTE}
         </p>
       </div>
@@ -364,14 +364,14 @@ const schema = [
       <div class="mt-10 flex flex-col items-center">
         <p class="mb-3 text-sm font-medium text-slate-700">Choose how you pay</p>
         <div
-          class="inline-flex rounded-xl border border-slate-200 bg-slate-100 p-1 shadow-inner"
+          class="grid w-full max-w-sm grid-cols-2 rounded-xl border border-slate-200 bg-slate-100 p-1 shadow-inner"
           role="group"
           aria-label="Billing cycle"
           data-billing-toggle
         >
           <button
             type="button"
-            class="rounded-lg px-5 py-2.5 text-sm font-semibold text-slate-500 transition hover:text-slate-900 aria-[pressed=true]:bg-white aria-[pressed=true]:text-slate-950 aria-[pressed=true]:shadow-sm"
+            class="min-h-11 rounded-lg px-3 py-2.5 text-sm font-semibold text-slate-500 transition hover:text-slate-900 aria-[pressed=true]:bg-white aria-[pressed=true]:text-slate-950 aria-[pressed=true]:shadow-sm sm:px-5"
             aria-pressed="false"
             data-billing-cycle="monthly"
           >
@@ -379,7 +379,7 @@ const schema = [
           </button>
           <button
             type="button"
-            class="flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold text-slate-500 transition hover:text-slate-900 aria-[pressed=true]:bg-white aria-[pressed=true]:text-slate-950 aria-[pressed=true]:shadow-sm"
+            class="flex min-h-11 items-center justify-center gap-1.5 rounded-lg px-2 py-2.5 text-sm font-semibold text-slate-500 transition hover:text-slate-900 aria-[pressed=true]:bg-white aria-[pressed=true]:text-slate-950 aria-[pressed=true]:shadow-sm sm:gap-2 sm:px-5"
             aria-pressed="true"
             data-billing-cycle="yearly"
           >
@@ -412,9 +412,9 @@ const schema = [
                 )}
               </div>
               <p class="mt-2 text-sm leading-6 text-slate-600">{tier.tagline}</p>
-              <div class="mt-6 flex items-end gap-1">
+              <div class="mt-6 flex flex-wrap items-end gap-x-1 gap-y-0.5">
                 <span
-                  class="text-4xl font-semibold tracking-tight text-slate-950"
+                  class="text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl"
                   data-price-amount
                 >
                   €{(tier.priceYearly / 12).toFixed(2)}
@@ -507,7 +507,7 @@ const schema = [
 
   <!-- Closing call to action -->
   <section class="border-t border-slate-200 bg-white">
-    <div class="mx-auto max-w-6xl px-6 py-20 text-center">
+    <div class="mx-auto max-w-6xl px-4 py-14 text-center sm:px-6 sm:py-20">
       <h2 class="text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
         Your documents already have the answers.
       </h2>
@@ -516,7 +516,7 @@ const schema = [
       </p>
       <a
         href={NAV.register}
-        class="mt-8 inline-flex rounded-lg bg-sky-600 px-6 py-3 text-sm font-medium text-white transition hover:bg-sky-700"
+        class="mt-8 inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-sky-600 px-6 py-3 text-sm font-medium text-white transition hover:bg-sky-700 sm:w-auto"
       >
         Go to your workspace
       </a>

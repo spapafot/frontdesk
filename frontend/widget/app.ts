@@ -84,6 +84,17 @@ const THUMB_ICON =
 const TYPING =
   '<span class="wx-typing"><span></span><span></span><span></span></span>';
 
+function formatChatStreamError(event: Record<string, unknown>): string {
+  const message =
+    typeof event.message === "string" && event.message
+      ? event.message
+      : "Something went wrong.";
+  const correlationId =
+    typeof event.correlation_id === "string" ? event.correlation_id : "";
+  const reference = correlationId.slice(0, 12).toUpperCase();
+  return reference ? `${message} Reference: ${reference}.` : message;
+}
+
 const app = document.getElementById("app") as HTMLDivElement;
 app.innerHTML = `
   <header class="wx-header">
@@ -127,6 +138,9 @@ app.innerHTML = `
     <textarea id="wx-callback-message" maxlength="4000" placeholder="How can we help? (optional)"></textarea>
     <button type="submit">Request a callback</button>
   </form>
+  <p class="wx-sensitive-warning" id="wx-sensitive-warning" hidden>
+    Do not send passwords, verification codes, payment-card details, or API keys.
+  </p>
   <form class="wx-form" id="wx-form" hidden>
     <input class="wx-input" id="wx-input" type="text" placeholder="Type a message&hellip;" autocomplete="off" />
     <button class="wx-send" id="wx-send" type="submit" aria-label="Send message">${SEND_ICON}</button>
@@ -163,6 +177,7 @@ const callbackEl = document.getElementById("wx-callback") as HTMLFormElement;
 const callbackNameEl = document.getElementById("wx-callback-name") as HTMLInputElement;
 const callbackEmailEl = document.getElementById("wx-callback-email") as HTMLInputElement;
 const callbackMessageEl = document.getElementById("wx-callback-message") as HTMLTextAreaElement;
+const sensitiveWarningEl = document.getElementById("wx-sensitive-warning") as HTMLParagraphElement;
 
 let conversationId: number | null = null;
 let conversationStorageKey = "";
@@ -247,6 +262,7 @@ function showVerificationError(
   verificationEl.hidden = false;
   messagesEl.hidden = true;
   formEl.hidden = true;
+  sensitiveWarningEl.hidden = true;
   liveActionsEl.hidden = true;
   callbackEl.hidden = true;
   verificationMessageEl.textContent = message;
@@ -335,6 +351,7 @@ function renderVerification() {
   verificationEl.hidden = false;
   messagesEl.hidden = true;
   formEl.hidden = true;
+  sensitiveWarningEl.hidden = true;
   liveActionsEl.hidden = true;
   callbackEl.hidden = true;
 
@@ -547,6 +564,7 @@ function setLiveMode(mode: LiveMode) {
   newChatEl.hidden = !showNewChat;
   callbackEl.hidden = mode !== "pending_ticket";
   formEl.hidden = ["pending_ticket", "closed"].includes(mode);
+  sensitiveWarningEl.hidden = mode !== "ai";
   inputEl.disabled = mode === "waiting" || streaming || connectingToHuman;
   sendEl.disabled = mode === "waiting" || streaming || connectingToHuman;
   subtitleEl.textContent =
@@ -881,7 +899,9 @@ async function send(text: string) {
   }
   if (liveMode !== "ai") return;
   const asksForHuman = HUMAN_REQUEST_PATTERN.test(trimmed);
-  addBubble("user", trimmed);
+  let previousVisitorMessageCount = visitorMessageCount;
+  let previousHumanRequested = humanRequested;
+  const userBubble = addBubble("user", trimmed);
   inputEl.value = "";
   setStreaming(true);
   if (asksForHuman) humanRequested = true;
@@ -921,6 +941,8 @@ async function send(text: string) {
           liveSocket = null;
           liveConnectionPromise = null;
           clearConversationSession();
+          previousVisitorMessageCount = 0;
+          previousHumanRequested = false;
           displayedLiveMessageIds.clear();
           hydrateLiveHistory = false;
           // clearConversationSession dropped the signal; the message being
@@ -977,8 +999,30 @@ async function send(text: string) {
           case "error":
             pending.classList.remove("pending");
             pending.classList.add("wx-error");
-            pending.textContent =
-              (event.message as string) || "Something went wrong.";
+            pending.textContent = formatChatStreamError(event);
+            break;
+          case "input_blocked":
+            userBubble.remove();
+            visitorMessageCount = previousVisitorMessageCount;
+            humanRequested = previousHumanRequested;
+            if (visitorMessageCountStorageKey) {
+              if (previousVisitorMessageCount > 0) {
+                localStorage.setItem(
+                  visitorMessageCountStorageKey,
+                  String(previousVisitorMessageCount),
+                );
+              } else {
+                localStorage.removeItem(visitorMessageCountStorageKey);
+              }
+            }
+            answer =
+              typeof event.message === "string"
+                ? event.message
+                : "Sensitive information was not sent or saved.";
+            pending.classList.remove("pending");
+            pending.classList.add("wx-sensitive-block");
+            pending.textContent = answer;
+            scrollToBottom();
             break;
           case "done":
             // Backends predating the flag omit it, and moderation warnings
