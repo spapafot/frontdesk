@@ -141,7 +141,7 @@ describe("embedded widget verification flow", () => {
     );
   });
 
-  it("removes blocked input, preserves counters, and shows the AI composer warning", async () => {
+  it("removes blocked input and preserves counters", async () => {
     window.turnstile = {
       render: vi.fn(() => "widget-id"),
       reset: vi.fn(),
@@ -182,12 +182,6 @@ describe("embedded widget verification flow", () => {
         },
       }),
     );
-
-    const composerWarning = document.getElementById(
-      "wx-sensitive-warning",
-    ) as HTMLParagraphElement;
-    expect(composerWarning.hidden).toBe(false);
-    expect(composerWarning).toHaveTextContent(/do not send passwords/i);
 
     const form = document.getElementById("wx-form") as HTMLFormElement;
     const input = document.getElementById("wx-input") as HTMLInputElement;
@@ -586,9 +580,6 @@ describe("embedded widget verification flow", () => {
     expect(messages).toHaveTextContent("You’re now connected to the team.");
     expect(messages).not.toHaveTextContent("Give us a moment while we connect you…");
     expect(messages.querySelector(".wx-live-status .wx-typing")).toBeNull();
-    expect(
-      (document.getElementById("wx-sensitive-warning") as HTMLParagraphElement).hidden,
-    ).toBe(true);
   });
 
   it("resolves the waiting loader into a cancellation notice when the visitor cancels", async () => {

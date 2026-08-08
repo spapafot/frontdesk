@@ -188,116 +188,124 @@ export function Sidebar({
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto px-3 py-2.5">
+      <div className="flex min-h-0 flex-1 flex-col">
         {view === "history" && (
-          <button
-            type="button"
-            onClick={onNewChat}
-            className="mb-2 flex w-full items-center justify-center gap-2 rounded-xl bg-sky-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-sky-700"
-          >
-            <Plus className="h-4 w-4" /> New chat
-          </button>
-        )}
-        {(view === "live" || view === "history") &&
-          conversations === undefined && (
-            <div
-              className="space-y-2"
-              role="status"
-              aria-label="Loading conversations"
+          <div className="shrink-0 px-3 pt-3">
+            <button
+              type="button"
+              onClick={onNewChat}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-sky-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-sky-700"
             >
-              {Array.from({ length: 5 }).map((_, index) => (
-                <Skeleton key={index} className="h-11 w-full rounded-lg" />
-              ))}
-            </div>
-          )}
-        {visibleConversations?.length === 0 && (
-          <p className="px-2 py-3 text-xs text-slate-400">
-            {view === "live"
-              ? "No visitors are waiting or live."
-              : "No conversations yet."}
-          </p>
+              <Plus className="h-4 w-4" /> New chat
+            </button>
+          </div>
         )}
-        <ul className="space-y-1">
-          {visibleConversations?.map((conversation) => {
-            const active = conversation.id === selectedConversationId;
-            const title =
-              conversation.title?.trim() ||
-              formatTime(conversation.started_at) ||
-              "Conversation";
-            if (editingId === conversation.id) {
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+          {(view === "live" || view === "history") &&
+            conversations === undefined && (
+              <div
+                className="space-y-2"
+                role="status"
+                aria-label="Loading conversations"
+              >
+                {Array.from({ length: 5 }).map((_, index) => (
+                  <Skeleton key={index} className="h-11 w-full rounded-lg" />
+                ))}
+              </div>
+            )}
+          {visibleConversations?.length === 0 && (
+            <p className="px-2 py-3 text-xs text-slate-400">
+              {view === "live"
+                ? "No visitors are waiting or live."
+                : "No conversations yet."}
+            </p>
+          )}
+          <ul className="space-y-1">
+            {visibleConversations?.map((conversation) => {
+              const active = conversation.id === selectedConversationId;
+              const title =
+                conversation.title?.trim() ||
+                formatTime(conversation.started_at) ||
+                "Conversation";
+              if (editingId === conversation.id) {
+                return (
+                  <li key={conversation.id}>
+                    <input
+                      autoFocus
+                      value={draft}
+                      onChange={(event) => setDraft(event.target.value)}
+                      onBlur={() => commitRename(conversation.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter")
+                          commitRename(conversation.id);
+                        if (event.key === "Escape") setEditingId(null);
+                      }}
+                      maxLength={160}
+                      className="w-full rounded-lg border border-sky-400 px-3 py-2 text-sm outline-none"
+                    />
+                  </li>
+                );
+              }
+              const section = view as "live" | "history";
               return (
-                <li key={conversation.id}>
-                  <input
-                    autoFocus
-                    value={draft}
-                    onChange={(event) => setDraft(event.target.value)}
-                    onBlur={() => commitRename(conversation.id)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") commitRename(conversation.id);
-                      if (event.key === "Escape") setEditingId(null);
-                    }}
-                    maxLength={160}
-                    className="w-full rounded-lg border border-sky-400 px-3 py-2 text-sm outline-none"
-                  />
+                <li
+                  key={conversation.id}
+                  className={`group relative rounded-xl ${active ? "bg-sky-100" : "hover:bg-slate-100"}`}
+                >
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onSelectConversation(conversation.id, section)
+                    }
+                    className="block w-full rounded-xl px-3 py-2.5 text-left group-hover:pr-24"
+                  >
+                    <span
+                      className={`block truncate text-sm ${active ? "text-sky-800" : "text-slate-700"}`}
+                    >
+                      {title}
+                    </span>
+                    <span className="flex items-center gap-1 text-[11px] text-slate-400">
+                      {view === "live" && (
+                        <span
+                          className={`font-semibold ${conversation.mode === "waiting" ? "text-amber-600" : "text-emerald-600"}`}
+                        >
+                          {conversation.mode === "waiting" ? "Waiting" : "Live"}
+                        </span>
+                      )}
+                      <span>
+                        {formatTime(
+                          conversation.last_message_at ||
+                            conversation.started_at,
+                        )}
+                      </span>
+                    </span>
+                  </button>
+                  {view === "history" && (
+                    <div className="pointer-events-none absolute inset-y-0 right-0 hidden items-center gap-1 pr-2 group-hover:flex">
+                      <button
+                        type="button"
+                        onClick={() => startRename(conversation)}
+                        className="pointer-events-auto rounded px-1 text-[11px] text-slate-500 hover:bg-slate-300"
+                      >
+                        Rename
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPendingDelete(conversation)}
+                        className="pointer-events-auto rounded px-1 text-[11px] text-red-500 hover:bg-red-100"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  )}
                 </li>
               );
-            }
-            const section = view as "live" | "history";
-            return (
-              <li
-                key={conversation.id}
-                className={`group relative rounded-xl ${active ? "bg-sky-100" : "hover:bg-slate-100"}`}
-              >
-                <button
-                  type="button"
-                  onClick={() => onSelectConversation(conversation.id, section)}
-                  className="block w-full rounded-xl px-3 py-2.5 text-left group-hover:pr-24"
-                >
-                  <span
-                    className={`block truncate text-sm ${active ? "text-sky-800" : "text-slate-700"}`}
-                  >
-                    {title}
-                  </span>
-                  <span className="flex items-center gap-1 text-[11px] text-slate-400">
-                    {view === "live" && (
-                      <span
-                        className={`font-semibold ${conversation.mode === "waiting" ? "text-amber-600" : "text-emerald-600"}`}
-                      >
-                        {conversation.mode === "waiting" ? "Waiting" : "Live"}
-                      </span>
-                    )}
-                    <span>
-                      {formatTime(
-                        conversation.last_message_at || conversation.started_at,
-                      )}
-                    </span>
-                  </span>
-                </button>
-                {view === "history" && (
-                  <div className="pointer-events-none absolute inset-y-0 right-0 hidden items-center gap-1 pr-2 group-hover:flex">
-                    <button
-                      type="button"
-                      onClick={() => startRename(conversation)}
-                      className="pointer-events-auto rounded px-1 text-[11px] text-slate-500 hover:bg-slate-300"
-                    >
-                      Rename
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPendingDelete(conversation)}
-                      className="pointer-events-auto rounded px-1 text-[11px] text-red-500 hover:bg-red-100"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                )}
-              </li>
-            );
-          })}
-        </ul>
+            })}
+          </ul>
+        </div>
       </div>
 
-      <div className="border-t border-slate-200 px-3 py-3">
+      <div className="mt-2 border-t border-slate-200 px-3 py-3">
         {(
           [
             ["settings", "Settings"],

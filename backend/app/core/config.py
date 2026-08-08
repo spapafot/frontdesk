@@ -43,9 +43,10 @@ class Settings(BaseSettings):
     # Embeddings. API-based OpenAI model (no local PyTorch), so the backend stays
     # small enough for serverless/Lambda. text-embedding-3-large is multilingual
     # and defaults to 3072-dim vectors, but we request 1536 dims explicitly (via
-    # the `dimensions` API param) to keep the pgvector column size unchanged.
-    # Changing embedding_dim requires a pgvector column migration + a full
-    # re-index of existing documents.
+    # the `dimensions` API param) to keep the column size unchanged. Stored as
+    # half-precision pgvector `halfvec(1536)` (migration 0028). Changing
+    # embedding_dim requires a pgvector column migration + a full re-index of
+    # existing documents.
     openai_embedding_model: str = "text-embedding-3-large"
     embedding_dim: int = 1536
 

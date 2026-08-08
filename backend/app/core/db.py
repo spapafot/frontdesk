@@ -40,9 +40,10 @@ if _use_pgbouncer:
     # the pooler may have already closed. Open per-request instead.
     _engine_kwargs["poolclass"] = NullPool
 
-# Note: the pgvector SQLAlchemy ``Vector`` type serializes embeddings to/from the
-# textual vector format itself, so we intentionally do NOT register the asyncpg
-# vector codec here (doing so would double-encode and fail on inserts).
+# Note: the pgvector SQLAlchemy types (``HALFVEC`` here) serialize embeddings
+# to/from the textual vector format themselves, so we intentionally do NOT
+# register the asyncpg vector codec here (doing so would double-encode and fail
+# on inserts).
 engine = create_async_engine(settings.database_url, **_engine_kwargs)
 
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
