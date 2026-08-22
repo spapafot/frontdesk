@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import {
   Source,
+  ProductResults,
   StreamEvent,
   ToolCall,
   formatChatError,
@@ -14,6 +15,7 @@ export interface ChatMessage {
   content: string;
   toolCalls: ToolCall[];
   sources: Source[];
+  productResults: ProductResults | null;
 }
 
 interface Options {
@@ -58,6 +60,7 @@ export function useChatStream(options?: Options) {
           content: m.content,
           toolCalls: [],
           sources: [],
+          productResults: null,
         }))
       );
     } catch {
@@ -80,6 +83,7 @@ export function useChatStream(options?: Options) {
         content: trimmed,
         toolCalls: [],
         sources: [],
+        productResults: null,
       };
       const assistantId = nextId();
       const assistantMessage: ChatMessage = {
@@ -88,6 +92,7 @@ export function useChatStream(options?: Options) {
         content: "",
         toolCalls: [],
         sources: [],
+        productResults: null,
       };
       setMessages((prev) => [...prev, userMessage, assistantMessage]);
       setIsStreaming(true);
@@ -109,6 +114,16 @@ export function useChatStream(options?: Options) {
             break;
           case "sources":
             updateAssistant(assistantId, (m) => ({ ...m, sources: event.sources }));
+            break;
+          case "product_results":
+            updateAssistant(assistantId, (m) => ({
+              ...m,
+              productResults: {
+                products: event.products,
+                page: event.page,
+                has_more: event.has_more,
+              },
+            }));
             break;
           case "token":
             updateAssistant(assistantId, (m) => ({ ...m, content: m.content + event.content }));

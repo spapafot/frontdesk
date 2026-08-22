@@ -40,4 +40,49 @@ describe("useChatStream sensitive input handling", () => {
     expect(onConversationCreated).not.toHaveBeenCalled();
     expect(result.current.isStreaming).toBe(false);
   });
+
+  it("attaches streamed product results to the assistant message", async () => {
+    vi.mocked(streamChat).mockImplementation(async (_request, onEvent) => {
+      onEvent({
+        type: "product_results",
+        page: 1,
+        has_more: false,
+        products: [
+          {
+            id: 21,
+            name: "Blue Dress",
+            slug: "blue-dress",
+            summary: "",
+            price: "25.99",
+            regular_price: "29.99",
+            sale_price: "25.99",
+            currency_code: "EUR",
+            currency_symbol: "€",
+            on_sale: true,
+            is_in_stock: true,
+            has_options: true,
+            image_url: null,
+            product_url: "https://shop.example/product/blue-dress/",
+            attributes: [],
+          },
+        ],
+      });
+      onEvent({ type: "token", content: "I found one." });
+    });
+    const { result } = renderHook(() => useChatStream({ siteId: 7 }));
+
+    await act(async () => {
+      await result.current.send("medium dresses");
+    });
+
+    expect(result.current.messages[1]).toMatchObject({
+      role: "assistant",
+      content: "I found one.",
+      productResults: {
+        page: 1,
+        has_more: false,
+        products: [{ id: 21, name: "Blue Dress" }],
+      },
+    });
+  });
 });

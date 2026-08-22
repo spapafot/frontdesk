@@ -68,6 +68,13 @@ def _setup(
         async def get(self, profile_id):
             return profile
 
+    class FakeCatalogRepo:
+        def __init__(self, session):
+            pass
+
+        async def get(self, profile_id):
+            return None
+
     class FakeConversationRepo:
         def __init__(self, session):
             pass
@@ -124,6 +131,9 @@ def _setup(
 
     monkeypatch.setattr(chat_service, "SessionLocal", FakeSession)
     monkeypatch.setattr(chat_service, "ProfileRepository", FakeProfileRepo)
+    monkeypatch.setattr(
+        chat_service, "WooCommerceCatalogRepository", FakeCatalogRepo
+    )
     monkeypatch.setattr(chat_service, "ConversationRepository", FakeConversationRepo)
     monkeypatch.setattr(chat_service, "LiveRepository", FakeLiveRepo)
     monkeypatch.setattr(chat_service.moderation, "classify", fake_classify)

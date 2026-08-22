@@ -2,6 +2,7 @@
 import BaseLayout from "../layouts/BaseLayout.astro";
 import FeatureRow from "../components/FeatureRow.astro";
 import ChatShowcase from "../components/ChatShowcase.astro";
+import WooCommerceShowcase from "../components/WooCommerceShowcase.astro";
 import KnowledgeShowcase from "../components/KnowledgeShowcase.astro";
 import InstallShowcase from "../components/InstallShowcase.astro";
 import AnalyticsShowcase from "../components/AnalyticsShowcase.astro";
@@ -62,15 +63,15 @@ const schema = [
     >
       <div class="min-w-0">
         <p class="text-xs font-semibold uppercase leading-5 tracking-widest text-sky-700 sm:text-sm">
-          Customer support, grounded in your own documents
+          AI customer support for your website
         </p>
         <h1 class="mt-5 text-3xl font-semibold leading-tight tracking-tight text-slate-950 sm:text-5xl lg:text-6xl">
-          Answers your customers can trust, right on your website.
+          An AI support assistant your customers can trust.
         </h1>
         <p class="mt-6 max-w-xl text-base leading-7 text-slate-600 sm:text-lg sm:leading-8">
-          {SITE.name} turns the documents you already have into a support assistant that
-          replies in your customer's language- and only from what you've approved. Drop in
-          one line of code and it's live.
+          {SITE.name} is an AI chatbot for your website that answers support questions in
+          your customer's language, using only the business knowledge you've approved.
+          Drop in one line of code and it's live.
         </p>
         <div class="mt-8 flex flex-col gap-3 sm:mt-9 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
           <a
@@ -102,9 +103,9 @@ const schema = [
     <FeatureRow
       tone="muted"
       reverse
-      eyebrow="Grounded, multilingual chat"
-      title="It answers from your knowledge- not guesswork."
-      body="Every reply is retrieved from the documents you uploaded and streamed back in the visitor's own language. When the answer isn't in your knowledge base, the assistant says so instead of inventing one."
+      eyebrow="AI customer-support chatbot"
+      title="An AI assistant that answers from your business knowledge."
+      body="Plug & Play is an AI chatbot built for customer support. It retrieves every answer from the documents and FAQs you approve, replies in the visitor's language, and says when it doesn't know instead of inventing an answer."
       bullets={[
         "Replies in the language the customer writes in",
         "Grounded in your documents- no invented answers",
@@ -121,6 +122,22 @@ const schema = [
     <!-- 2 · text left, content right -->
     <FeatureRow
       tone="light"
+      eyebrow="WooCommerce product search"
+      title="Let shoppers find products in their own words."
+      body="Connect a WooCommerce store with its public URL and your AI assistant can search the live catalog for specific products, categories, sizes, colors, prices, sale items, and stock status. Results appear as product cards that take shoppers straight to your store."
+      bullets={[
+        "Natural-language searches like ‘medium dresses under €60’",
+        "Connect with your store URL- no WooCommerce API key needed",
+        "Read-only product discovery with no checkout or order access",
+      ]}
+    >
+      <WooCommerceShowcase />
+    </FeatureRow>
+
+    <!-- 3 · text right, content left -->
+    <FeatureRow
+      tone="muted"
+      reverse
       eyebrow="Document knowledge base"
       title="Upload what you know. That's the setup."
       body="Add PDFs, Word files, spreadsheets, or plain text. Plug & Play extracts and indexes them into searchable chunks. Disable a document to take it out of answers, or remove it entirely- no re-uploading to update."
@@ -133,10 +150,9 @@ const schema = [
       <KnowledgeShowcase />
     </FeatureRow>
 
-    <!-- 3 · text right, content left -->
+    <!-- 4 · text left, content right -->
     <FeatureRow
-      tone="muted"
-      reverse
+      tone="light"
       eyebrow="Secure website installation"
       title="One line of code, on the site you authorize."
       body="Paste a single script tag before your closing body tag and the assistant appears in an isolated widget. It runs only on the exact origin you approve, with signed sessions and a site key you can rotate at any time."
@@ -149,9 +165,10 @@ const schema = [
       <InstallShowcase />
     </FeatureRow>
 
-    <!-- 4 · text left, content right -->
+    <!-- 5 · text right, content left -->
     <FeatureRow
-      tone="light"
+      tone="muted"
+      reverse
       eyebrow="Analytics & feedback"
       title="See what customers ask- and what you're missing."
       body="Review every conversation, track helpful and unhelpful ratings, and surface the questions your knowledge base couldn't answer. Each gap is a clear signal for the next document to add."
@@ -164,10 +181,9 @@ const schema = [
       <AnalyticsShowcase />
     </FeatureRow>
 
-    <!-- 5 · text right, content left -->
+    <!-- 6 · text left, content right -->
     <FeatureRow
-      tone="muted"
-      reverse
+      tone="light"
       eyebrow="Web page knowledge"
       title="Add a web page, not just a file."
       body="Paste a URL and Plug & Play reads the page, cleans it up, and indexes it like any other document. Keep your help center and product pages answering for you- no copy and paste."
@@ -180,9 +196,10 @@ const schema = [
       <UrlIngestShowcase />
     </FeatureRow>
 
-    <!-- 6 · text left, content right -->
+    <!-- 7 · text right, content left -->
     <FeatureRow
-      tone="light"
+      tone="muted"
+      reverse
       eyebrow="Quick FAQs"
       title="Answer common questions in seconds."
       body="Add a question and its answer- no file needed. FAQs are indexed the moment you save them, so the assistant can start replying right away."
@@ -195,10 +212,9 @@ const schema = [
       <FaqShowcase />
     </FeatureRow>
 
-    <!-- 7 · text right, content left -->
+    <!-- 8 · text left, content right -->
     <FeatureRow
-      tone="muted"
-      reverse
+      tone="light"
       eyebrow="Human handoff"
       title="Never miss a case."
       body="When a visitor needs a person, the chat hands off to you or a teammate in real time. If no one's available, the request becomes a ticket and lands in your inbox with the full conversation- so nothing slips through."
@@ -211,9 +227,10 @@ const schema = [
       <LiveSupportShowcase />
     </FeatureRow>
 
-    <!-- 8 · text left, content right -->
+    <!-- 9 · text right, content left -->
     <FeatureRow
-      tone="light"
+      tone="muted"
+      reverse
       eyebrow="Widget appearance"
       title="Make the widget yours."
       body="Set the accent color, launcher icon, and position, write your own greeting, and choose whether to show branding. It matches your site without touching your code."
@@ -226,10 +243,9 @@ const schema = [
       <WidgetCustomizeShowcase />
     </FeatureRow>
 
-    <!-- 9 · text right, content left -->
+    <!-- 10 · text left, content right -->
     <FeatureRow
-      tone="muted"
-      reverse
+      tone="light"
       eyebrow="Callback ticket board"
       title="Turn missed handoffs into work your team can track."
       body="When no operator accepts a live request, the visitor can leave callback details and Plug & Play creates a ticket automatically. Your team can assign it, move it through three clear stages, and keep every request visible until it is resolved."
@@ -242,7 +258,7 @@ const schema = [
       <TicketsShowcase />
     </FeatureRow>
 
-    <!-- 10 · three-column wrap-up: sites, team, tickets -->
+    <!-- 11 · three-column wrap-up: sites, team, tickets -->
     <section class="border-t border-slate-200 bg-slate-50">
       <div class="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20">
         <div class="mx-auto max-w-2xl text-center">

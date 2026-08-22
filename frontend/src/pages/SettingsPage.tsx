@@ -7,6 +7,8 @@ import {
   settingsKey,
   rotateWidgetKey,
   updateSettings,
+  verifyWooCommerceCatalog,
+  WooCommerceVerification,
 } from "../api/settings";
 import { WidgetInstall } from "../components/WidgetInstall";
 import { WidgetAppearance, AppearanceState } from "../components/WidgetAppearance";
@@ -52,6 +54,12 @@ export function SettingsPage() {
   const [moderationEnabled, setModerationEnabled] = useState(true);
   const [notificationEmail, setNotificationEmail] = useState("");
   const [showBranding, setShowBranding] = useState(true);
+  const [woocommerceStoreUrl, setWooCommerceStoreUrl] = useState("");
+  const [woocommerceCatalogEnabled, setWooCommerceCatalogEnabled] = useState(false);
+  const [woocommerceVerification, setWooCommerceVerification] =
+    useState<WooCommerceVerification | null>(null);
+  const [woocommerceVerifying, setWooCommerceVerifying] = useState(false);
+  const [woocommerceError, setWooCommerceError] = useState<string | null>(null);
   const [appearance, setAppearance] = useState<AppearanceState>(DEFAULT_APPEARANCE);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -69,6 +77,10 @@ export function SettingsPage() {
       setModerationEnabled(data.moderation_enabled ?? true);
       setNotificationEmail(data.notification_email ?? "");
       setShowBranding(data.show_branding ?? true);
+      setWooCommerceStoreUrl(data.woocommerce_store_url ?? "");
+      setWooCommerceCatalogEnabled(data.woocommerce_catalog_enabled ?? false);
+      setWooCommerceVerification(null);
+      setWooCommerceError(null);
       setAppearance({
         accentColor: data.accent_color,
         launcherIcon: data.launcher_icon,
@@ -102,6 +114,8 @@ export function SettingsPage() {
         greeting: appearance.greeting.trim(),
         launcher_label: appearance.launcherLabel.trim(),
         show_branding: showBranding,
+        woocommerce_store_url: woocommerceStoreUrl.trim(),
+        woocommerce_catalog_enabled: woocommerceCatalogEnabled,
       });
       await mutate(updated, { revalidate: false });
       setSaved(true);
@@ -109,6 +123,25 @@ export function SettingsPage() {
       setSaveError((err as Error).message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const verifyCatalog = async () => {
+    if (!woocommerceStoreUrl.trim() || selectedSiteId == null) return;
+    setWooCommerceVerifying(true);
+    setWooCommerceError(null);
+    setWooCommerceVerification(null);
+    try {
+      const result = await verifyWooCommerceCatalog(
+        selectedSiteId,
+        woocommerceStoreUrl.trim(),
+      );
+      setWooCommerceStoreUrl(result.store_url);
+      setWooCommerceVerification(result);
+    } catch (err) {
+      setWooCommerceError((err as Error).message);
+    } finally {
+      setWooCommerceVerifying(false);
     }
   };
 
@@ -202,6 +235,67 @@ export function SettingsPage() {
                   />
                 </div>
               </div>
+            </section>
+
+            {/* WooCommerce catalog */}
+            <section className="max-w-3xl rounded-2xl border border-slate-200 bg-white p-5">
+              <h3 className="text-sm font-semibold text-slate-900">WooCommerce catalog</h3>
+              <p className="mt-1 text-xs text-slate-500">
+                Connect a public WooCommerce Store API so visitors can search and list products.
+                This read-only integration does not use an API key.
+              </p>
+              <label className="mt-4 block text-sm font-medium text-slate-700">
+                Store URL
+              </label>
+              <div className="mt-1.5 flex flex-col gap-2 sm:flex-row">
+                <input
+                  type="url"
+                  value={woocommerceStoreUrl}
+                  onChange={(event) => {
+                    const nextUrl = event.target.value;
+                    setWooCommerceStoreUrl(nextUrl);
+                    if (!nextUrl.trim()) setWooCommerceCatalogEnabled(false);
+                    setWooCommerceVerification(null);
+                    setWooCommerceError(null);
+                  }}
+                  placeholder="https://shop.example.com"
+                  className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-sky-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => void verifyCatalog()}
+                  disabled={!woocommerceStoreUrl.trim() || woocommerceVerifying}
+                  className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {woocommerceVerifying ? "Testing…" : "Test connection"}
+                </button>
+              </div>
+              {woocommerceVerification && (
+                <p className="mt-2 text-xs text-emerald-700">
+                  Connected: {woocommerceVerification.product_count} products, {woocommerceVerification.categories} categories,
+                  {" "}{woocommerceVerification.attributes} attributes
+                  {woocommerceVerification.currency_code
+                    ? `, ${woocommerceVerification.currency_code}`
+                    : ""}.
+                </p>
+              )}
+              {woocommerceError && (
+                <p className="mt-2 text-xs text-red-600">{woocommerceError}</p>
+              )}
+              {data.woocommerce_catalog_verified_at && !woocommerceVerification && (
+                <p className="mt-2 text-xs text-slate-400">
+                  Last verified {new Date(data.woocommerce_catalog_verified_at).toLocaleString()}.
+                </p>
+              )}
+              <label className="mt-4 flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={woocommerceCatalogEnabled}
+                  disabled={!woocommerceStoreUrl.trim()}
+                  onChange={(event) => setWooCommerceCatalogEnabled(event.target.checked)}
+                />
+                Allow visitors to search this product catalog
+              </label>
             </section>
 
             {/* Website & access */}

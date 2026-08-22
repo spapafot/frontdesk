@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel, Field, field_validator
 
 # Preset launcher-icon keys. Kept in sync with the frontend source of truth,
@@ -31,6 +33,9 @@ class SettingsOut(BaseModel):
     moderation_available: bool = False
     notification_email: str | None = None
     talk_to_person_after: int = 3
+    woocommerce_store_url: str | None = None
+    woocommerce_catalog_enabled: bool = False
+    woocommerce_catalog_verified_at: datetime | None = None
 
 
 class SettingsUpdate(BaseModel):
@@ -50,6 +55,8 @@ class SettingsUpdate(BaseModel):
     greeting: str | None = Field(default=None, min_length=1, max_length=500)
     launcher_label: str | None = Field(default=None, max_length=60)
     show_branding: bool | None = None
+    woocommerce_store_url: str | None = Field(default=None, max_length=2048)
+    woocommerce_catalog_enabled: bool | None = None
 
     @field_validator("notification_email")
     @classmethod
@@ -74,3 +81,20 @@ class SettingsUpdate(BaseModel):
         if value is not None and value not in LAUNCHER_POSITIONS:
             raise ValueError(f"launcher_position must be one of {sorted(LAUNCHER_POSITIONS)}")
         return value
+
+    @field_validator("woocommerce_store_url")
+    @classmethod
+    def _trim_store_url(cls, value: str | None) -> str | None:
+        return value.strip() if value is not None else None
+
+
+class WooCommerceVerifyRequest(BaseModel):
+    store_url: str = Field(..., min_length=1, max_length=2048)
+
+
+class WooCommerceVerifyOut(BaseModel):
+    store_url: str
+    product_count: int = 0
+    currency_code: str | None = None
+    categories: int = 0
+    attributes: int = 0

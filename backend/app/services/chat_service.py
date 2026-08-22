@@ -14,11 +14,18 @@ if TYPE_CHECKING:
 from app.core.config import settings
 from app.core.db import SessionLocal
 from app.prompts.system_prompt import build_system_prompt
-from app.repositories.profile_repository import ProfileRepository
+from app.repositories.commerce_repository import WooCommerceCatalogRepository
 from app.repositories.conversation_repository import ConversationRepository
 from app.repositories.live_repository import LiveRepository
+from app.repositories.profile_repository import ProfileRepository
 from app.services import moderation
 from app.services.rag_service import search_knowledge
+from app.services.woocommerce import (
+    ProductSearchQuery,
+    WooCommerceError,
+    WooCommerceStoreClient,
+    product_tool_schema,
+)
 from app.services.live_auth import (
     create_conversation_token,
     visitor_session_hash,
@@ -215,6 +222,100 @@ async def _load_history(repo: ConversationRepository, conversation_id: int) -> l
         ):
             history.append({"role": message.role, "content": message.content})
     return history
+
+
+async def _select_product_search(
+    client: "AsyncOpenAI",
+    message: str,
+    *,
+    catalog_metadata: dict,
+    previous_state: dict | None,
+) -> ProductSearchQuery | None:
+    """Let the model select one bounded product query; never execute model URLs."""
+    routing_prompt = """Decide whether the customer is asking to find, browse, list,
+filter, compare, or inspect products in the connected WooCommerce store. If so, call
+search_products exactly once. Otherwise reply with NO_PRODUCT_SEARCH and do not call a
+tool. Use only category, taxonomy, and term slugs present in catalog_metadata. Put prices
+in the store's smallest currency unit using currency.minor_unit. For refinements, merge
+the latest request with previous_catalog_state. For 'show more', preserve its filters and
+increment page. Never invent unavailable taxonomy slugs.
+
+catalog_metadata:
+{metadata}
+
+previous_catalog_state:
+{previous}
+""".format(
+        metadata=json.dumps(catalog_metadata, ensure_ascii=False)[:16000],
+        previous=json.dumps(previous_state or {}, ensure_ascii=False)[:6000],
+    )
+    try:
+        response = await client.chat.completions.create(
+            model=settings.deepseek_model,
+            messages=[
+                {"role": "system", "content": routing_prompt},
+                {"role": "user", "content": message},
+            ],
+            tools=[product_tool_schema()],
+            tool_choice="auto",
+            temperature=0,
+            extra_body={"thinking": {"type": "disabled"}},
+        )
+        choice = response.choices[0].message if response.choices else None
+        calls = getattr(choice, "tool_calls", None) if choice is not None else None
+        if not calls:
+            return None
+        call = calls[0]
+        if call.function.name != "search_products":
+            return None
+        query = ProductSearchQuery.model_validate_json(call.function.arguments)
+        allowed_categories = {
+            str(item.get("slug"))
+            for item in catalog_metadata.get("categories", [])
+            if isinstance(item, dict) and item.get("slug")
+        }
+        allowed_attributes = {
+            str(item.get("taxonomy")): {
+                str(term.get("slug"))
+                for term in item.get("terms", [])
+                if isinstance(term, dict) and term.get("slug")
+            }
+            for item in catalog_metadata.get("attributes", [])
+            if isinstance(item, dict) and item.get("taxonomy")
+        }
+        update: dict = {}
+        if query.category and query.category not in allowed_categories:
+            update["category"] = None
+            update["search"] = query.search or message[:200]
+        valid_attributes = [
+            item
+            for item in query.attributes
+            if item.taxonomy in allowed_attributes
+            and item.slug in allowed_attributes[item.taxonomy]
+        ]
+        if len(valid_attributes) != len(query.attributes):
+            update["attributes"] = valid_attributes
+            update["search"] = query.search or message[:200]
+        return query.model_copy(update=update)
+    except Exception as exc:  # routing is best-effort; normal RAG remains available
+        logger.warning("Product-search routing failed: %s", type(exc).__name__)
+        return None
+
+
+def _catalog_reply(message: str, count: int) -> str:
+    if _reply_language(message) == "el":
+        if count == 0:
+            return "Δεν βρήκα προϊόντα που να ταιριάζουν σε αυτή την αναζήτηση."
+        return f"Βρήκα {count} προϊόντα που ταιριάζουν στην αναζήτησή σας."
+    if count == 0:
+        return "I couldn't find products matching that search."
+    return f"I found {count} matching product{'s' if count != 1 else ''}."
+
+
+def _catalog_unavailable_reply(message: str) -> str:
+    if _reply_language(message) == "el":
+        return "Δεν μπόρεσα να αναζητήσω τον κατάλογο προϊόντων αυτή τη στιγμή."
+    return "I couldn't search the product catalog right now."
 
 
 async def _resolve_conversation(
@@ -436,6 +537,114 @@ async def run_turn(
         history = await _load_history(conversation_repo, conversation.id)
         messages: list[dict] = [{"role": "system", "content": system_prompt}]
         messages.extend(history)
+
+        # A connected catalog gets one bounded routing call before RAG. The
+        # model may only choose validated search arguments; the destination is
+        # always loaded from this profile's integration and never from chat.
+        catalog_repo = WooCommerceCatalogRepository(session)
+        catalog = await catalog_repo.get(profile.id)
+        if catalog is not None and catalog.enabled and settings.deepseek_api_key:
+            refreshed_at = catalog.metadata_refreshed_at
+            stale = (
+                refreshed_at is None
+                or (datetime.now(timezone.utc) - refreshed_at).total_seconds()
+                >= settings.woocommerce_metadata_ttl_seconds
+            )
+            if stale:
+                try:
+                    refreshed_metadata = await WooCommerceStoreClient(
+                        catalog.store_url
+                    ).verify_and_discover()
+                    verified_at = datetime.now(timezone.utc)
+                    catalog = await catalog_repo.upsert(
+                        profile.id,
+                        store_url=catalog.store_url,
+                        enabled=True,
+                        catalog_metadata=refreshed_metadata,
+                        verified_at=verified_at,
+                    )
+                    await session.commit()
+                except WooCommerceError:
+                    logger.warning(
+                        "WooCommerce metadata refresh failed profile_id=%s", profile.id
+                    )
+            previous_catalog_state = await conversation_repo.latest_catalog_state(
+                conversation.id
+            )
+            product_query = await _select_product_search(
+                get_client(),
+                message,
+                catalog_metadata=catalog.catalog_metadata or {},
+                previous_state=previous_catalog_state,
+            )
+            if product_query is not None:
+                await conversation_repo.add_message(conversation.id, "user", message)
+                await session.commit()
+                try:
+                    product_result = await WooCommerceStoreClient(
+                        catalog.store_url
+                    ).search_products(product_query)
+                    products = product_result["products"]
+                    answered = bool(products)
+                    final_text = _catalog_reply(message, len(products))
+                    yield {
+                        "type": "product_results",
+                        "products": products,
+                        "page": product_result["page"],
+                        "has_more": product_result["has_more"],
+                    }
+                except WooCommerceError:
+                    logger.warning(
+                        "WooCommerce product search failed profile_id=%s", profile.id
+                    )
+                    product_result = {
+                        "query": product_query.model_dump(mode="json"),
+                        "page": product_query.page,
+                        "has_more": False,
+                    }
+                    products = []
+                    answered = False
+                    final_text = _catalog_unavailable_reply(message)
+
+                yield {"type": "token", "content": final_text}
+                await session.refresh(conversation, attribute_names=["mode"])
+                if conversation.mode != "ai":
+                    yield {
+                        "type": "interrupted",
+                        "mode": conversation.mode,
+                        "conversation_id": conversation.id,
+                    }
+                    return
+                await conversation_repo.add_message(
+                    conversation.id,
+                    "assistant",
+                    final_text,
+                    meta={
+                        "answered": answered,
+                        "searched": True,
+                        "had_sources": answered,
+                        "question": message[:500],
+                        "catalog_search": product_result["query"],
+                        "catalog_page": product_result["page"],
+                        "catalog_has_more": product_result["has_more"],
+                        "catalog_products": [
+                            {
+                                "id": item["id"],
+                                "name": item["name"],
+                                "slug": item.get("slug"),
+                                "product_url": item["product_url"],
+                            }
+                            for item in products
+                        ],
+                    },
+                )
+                await session.commit()
+                yield {
+                    "type": "done",
+                    "conversation_id": conversation.id,
+                    "answered": answered,
+                }
+                return
 
         # RAG-always: retrieve the relevant knowledge up front so the model can answer
         # in a single streaming call instead of multiple blocking tool round-trips.

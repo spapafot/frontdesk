@@ -9,10 +9,21 @@ from app.core.db import get_session
 from app.core.config import settings
 from app.core.origins import normalize_origin
 from app.models.profile import AssistantProfile
+from app.repositories.commerce_repository import WooCommerceCatalogRepository
 from app.repositories.profile_repository import ProfileRepository
 from app.repositories.widget_repository import WidgetRepository
-from app.schemas.settings import SettingsOut, SettingsUpdate
+from app.schemas.settings import (
+    SettingsOut,
+    SettingsUpdate,
+    WooCommerceVerifyOut,
+    WooCommerceVerifyRequest,
+)
 from app.services import billing
+from app.services.woocommerce import (
+    WooCommerceError,
+    WooCommerceStoreClient,
+    normalize_store_url,
+)
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -33,6 +44,7 @@ async def _to_out(profile: AssistantProfile, session: AsyncSession) -> SettingsO
     if installation is None:
         raise HTTPException(status_code=500, detail="Widget installation is missing.")
     period, reset = _month()
+    catalog = await WooCommerceCatalogRepository(session).get(profile.id)
     return SettingsOut(
         business_name=profile.name,
         assistant_name=profile.assistant_name,
@@ -55,7 +67,19 @@ async def _to_out(profile: AssistantProfile, session: AsyncSession) -> SettingsO
         and bool(settings.openai_api_key),
         notification_email=profile.notification_email,
         talk_to_person_after=profile.talk_to_person_after,
+        woocommerce_store_url=catalog.store_url if catalog else None,
+        woocommerce_catalog_enabled=catalog.enabled if catalog else False,
+        woocommerce_catalog_verified_at=catalog.verified_at if catalog else None,
     )
+
+
+async def _verify_catalog(store_url: str) -> tuple[str, dict, datetime]:
+    try:
+        normalized = normalize_store_url(store_url)
+        metadata = await WooCommerceStoreClient(normalized).verify_and_discover()
+    except WooCommerceError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return normalized, metadata, datetime.now(timezone.utc)
 
 
 @router.get("", response_model=SettingsOut)
@@ -119,8 +143,67 @@ async def update_settings(
         installation.launcher_label = (body.launcher_label or "").strip() or None
     if body.show_branding is not None:
         installation.show_branding = body.show_branding
+
+    catalog_repo = WooCommerceCatalogRepository(session)
+    catalog = await catalog_repo.get(profile.id)
+    url_supplied = "woocommerce_store_url" in body.model_fields_set
+    enabled_supplied = "woocommerce_catalog_enabled" in body.model_fields_set
+    if url_supplied or enabled_supplied:
+        requested_url = (
+            body.woocommerce_store_url
+            if url_supplied
+            else (catalog.store_url if catalog is not None else None)
+        )
+        requested_enabled = (
+            bool(body.woocommerce_catalog_enabled)
+            if enabled_supplied
+            else (catalog.enabled if catalog is not None else False)
+        )
+        if not requested_url:
+            if requested_enabled:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Connect a WooCommerce store before enabling product search.",
+                )
+            if catalog is not None:
+                await catalog_repo.delete(catalog)
+        else:
+            try:
+                normalized = normalize_store_url(requested_url)
+            except WooCommerceError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            changed = catalog is None or catalog.store_url != normalized
+            metadata = None
+            verified_at = None
+            enabling = requested_enabled and (catalog is None or not catalog.enabled)
+            if changed or enabling:
+                normalized, metadata, verified_at = await _verify_catalog(normalized)
+            await catalog_repo.upsert(
+                profile.id,
+                store_url=normalized,
+                enabled=requested_enabled,
+                catalog_metadata=metadata,
+                verified_at=verified_at,
+            )
     await session.commit()
     return await _to_out(profile, session)
+
+
+@router.post("/woocommerce/verify", response_model=WooCommerceVerifyOut)
+async def verify_woocommerce_catalog(
+    body: WooCommerceVerifyRequest,
+    profile: AssistantProfile = Depends(require_site_owner),
+) -> WooCommerceVerifyOut:
+    """Verify a prospective public catalog without persisting it."""
+    normalized, metadata, _ = await _verify_catalog(body.store_url)
+    currency = metadata.get("currency") or {}
+    return WooCommerceVerifyOut(
+        store_url=normalized,
+        product_count=int(metadata.get("product_count") or 0),
+        currency_code=currency.get("code"),
+        categories=len(metadata.get("categories") or []),
+        attributes=len(metadata.get("attributes") or []),
+    )
 
 
 @router.post("/widget-key/rotate", response_model=SettingsOut)

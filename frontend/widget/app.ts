@@ -452,6 +452,92 @@ function addBubble(role: "user" | "assistant", text: string): HTMLDivElement {
   return bubble;
 }
 
+interface WidgetProductResult {
+  id: number;
+  name: string;
+  price: string | null;
+  currency_code: string | null;
+  is_in_stock: boolean;
+  image_url: string | null;
+  product_url: string;
+  attributes: Array<{
+    name: string;
+    terms: Array<{ name: string }>;
+  }>;
+}
+
+function safeHttpsUrl(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+function addProductResults(products: WidgetProductResult[], hasMore: boolean) {
+  if (!products.length) return;
+  const grid = document.createElement("div");
+  grid.className = "wx-products";
+  grid.setAttribute("aria-label", "Product results");
+  for (const product of products) {
+    const productUrl = safeHttpsUrl(product.product_url);
+    if (!productUrl || !Number.isInteger(product.id) || !product.name) continue;
+    const card = document.createElement("article");
+    card.className = "wx-product";
+    const imageUrl = safeHttpsUrl(product.image_url);
+    if (imageUrl) {
+      const image = document.createElement("img");
+      image.src = imageUrl;
+      image.alt = "";
+      image.loading = "lazy";
+      image.referrerPolicy = "no-referrer";
+      card.appendChild(image);
+    }
+    const body = document.createElement("div");
+    body.className = "wx-product-body";
+    const name = document.createElement("strong");
+    name.textContent = product.name;
+    body.appendChild(name);
+    if (product.price) {
+      const price = document.createElement("span");
+      price.className = "wx-product-price";
+      price.textContent = `${product.price} ${product.currency_code || ""}`.trim();
+      body.appendChild(price);
+    }
+    for (const attribute of (product.attributes || []).slice(0, 2)) {
+      const terms = (attribute.terms || []).map((term) => term.name).filter(Boolean);
+      if (!attribute.name || !terms.length) continue;
+      const detail = document.createElement("span");
+      detail.className = "wx-product-detail";
+      detail.textContent = `${attribute.name}: ${terms.join(", ")}`;
+      body.appendChild(detail);
+    }
+    const stock = document.createElement("span");
+    stock.className = "wx-product-detail";
+    stock.textContent = product.is_in_stock ? "In stock" : "Out of stock";
+    body.appendChild(stock);
+    const link = document.createElement("a");
+    link.href = productUrl;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = "View product";
+    body.appendChild(link);
+    card.appendChild(body);
+    grid.appendChild(card);
+  }
+  if (!grid.childElementCount) return;
+  messagesEl.appendChild(grid);
+  if (hasMore) {
+    const more = document.createElement("p");
+    more.className = "wx-product-more";
+    more.textContent = "Ask “show me more” for the next page.";
+    messagesEl.appendChild(more);
+  }
+  scrollToBottom();
+}
+
 function persistConversation(id: number, token?: string) {
   conversationId = id;
   if (conversationStorageKey)
@@ -1087,6 +1173,14 @@ async function send(text: string) {
             pending.classList.remove("pending");
             pending.textContent = answer;
             scrollToBottom();
+            break;
+          case "product_results":
+            addProductResults(
+              Array.isArray(event.products)
+                ? (event.products as WidgetProductResult[])
+                : [],
+              event.has_more === true,
+            );
             break;
           case "error":
             pending.classList.remove("pending");

@@ -1867,6 +1867,75 @@ describe("embedded widget verification flow", () => {
       .filter((event) => event.type === "typing");
     expect(typingFrames).toEqual([{ version: 1, type: "typing", typing: true }]);
   });
+  it("renders streamed product cards without interpreting merchant text as HTML", async () => {
+    window.turnstile = {
+      render: vi.fn(() => "widget-id"),
+      reset: vi.fn(),
+    };
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        [
+          `data: ${JSON.stringify({
+            type: "product_results",
+            page: 1,
+            has_more: true,
+            products: [
+              {
+                id: 21,
+                name: "<b>Blue Dress</b>",
+                price: "25.99",
+                currency_code: "EUR",
+                product_url: "https://shop.example/product/blue-dress/",
+                image_url: null,
+                is_in_stock: true,
+                attributes: [],
+              },
+            ],
+          })}`,
+          `data: ${JSON.stringify({ type: "token", content: "I found one." })}`,
+          "",
+        ].join("\n\n"),
+        { status: 200, headers: { "content-type": "text/event-stream" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const widget = await import("./app");
+    widget.handleParentMessage(
+      new MessageEvent("message", {
+        origin: location.origin,
+        source: window,
+        data: {
+          type: "wx-session",
+          session: {
+            token: "signed-session",
+            installation_id: 17,
+            origin: "https://customer.example",
+            assistant_name: "Helper",
+            business_name: "Acme",
+            live_human_escalation_enabled: false,
+          },
+        },
+      }),
+    );
+
+    const form = document.getElementById("wx-form") as HTMLFormElement;
+    const input = document.getElementById("wx-input") as HTMLInputElement;
+    input.value = "medium dresses";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() =>
+      expect(document.querySelector(".wx-product")).toHaveTextContent(
+        "<b>Blue Dress</b>",
+      ),
+    );
+    expect(document.querySelector(".wx-product b")).toBeNull();
+    expect(document.querySelector(".wx-product a")).toHaveAttribute(
+      "href",
+      "https://shop.example/product/blue-dress/",
+    );
+    expect(document.getElementById("wx-messages")).toHaveTextContent("show me more");
+  });
 });
 
 describe("widget appearance", () => {

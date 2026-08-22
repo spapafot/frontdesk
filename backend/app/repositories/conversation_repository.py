@@ -120,3 +120,18 @@ class ConversationRepository:
         )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
+
+    async def latest_catalog_state(self, conversation_id: int) -> dict[str, Any] | None:
+        """Return the latest sanitized catalog-search state for refinements."""
+        result = await self.session.execute(
+            select(ConversationMessage.meta)
+            .where(
+                ConversationMessage.conversation_id == conversation_id,
+                ConversationMessage.role == "assistant",
+                ConversationMessage.meta.has_key("catalog_search"),  # type: ignore[attr-defined]
+            )
+            .order_by(ConversationMessage.id.desc())
+            .limit(1)
+        )
+        meta = result.scalar_one_or_none()
+        return meta if isinstance(meta, dict) else None

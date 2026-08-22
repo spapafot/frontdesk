@@ -102,3 +102,21 @@ def test_talk_to_person_after_optional():
     body = SettingsUpdate(business_name="Acme")
     assert body.talk_to_person_after is None
     assert "talk_to_person_after" not in body.model_fields_set
+
+
+def test_woocommerce_catalog_fields_are_optional_and_trimmed():
+    untouched = SettingsUpdate(business_name="Acme")
+    assert "woocommerce_store_url" not in untouched.model_fields_set
+    assert untouched.woocommerce_catalog_enabled is None
+
+    configured = SettingsUpdate(
+        woocommerce_store_url="  https://shop.example  ",
+        woocommerce_catalog_enabled=True,
+    )
+    assert configured.woocommerce_store_url == "https://shop.example"
+    assert configured.woocommerce_catalog_enabled is True
+
+
+def test_woocommerce_store_url_has_a_bounded_length():
+    with pytest.raises(ValidationError):
+        SettingsUpdate(woocommerce_store_url="https://" + "x" * 2048)

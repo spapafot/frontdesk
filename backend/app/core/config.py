@@ -132,6 +132,14 @@ class Settings(BaseSettings):
     chat_daily_ip_message_limit: int = 100
     visitor_ip_header: str = "x-visitor-ip"
 
+    # Public WooCommerce Store API catalog lookup. These calls are read-only,
+    # but their destination is configured by a tenant, so keep the request and
+    # response bounds deliberately small.
+    woocommerce_timeout: float = 8.0
+    woocommerce_max_response_bytes: int = 2_000_000
+    woocommerce_max_products: int = 24
+    woocommerce_metadata_ttl_seconds: int = 86400
+
     @property
     def allowed_origins(self) -> list[str]:
         origins = [self.frontend_origin]

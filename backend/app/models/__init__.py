@@ -1,4 +1,5 @@
 from app.models.billing import AccountUsage, BillingEvent, Subscription
+from app.models.commerce import WooCommerceCatalogIntegration
 from app.models.conversation import (
     Conversation,
     ConversationEvent,
@@ -24,4 +25,5 @@ __all__ = [
     "TeamMember",
     "WidgetInstallation",
     "WidgetUsage",
+    "WooCommerceCatalogIntegration",
 ]

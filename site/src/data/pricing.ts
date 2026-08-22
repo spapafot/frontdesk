@@ -24,6 +24,7 @@ export const PRICING_TIERS: PricingTier[] = [
       "50 MB knowledge base",
       "1 seat",
       "Grounded, multilingual answers",
+      "WooCommerce product search",
     ],
   },
   {
@@ -38,6 +39,7 @@ export const PRICING_TIERS: PricingTier[] = [
       "5,000 messages / month",
       "500 MB knowledge base",
       "5 seats",
+      "WooCommerce product search",
       "Live human handoff",
       "Remove branding",
     ],
@@ -53,6 +55,7 @@ export const PRICING_TIERS: PricingTier[] = [
       "50,000 messages / month",
       "2 GB knowledge base",
       "Unlimited seats",
+      "WooCommerce product search",
       "Live human handoff",
       "Remove branding",
       "Priority support",

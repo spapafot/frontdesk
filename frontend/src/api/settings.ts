@@ -24,6 +24,17 @@ export interface Settings {
   moderation_available: boolean;
   notification_email: string | null;
   talk_to_person_after: number;
+  woocommerce_store_url: string | null;
+  woocommerce_catalog_enabled: boolean;
+  woocommerce_catalog_verified_at: string | null;
+}
+
+export interface WooCommerceVerification {
+  store_url: string;
+  product_count: number;
+  currency_code: string | null;
+  categories: number;
+  attributes: number;
 }
 
 export const settingsKey = (siteId: number) => `${API_BASE}/settings?site_id=${siteId}`;
@@ -67,6 +78,8 @@ export async function updateSettings(
     greeting: string;
     launcher_label: string;
     show_branding: boolean;
+    woocommerce_store_url: string;
+    woocommerce_catalog_enabled: boolean;
   }
 ): Promise<Settings> {
   return handle(
@@ -74,6 +87,19 @@ export async function updateSettings(
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
+    })
+  );
+}
+
+export async function verifyWooCommerceCatalog(
+  siteId: number,
+  storeUrl: string
+): Promise<WooCommerceVerification> {
+  return handle(
+    await fetch(`${API_BASE}/settings/woocommerce/verify?site_id=${siteId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ store_url: storeUrl }),
     })
   );
 }

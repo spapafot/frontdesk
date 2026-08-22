@@ -44,6 +44,20 @@ behavior, monthly usage, and whether live human handoff is available.
 
 ![Widget installation and security settings](assets/readme/widget-installation-settings.png)
 
+### Read-only WooCommerce product search
+
+A website owner can connect a WooCommerce store from Settings using only its public
+HTTPS store URL. The backend verifies the unauthenticated Store API, discovers the
+store's categories and product attributes, and enables natural-language catalog
+queries such as “show me medium dresses under €50”. Matching products stream into the
+dashboard and embedded widget as product cards linking back to the merchant's store.
+
+This integration is deliberately read-only: the model can select only the bounded
+`search_products` tool. Checkout, carts, customers, and order creation are not exposed.
+The configured destination comes from the selected website's database record, never
+from visitor text; private network targets, redirects, non-HTTPS URLs, oversized
+responses, and off-store product links are rejected.
+
 ## Features
 
 - **Hybrid, reranked retrieval-augmented generation:**
@@ -52,6 +66,7 @@ behavior, monthly usage, and whether live human handoff is available.
 - **Live human handoff:**
 - **Multi-site workspace:**
 - **Embeddable widget:**
+- **Natural-language WooCommerce catalog search:**
 - **Bot protection:**
 - **Public endpoint protection:**
 - **Edge controls:**
@@ -76,6 +91,7 @@ flowchart LR
     API --> DB[(Supabase PostgreSQL + pgvector)]
     API --> Rerank[Jina reranker]
     API --> Chat[DeepSeek chat model]
+    API -->|Read-only Store API| Woo[WooCommerce catalog]
     API -->|Fetch URL| Reader[Jina Reader]
     API -->|Upload + enqueue| S3[(S3 upload bucket)]
     API --> Queue[[SQS ingestion queue]]
@@ -119,6 +135,13 @@ model call:
 4. The top chunks are injected as a system message and DeepSeek V4-Flash streams the
    grounded answer over SSE, emitting structured `conversation`/`sources`/`token`/
    `done` events.
+
+When a WooCommerce catalog is enabled, a bounded function-selection call runs before
+RAG. Product requests are translated into validated Store API filters (search, SKU,
+category, attribute terms, price, sale and stock status); non-product requests continue
+through the normal RAG path. Catalog metadata is refreshed periodically and the last
+validated query is retained so “show me more” and follow-up refinements can preserve
+filters.
 
 ## Technology
 
