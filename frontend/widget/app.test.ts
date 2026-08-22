@@ -1890,7 +1890,7 @@ describe("embedded widget verification flow", () => {
             browse_label: "Δείτε όλα τα φορέματα στο κατάστημα",
             products: [
               {
-                id: 21,
+                id: "gid://shopify/Product/21",
                 name: "<b>Blue Dress</b>",
                 price: "25.99",
                 currency_code: "EUR",

@@ -7,8 +7,9 @@ import {
   settingsKey,
   rotateWidgetKey,
   updateSettings,
-  verifyWooCommerceCatalog,
-  WooCommerceVerification,
+  verifyCatalog,
+  CatalogProvider,
+  CatalogVerification,
 } from "../api/settings";
 import { WidgetInstall } from "../components/WidgetInstall";
 import { WidgetAppearance, AppearanceState } from "../components/WidgetAppearance";
@@ -54,12 +55,13 @@ export function SettingsPage() {
   const [moderationEnabled, setModerationEnabled] = useState(true);
   const [notificationEmail, setNotificationEmail] = useState("");
   const [showBranding, setShowBranding] = useState(true);
-  const [woocommerceStoreUrl, setWooCommerceStoreUrl] = useState("");
-  const [woocommerceCatalogEnabled, setWooCommerceCatalogEnabled] = useState(false);
-  const [woocommerceVerification, setWooCommerceVerification] =
-    useState<WooCommerceVerification | null>(null);
-  const [woocommerceVerifying, setWooCommerceVerifying] = useState(false);
-  const [woocommerceError, setWooCommerceError] = useState<string | null>(null);
+  const [catalogProvider, setCatalogProvider] = useState<CatalogProvider>("woocommerce");
+  const [catalogStoreUrl, setCatalogStoreUrl] = useState("");
+  const [catalogEnabled, setCatalogEnabled] = useState(false);
+  const [catalogVerification, setCatalogVerification] =
+    useState<CatalogVerification | null>(null);
+  const [catalogVerifying, setCatalogVerifying] = useState(false);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
   const [appearance, setAppearance] = useState<AppearanceState>(DEFAULT_APPEARANCE);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -77,10 +79,11 @@ export function SettingsPage() {
       setModerationEnabled(data.moderation_enabled ?? true);
       setNotificationEmail(data.notification_email ?? "");
       setShowBranding(data.show_branding ?? true);
-      setWooCommerceStoreUrl(data.woocommerce_store_url ?? "");
-      setWooCommerceCatalogEnabled(data.woocommerce_catalog_enabled ?? false);
-      setWooCommerceVerification(null);
-      setWooCommerceError(null);
+      setCatalogProvider(data.catalog_provider ?? "woocommerce");
+      setCatalogStoreUrl(data.catalog_store_url ?? data.woocommerce_store_url ?? "");
+      setCatalogEnabled(data.catalog_enabled ?? data.woocommerce_catalog_enabled ?? false);
+      setCatalogVerification(null);
+      setCatalogError(null);
       setAppearance({
         accentColor: data.accent_color,
         launcherIcon: data.launcher_icon,
@@ -114,8 +117,9 @@ export function SettingsPage() {
         greeting: appearance.greeting.trim(),
         launcher_label: appearance.launcherLabel.trim(),
         show_branding: showBranding,
-        woocommerce_store_url: woocommerceStoreUrl.trim(),
-        woocommerce_catalog_enabled: woocommerceCatalogEnabled,
+        catalog_provider: catalogProvider,
+        catalog_store_url: catalogStoreUrl.trim(),
+        catalog_enabled: catalogEnabled,
       });
       await mutate(updated, { revalidate: false });
       setSaved(true);
@@ -126,22 +130,23 @@ export function SettingsPage() {
     }
   };
 
-  const verifyCatalog = async () => {
-    if (!woocommerceStoreUrl.trim() || selectedSiteId == null) return;
-    setWooCommerceVerifying(true);
-    setWooCommerceError(null);
-    setWooCommerceVerification(null);
+  const testCatalogConnection = async () => {
+    if (!catalogStoreUrl.trim() || selectedSiteId == null) return;
+    setCatalogVerifying(true);
+    setCatalogError(null);
+    setCatalogVerification(null);
     try {
-      const result = await verifyWooCommerceCatalog(
+      const result = await verifyCatalog(
         selectedSiteId,
-        woocommerceStoreUrl.trim(),
+        catalogProvider,
+        catalogStoreUrl.trim(),
       );
-      setWooCommerceStoreUrl(result.store_url);
-      setWooCommerceVerification(result);
+      setCatalogStoreUrl(result.store_url);
+      setCatalogVerification(result);
     } catch (err) {
-      setWooCommerceError((err as Error).message);
+      setCatalogError((err as Error).message);
     } finally {
-      setWooCommerceVerifying(false);
+      setCatalogVerifying(false);
     }
   };
 
@@ -237,62 +242,95 @@ export function SettingsPage() {
               </div>
             </section>
 
-            {/* WooCommerce catalog */}
+            {/* Product catalog */}
             <section className="max-w-3xl rounded-2xl border border-slate-200 bg-white p-5">
-              <h3 className="text-sm font-semibold text-slate-900">WooCommerce catalog</h3>
+              <h3 className="text-sm font-semibold text-slate-900">Product catalog</h3>
               <p className="mt-1 text-xs text-slate-500">
-                Connect a public WooCommerce Store API so visitors can search and list products.
-                This read-only integration does not use an API key.
+                Connect WooCommerce or Shopify so visitors can find and list products in
+                natural language. This integration is read-only and does not use store credentials.
               </p>
+              <label className="mt-4 block text-sm font-medium text-slate-700">
+                Provider
+              </label>
+              <select
+                value={catalogProvider}
+                onChange={(event) => {
+                  setCatalogProvider(event.target.value as CatalogProvider);
+                  setCatalogEnabled(false);
+                  setCatalogVerification(null);
+                  setCatalogError(null);
+                }}
+                className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-sky-500"
+              >
+                <option value="woocommerce">WooCommerce</option>
+                <option value="shopify">Shopify</option>
+              </select>
               <label className="mt-4 block text-sm font-medium text-slate-700">
                 Store URL
               </label>
               <div className="mt-1.5 flex flex-col gap-2 sm:flex-row">
                 <input
                   type="url"
-                  value={woocommerceStoreUrl}
+                  value={catalogStoreUrl}
                   onChange={(event) => {
                     const nextUrl = event.target.value;
-                    setWooCommerceStoreUrl(nextUrl);
-                    if (!nextUrl.trim()) setWooCommerceCatalogEnabled(false);
-                    setWooCommerceVerification(null);
-                    setWooCommerceError(null);
+                    setCatalogStoreUrl(nextUrl);
+                    if (!nextUrl.trim()) setCatalogEnabled(false);
+                    setCatalogVerification(null);
+                    setCatalogError(null);
                   }}
-                  placeholder="https://shop.example.com"
+                  placeholder={
+                    catalogProvider === "shopify"
+                      ? "https://your-store.example.com"
+                      : "https://shop.example.com"
+                  }
                   className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-sky-500"
                 />
                 <button
                   type="button"
-                  onClick={() => void verifyCatalog()}
-                  disabled={!woocommerceStoreUrl.trim() || woocommerceVerifying}
+                  onClick={() => void testCatalogConnection()}
+                  disabled={!catalogStoreUrl.trim() || catalogVerifying}
                   className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {woocommerceVerifying ? "Testing…" : "Test connection"}
+                  {catalogVerifying ? "Testing…" : "Test connection"}
                 </button>
               </div>
-              {woocommerceVerification && (
+              {catalogProvider === "shopify" && (
+                <p className="mt-1.5 text-xs text-slate-400">
+                  Use the customer-facing HTTPS store origin, without a path or credentials.
+                </p>
+              )}
+              {catalogVerification && (
                 <p className="mt-2 text-xs text-emerald-700">
-                  Connected: {woocommerceVerification.product_count} products, {woocommerceVerification.categories} categories,
-                  {" "}{woocommerceVerification.attributes} attributes
-                  {woocommerceVerification.currency_code
-                    ? `, ${woocommerceVerification.currency_code}`
+                  Connected
+                  {catalogVerification.product_count != null
+                    ? `: ${catalogVerification.product_count} products`
+                    : ": catalog tools available"}
+                  {catalogVerification.categories != null
+                    ? `, ${catalogVerification.categories} categories`
+                    : ""}
+                  {catalogVerification.attributes != null
+                    ? `, ${catalogVerification.attributes} attributes`
+                    : ""}
+                  {catalogVerification.currency_code
+                    ? `, ${catalogVerification.currency_code}`
                     : ""}.
                 </p>
               )}
-              {woocommerceError && (
-                <p className="mt-2 text-xs text-red-600">{woocommerceError}</p>
+              {catalogError && (
+                <p className="mt-2 text-xs text-red-600">{catalogError}</p>
               )}
-              {data.woocommerce_catalog_verified_at && !woocommerceVerification && (
+              {data.catalog_verified_at && !catalogVerification && (
                 <p className="mt-2 text-xs text-slate-400">
-                  Last verified {new Date(data.woocommerce_catalog_verified_at).toLocaleString()}.
+                  Last verified {new Date(data.catalog_verified_at).toLocaleString()}.
                 </p>
               )}
               <label className="mt-4 flex items-center gap-2 text-sm text-slate-700">
                 <input
                   type="checkbox"
-                  checked={woocommerceCatalogEnabled}
-                  disabled={!woocommerceStoreUrl.trim()}
-                  onChange={(event) => setWooCommerceCatalogEnabled(event.target.checked)}
+                  checked={catalogEnabled}
+                  disabled={!catalogStoreUrl.trim()}
+                  onChange={(event) => setCatalogEnabled(event.target.checked)}
                 />
                 Allow visitors to search this product catalog
               </label>

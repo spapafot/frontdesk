@@ -4,17 +4,17 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.commerce import WooCommerceCatalogIntegration
+from app.models.commerce import CatalogIntegration
 
 
-class WooCommerceCatalogRepository:
+class CatalogRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def get(self, profile_id: int) -> WooCommerceCatalogIntegration | None:
+    async def get(self, profile_id: int) -> CatalogIntegration | None:
         result = await self.session.execute(
-            select(WooCommerceCatalogIntegration).where(
-                WooCommerceCatalogIntegration.profile_id == profile_id
+            select(CatalogIntegration).where(
+                CatalogIntegration.profile_id == profile_id
             )
         )
         return result.scalar_one_or_none()
@@ -25,20 +25,23 @@ class WooCommerceCatalogRepository:
         *,
         store_url: str,
         enabled: bool,
+        provider: str = "woocommerce",
         catalog_metadata: dict[str, Any] | None = None,
         verified_at: datetime | None = None,
-    ) -> WooCommerceCatalogIntegration:
+    ) -> CatalogIntegration:
         integration = await self.get(profile_id)
         if integration is None:
-            integration = WooCommerceCatalogIntegration(
+            integration = CatalogIntegration(
                 profile_id=profile_id,
                 store_url=store_url,
                 enabled=enabled,
+                provider=provider,
             )
             self.session.add(integration)
         else:
             integration.store_url = store_url
             integration.enabled = enabled
+            integration.provider = provider
         if catalog_metadata is not None:
             integration.catalog_metadata = catalog_metadata
             integration.metadata_refreshed_at = verified_at
@@ -47,6 +50,10 @@ class WooCommerceCatalogRepository:
         await self.session.flush()
         return integration
 
-    async def delete(self, integration: WooCommerceCatalogIntegration) -> None:
+    async def delete(self, integration: CatalogIntegration) -> None:
         await self.session.delete(integration)
         await self.session.flush()
+
+
+# Compatibility alias for older backend modules and tests during rollout.
+WooCommerceCatalogRepository = CatalogRepository

@@ -151,6 +151,11 @@ async def _ensure_public_host(store_url: str) -> None:
             raise WooCommerceError("The WooCommerce store must resolve only to public addresses.")
 
 
+async def ensure_public_store_host(store_url: str) -> None:
+    """Resolve a tenant-configured commerce origin and reject non-public targets."""
+    await _ensure_public_host(store_url)
+
+
 def _safe_https_url(value: Any, *, same_origin: str | None = None) -> str | None:
     try:
         parsed = urlsplit(str(value or ""))

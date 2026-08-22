@@ -44,19 +44,29 @@ behavior, monthly usage, and whether live human handoff is available.
 
 ![Widget installation and security settings](assets/readme/widget-installation-settings.png)
 
-### Read-only WooCommerce product search
+### Read-only WooCommerce and Shopify product search
 
-A website owner can connect a WooCommerce store from Settings using only its public
-HTTPS store URL. The backend verifies the unauthenticated Store API, discovers the
-store's categories and product attributes, and enables natural-language catalog
-queries such as “show me medium dresses under €50”. Matching products stream into the
-dashboard and embedded widget as product cards linking back to the merchant's store.
+A website owner can connect one WooCommerce or Shopify store from the Product catalog
+card in Settings using only its customer-facing HTTPS store URL. WooCommerce uses its
+public Store API. Shopify uses the anonymous Storefront Catalog MCP endpoint at
+`/api/ucp/mcp`, negotiated with our hosted UCP 2026-04-08 agent profile. Both providers
+support natural-language queries such as “show me medium dresses under €50”. Up to four
+validated products stream into the dashboard and embedded widget as cards linking back
+to the merchant's store.
 
 This integration is deliberately read-only: the model can select only the bounded
-`search_products` tool. Checkout, carts, customers, and order creation are not exposed.
+catalog search/details tools. Checkout, carts, policies, customers, and orders are not
+exposed. Each site has one provider-neutral `catalog_integrations` record; existing
+WooCommerce records are migrated in place with `provider = 'woocommerce'`.
 The configured destination comes from the selected website's database record, never
 from visitor text; private network targets, redirects, non-HTTPS URLs, oversized
 responses, and off-store product links are rejected.
+
+Shopify requests do not contain merchant credentials or an Authorization header. Every
+request advertises `SHOPIFY_UCP_AGENT_PROFILE_URL`, which defaults to
+`https://plugandplay.gr/.well-known/ucp-agent.json`. The same JSON file is published by
+the Astro marketing site from `site/public/.well-known/ucp-agent.json`; keep that URL
+publicly reachable when deploying another domain.
 
 ## Features
 
@@ -66,7 +76,7 @@ responses, and off-store product links are rejected.
 - **Live human handoff:**
 - **Multi-site workspace:**
 - **Embeddable widget:**
-- **Natural-language WooCommerce catalog search:**
+- **Natural-language WooCommerce and Shopify catalog search:**
 - **Bot protection:**
 - **Public endpoint protection:**
 - **Edge controls:**
@@ -92,6 +102,7 @@ flowchart LR
     API --> Rerank[Jina reranker]
     API --> Chat[DeepSeek chat model]
     API -->|Read-only Store API| Woo[WooCommerce catalog]
+    API -->|Anonymous UCP MCP| Shopify[Shopify catalog]
     API -->|Fetch URL| Reader[Jina Reader]
     API -->|Upload + enqueue| S3[(S3 upload bucket)]
     API --> Queue[[SQS ingestion queue]]
@@ -136,12 +147,21 @@ model call:
    grounded answer over SSE, emitting structured `conversation`/`sources`/`token`/
    `done` events.
 
-When a WooCommerce catalog is enabled, a bounded function-selection call runs before
-RAG. Product requests are translated into validated Store API filters (search, SKU,
-category, attribute terms, price, sale and stock status); non-product requests continue
-through the normal RAG path. Catalog metadata is refreshed periodically and the last
-validated query is retained so “show me more” and follow-up refinements can preserve
-filters.
+When a product catalog is enabled, a bounded function-selection call runs before RAG.
+The configured provider adapter translates product requests into validated filters.
+WooCommerce uses Store API fields (search, SKU, category, attribute terms, price, sale,
+and stock status); Shopify sends natural-language intent plus UCP price, availability,
+currency, language, option, and cursor context. Returned variants are validated again
+server-side before cards are emitted. Catalog metadata/capabilities are refreshed
+periodically, and the last effective query and provider cursor are retained so “show me
+more” and follow-up refinements preserve filters without duplicates.
+
+Shopify setup requires the following backend configuration (defaults are shown in
+`backend/.env.example`): `SHOPIFY_UCP_AGENT_PROFILE_URL`, `SHOPIFY_TIMEOUT`,
+`SHOPIFY_MAX_RESPONSE_BYTES`, `SHOPIFY_MAX_SCAN_PAGES`,
+`SHOPIFY_MAX_PAGINATION_PAGES`, and `SHOPIFY_METADATA_TTL_SECONDS`. There is no
+Storefront GraphQL fallback in this release; temporary MCP failures produce a catalog
+unavailable response instead of fabricated products or an unrelated RAG answer.
 
 ## Technology
 

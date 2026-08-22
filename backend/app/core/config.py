@@ -140,6 +140,16 @@ class Settings(BaseSettings):
     woocommerce_max_products: int = 24
     woocommerce_max_scan_pages: int = 5
     woocommerce_metadata_ttl_seconds: int = 86400
+    # Anonymous Shopify Storefront Catalog MCP. The agent profile is a public
+    # capability declaration, not a credential.
+    shopify_ucp_agent_profile_url: str = (
+        "https://plugandplay.gr/.well-known/ucp-agent.json"
+    )
+    shopify_timeout: float = 8.0
+    shopify_max_response_bytes: int = 2_000_000
+    shopify_max_scan_pages: int = 5
+    shopify_max_pagination_pages: int = 100
+    shopify_metadata_ttl_seconds: int = 86400
 
     @property
     def allowed_origins(self) -> list[str]:

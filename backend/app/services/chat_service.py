@@ -15,12 +15,19 @@ if TYPE_CHECKING:
 from app.core.config import settings
 from app.core.db import SessionLocal
 from app.prompts.system_prompt import build_system_prompt
-from app.repositories.commerce_repository import WooCommerceCatalogRepository
+from app.repositories.commerce_repository import CatalogRepository
 from app.repositories.conversation_repository import ConversationRepository
 from app.repositories.live_repository import LiveRepository
 from app.repositories.profile_repository import ProfileRepository
 from app.services import moderation
+from app.services.catalog import get_catalog_adapter
 from app.services.rag_service import search_knowledge
+from app.services.shopify import (
+    ShopifyError,
+    ShopifySearchQuery,
+    ShopifyStoreClient,
+    shopify_product_tool_schema,
+)
 from app.services.woocommerce import (
     ProductSearchQuery,
     WooCommerceError,
@@ -39,6 +46,9 @@ from app.services.sensitive_data_policy import (
 )
 
 logger = logging.getLogger(__name__)
+
+# One-release monkeypatch/import compatibility for existing WooCommerce tests.
+WooCommerceCatalogRepository = CatalogRepository
 
 # Injected just before the user's question so the model answers from retrieved
 # context in a single streaming call (no tool round-trips).
@@ -409,6 +419,14 @@ _SALE_REFINEMENT_WORDS = frozenset(
         "with",
         "items",
         "products",
+        "ekptosi",
+        "ekptoseis",
+        "me",
+        "mono",
+        "proionta",
+        "prosfora",
+        "prosfores",
+        "se",
         "σε",
         "με",
         "εκπτωση",
@@ -501,6 +519,232 @@ def _merge_product_query(
         by_taxonomy.update({item.taxonomy: item for item in current.attributes})
         merged["attributes"] = list(by_taxonomy.values())
     return ProductSearchQuery.model_validate(merged)
+
+
+async def _select_shopify_product_search(
+    client: "AsyncOpenAI",
+    message: str,
+    *,
+    catalog_metadata: dict,
+    previous_state: dict | None,
+) -> ShopifySearchQuery | None:
+    """Select a bounded UCP catalog action without accepting model destinations."""
+    routing_prompt = """Decide whether the customer is asking to find, browse, list,
+filter, compare, or inspect products in the connected Shopify store. If so, call
+search_products exactly once. Otherwise reply with NO_PRODUCT_SEARCH and do not call a
+tool. Write a standalone natural-language query in the visitor's language. Put prices
+in ISO 4217 minor units and use the known store currency when available. Use available
+true unless the visitor explicitly asks for unavailable products. Use context_mode
+refine for a short follow-up that adds or changes filters, more for the next page, and
+new for a separate search. On refine, include only changed fields. Option values include
+sizes, colors, materials, or other requested variant values. Set product_id only when
+the visitor clearly selects or asks about one exact product ID from previous results;
+never invent or copy a foreign ID.
+
+catalog_metadata:
+{metadata}
+
+previous_catalog_state:
+{previous}
+""".format(
+        metadata=json.dumps(catalog_metadata, ensure_ascii=False)[:6000],
+        previous=json.dumps(previous_state or {}, ensure_ascii=False)[:10000],
+    )
+    try:
+        response = await client.chat.completions.create(
+            model=settings.deepseek_model,
+            messages=[
+                {"role": "system", "content": routing_prompt},
+                {"role": "user", "content": message},
+            ],
+            tools=[shopify_product_tool_schema()],
+            tool_choice="auto",
+            temperature=0,
+            extra_body={"thinking": {"type": "disabled"}},
+        )
+        choice = response.choices[0].message if response.choices else None
+        calls = getattr(choice, "tool_calls", None) if choice is not None else None
+        if not calls:
+            return None
+        call = calls[0]
+        if call.function.name != "search_products":
+            return None
+        query = _merge_shopify_product_query(
+            ShopifySearchQuery.model_validate_json(call.function.arguments),
+            previous_state,
+        )
+        currency = (catalog_metadata.get("currency") or {}).get("code")
+        if not query.currency and isinstance(currency, str):
+            query = query.model_copy(update={"currency": currency})
+        if query.product_id:
+            allowed_ids = {
+                item.get("id")
+                for item in (previous_state or {}).get("catalog_products", [])
+                if isinstance(item, dict) and isinstance(item.get("id"), str)
+            }
+            if query.product_id not in allowed_ids:
+                query = query.model_copy(
+                    update={"product_id": None, "query": query.query or message[:300]}
+                )
+        return query
+    except Exception as exc:
+        logger.warning("Shopify product-search routing failed: %s", type(exc).__name__)
+        return None
+
+
+def _merge_shopify_product_query(
+    current: ShopifySearchQuery, previous_state: dict | None
+) -> ShopifySearchQuery:
+    current_fields = set(current.model_fields_set)
+    sale_words = _normalized_words(current.query or "")
+    if sale_words and sale_words <= _SALE_REFINEMENT_WORDS:
+        current = current.model_copy(update={"query": None, "on_sale": True})
+        current_fields.discard("query")
+        current_fields.add("on_sale")
+    previous_raw = (
+        previous_state.get("catalog_search")
+        if isinstance(previous_state, dict)
+        and previous_state.get("catalog_provider") == "shopify"
+        else None
+    )
+    if not isinstance(previous_raw, dict):
+        return current.model_copy(update={"context_mode": "new", "page": 1})
+    try:
+        previous = ShopifySearchQuery.model_validate(previous_raw)
+    except Exception:
+        return current.model_copy(update={"context_mode": "new", "page": 1})
+
+    identity_fields = {"query", "product_id"}
+    modifier_fields = {
+        "min_price",
+        "max_price",
+        "currency",
+        "available",
+        "on_sale",
+        "options",
+    }
+    mode = current.context_mode
+    if mode == "new" and not (current_fields & identity_fields) and (
+        current_fields & modifier_fields
+    ):
+        mode = "refine"
+    if mode == "new":
+        return current.model_copy(update={"context_mode": "new", "page": 1})
+
+    merged = previous.model_dump(mode="python")
+    merged["context_mode"] = mode
+    merged["product_id"] = None
+    if mode == "more":
+        merged["page"] = min(previous.page + 1, 100)
+        if "per_page" in current_fields:
+            merged["per_page"] = current.per_page
+        return ShopifySearchQuery.model_validate(merged)
+
+    merged["page"] = 1
+    for field in current_fields - {"context_mode", "options", "page"}:
+        merged[field] = getattr(current, field)
+    if "query" in current_fields and current.query and previous.query:
+        prior_text = _normalized(previous.query)
+        current_text = _normalized(current.query)
+        if prior_text not in current_text and current_text not in prior_text:
+            merged["query"] = f"{previous.query} {current.query}"[:300]
+    if "options" in current_fields:
+        named = {
+            _normalized(option.name or option.value): option
+            for option in previous.options
+        }
+        for option in current.options:
+            key = _normalized(option.name or option.value)
+            named[key] = option
+        merged["options"] = list(named.values())
+    return ShopifySearchQuery.model_validate(merged)
+
+
+def _normalized(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", value.casefold())
+    return "".join(ch for ch in normalized if not unicodedata.combining(ch)).strip()
+
+
+def _shopify_filter_summary(
+    query: ShopifySearchQuery, catalog_metadata: dict, language: str
+) -> str:
+    parts: list[str] = []
+    if query.query:
+        parts.append(
+            f"αναζήτηση «{query.query}»"
+            if language == "el"
+            else f'search “{query.query}”'
+        )
+    for option in query.options:
+        if option.name:
+            parts.append(f"{option.name}: {option.value}")
+        else:
+            parts.append(option.value)
+    currency = query.currency or str(
+        (catalog_metadata.get("currency") or {}).get("code") or ""
+    )
+    try:
+        minor_unit = int(
+            (catalog_metadata.get("currency") or {}).get("minor_unit", 2)
+        )
+    except (TypeError, ValueError):
+        minor_unit = 2
+    minor_unit = min(max(minor_unit, 0), 6)
+
+    def display_price(value: int) -> str:
+        rendered = f"{value / (10**minor_unit):.{minor_unit}f}".rstrip("0").rstrip(".")
+        return f"{rendered} {currency}".strip()
+
+    if query.min_price is not None:
+        value = display_price(query.min_price)
+        parts.append(f"από {value}" if language == "el" else f"from {value}")
+    if query.max_price is not None:
+        value = display_price(query.max_price)
+        parts.append(f"έως {value}" if language == "el" else f"up to {value}")
+    if query.on_sale is True:
+        parts.append("σε έκπτωση" if language == "el" else "on sale")
+    elif query.on_sale is False:
+        parts.append("χωρίς έκπτωση" if language == "el" else "not on sale")
+    if query.available:
+        parts.append("σε απόθεμα" if language == "el" else "in stock")
+    return ", ".join(parts)
+
+
+def _shopify_catalog_reply(
+    message: str,
+    count: int,
+    query: ShopifySearchQuery,
+    catalog_metadata: dict,
+) -> str:
+    language = _reply_language(message)
+    filters = _shopify_filter_summary(query, catalog_metadata, language)
+    suffix = (
+        f" Φίλτρα: {filters}." if language == "el" else f" Filters: {filters}."
+    ) if filters else ""
+    if language == "el":
+        if count == 0:
+            return "Δεν βρήκα προϊόντα που να ταιριάζουν σε αυτή την αναζήτηση." + suffix
+        return f"Βρήκα {count} προϊόντα που ταιριάζουν στην αναζήτησή σας." + suffix
+    if count == 0:
+        return "I couldn't find products matching that search." + suffix
+    return f"I found {count} matching product{'s' if count != 1 else ''}." + suffix
+
+
+def _shopify_browse_link(
+    message: str, products: list[dict], store_url: str
+) -> tuple[str, str]:
+    language = _reply_language(message)
+    for product in products:
+        collection_url = safe_store_link(product.get("collection_url"), store_url)
+        collection_name = str(product.get("collection_name") or "").strip()
+        if collection_url and collection_name:
+            if language == "el":
+                return collection_url, f"Δείτε όλα τα {collection_name.lower()} στο κατάστημα"
+            return collection_url, f"View all {collection_name} in the store"
+    return (
+        store_url,
+        "Περιηγηθείτε στο κατάστημα" if language == "el" else "Browse the store",
+    )
 
 
 def _catalog_filter_summary(
@@ -870,41 +1114,59 @@ async def run_turn(
         catalog_repo = WooCommerceCatalogRepository(session)
         catalog = await catalog_repo.get(profile.id)
         if catalog is not None and catalog.enabled and settings.deepseek_api_key:
+            provider = getattr(catalog, "provider", "woocommerce")
+            adapter = get_catalog_adapter(provider, catalog.store_url)
+            # Keep the established module-level client seams used by tests and
+            # deployments that inject a custom transport.
+            adapter.client = (
+                ShopifyStoreClient(catalog.store_url)
+                if provider == "shopify"
+                else WooCommerceStoreClient(catalog.store_url)
+            )
             refreshed_at = catalog.metadata_refreshed_at
             metadata = catalog.catalog_metadata or {}
             stale = (
                 refreshed_at is None
                 or (datetime.now(timezone.utc) - refreshed_at).total_seconds()
-                >= settings.woocommerce_metadata_ttl_seconds
-                or metadata.get("schema_version") != 2
+                >= adapter.metadata_ttl_seconds
+                or metadata.get("schema_version") != adapter.metadata_schema_version
             )
             if stale:
                 try:
-                    refreshed_metadata = await WooCommerceStoreClient(
-                        catalog.store_url
-                    ).verify_and_discover()
+                    refreshed_metadata = await adapter.verify_and_discover()
                     verified_at = datetime.now(timezone.utc)
                     catalog = await catalog_repo.upsert(
                         profile.id,
                         store_url=catalog.store_url,
                         enabled=True,
+                        provider=provider,
                         catalog_metadata=refreshed_metadata,
                         verified_at=verified_at,
                     )
                     await session.commit()
-                except WooCommerceError:
+                except (WooCommerceError, ShopifyError):
                     logger.warning(
-                        "WooCommerce metadata refresh failed profile_id=%s", profile.id
+                        "Catalog metadata refresh failed provider=%s profile_id=%s",
+                        provider,
+                        profile.id,
                     )
             previous_catalog_state = await conversation_repo.latest_catalog_state(
                 conversation.id
             )
-            product_query = await _select_product_search(
-                get_client(),
-                message,
-                catalog_metadata=catalog.catalog_metadata or {},
-                previous_state=previous_catalog_state,
-            )
+            if provider == "shopify":
+                product_query = await _select_shopify_product_search(
+                    get_client(),
+                    message,
+                    catalog_metadata=catalog.catalog_metadata or {},
+                    previous_state=previous_catalog_state,
+                )
+            else:
+                product_query = await _select_product_search(
+                    get_client(),
+                    message,
+                    catalog_metadata=catalog.catalog_metadata or {},
+                    previous_state=previous_catalog_state,
+                )
             if product_query is not None:
                 await conversation_repo.add_message(conversation.id, "user", message)
                 await session.commit()
@@ -915,23 +1177,36 @@ async def run_turn(
                         and isinstance(previous_catalog_state, dict)
                         else None
                     )
-                    product_result = await WooCommerceStoreClient(
-                        catalog.store_url
-                    ).search_products(product_query, cursor=product_cursor)
+                    product_result = await adapter.execute(
+                        product_query,
+                        cursor=product_cursor,
+                        language=_reply_language(message),
+                    )
                     products = product_result["products"]
                     answered = bool(products)
-                    final_text = _catalog_reply(
-                        message,
-                        len(products),
-                        product_query,
-                        catalog.catalog_metadata or {},
-                    )
-                    browse_url, browse_label = _catalog_browse_link(
-                        message,
-                        product_query,
-                        catalog.catalog_metadata or {},
-                        catalog.store_url,
-                    )
+                    if provider == "shopify":
+                        final_text = _shopify_catalog_reply(
+                            message,
+                            len(products),
+                            ShopifySearchQuery.model_validate(product_query),
+                            catalog.catalog_metadata or {},
+                        )
+                        browse_url, browse_label = _shopify_browse_link(
+                            message, products, catalog.store_url
+                        )
+                    else:
+                        final_text = _catalog_reply(
+                            message,
+                            len(products),
+                            ProductSearchQuery.model_validate(product_query),
+                            catalog.catalog_metadata or {},
+                        )
+                        browse_url, browse_label = _catalog_browse_link(
+                            message,
+                            ProductSearchQuery.model_validate(product_query),
+                            catalog.catalog_metadata or {},
+                            catalog.store_url,
+                        )
                     yield {
                         "type": "product_results",
                         "products": products,
@@ -945,9 +1220,11 @@ async def run_turn(
                         "browse_url": browse_url,
                         "browse_label": browse_label,
                     }
-                except WooCommerceError:
+                except (WooCommerceError, ShopifyError):
                     logger.warning(
-                        "WooCommerce product search failed profile_id=%s", profile.id
+                        "Catalog product search failed provider=%s profile_id=%s",
+                        provider,
+                        profile.id,
                     )
                     product_result = {
                         "query": product_query.model_dump(mode="json"),
@@ -977,6 +1254,7 @@ async def run_turn(
                         "searched": True,
                         "had_sources": answered,
                         "question": message[:500],
+                        "catalog_provider": provider,
                         "catalog_search": product_result["query"],
                         "catalog_page": product_result["page"],
                         "catalog_has_more": product_result["has_more"],

@@ -16,7 +16,7 @@ import DeviceFrame from "./DeviceFrame.astro";
       </div>
     </div>
 
-    <div class="grid grid-cols-2 gap-2 sm:gap-3" aria-label="WooCommerce product results">
+    <div class="grid grid-cols-2 gap-2 sm:gap-3" aria-label="Product catalog results">
       <article class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <div class="flex h-24 items-center justify-center bg-gradient-to-br from-sky-50 to-indigo-100 text-4xl sm:h-28">
           👗
@@ -41,9 +41,19 @@ import DeviceFrame from "./DeviceFrame.astro";
       </article>
     </div>
 
-    <div class="flex items-center gap-2 text-xs text-slate-500">
-      <span class="h-2 w-2 rounded-full bg-emerald-500"></span>
-      Live results from your WooCommerce catalog
+    <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+      <span class="flex items-center gap-2">
+        <span class="h-2 w-2 rounded-full bg-emerald-500"></span>
+        Live product discovery
+      </span>
+      <span class="flex items-center gap-1.5" aria-label="Supported catalog providers">
+        <span class="rounded-full border border-violet-200 bg-violet-50 px-2 py-1 font-semibold text-violet-700">
+          WooCommerce
+        </span>
+        <span class="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 font-semibold text-emerald-700">
+          Shopify
+        </span>
+      </span>
     </div>
   </div>
 </DeviceFrame>

@@ -472,7 +472,7 @@ function addBubble(role: "user" | "assistant", text: string): HTMLDivElement {
 }
 
 interface WidgetProductResult {
-  id: number;
+  id: number | string;
   name: string;
   price: string | null;
   currency_code: string | null;
@@ -507,7 +507,10 @@ function addProductResults(
   grid.setAttribute("aria-label", "Product results");
   for (const product of products.slice(0, 4)) {
     const productUrl = safeHttpsUrl(product.product_url);
-    if (!productUrl || !Number.isInteger(product.id) || !product.name) continue;
+    const validId =
+      (typeof product.id === "number" && Number.isInteger(product.id)) ||
+      (typeof product.id === "string" && product.id.length > 0);
+    if (!productUrl || !validId || !product.name) continue;
     const card = document.createElement("article");
     card.className = "wx-product";
     const imageUrl = safeHttpsUrl(product.image_url);

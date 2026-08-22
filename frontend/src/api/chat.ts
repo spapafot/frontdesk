@@ -15,11 +15,11 @@ export interface Source {
 export interface ProductAttribute {
   name: string;
   taxonomy: string | null;
-  terms: Array<{ name: string; slug: string }>;
+  terms: Array<{ name: string; slug: string | null; available?: boolean }>;
 }
 
 export interface ProductResult {
-  id: number;
+  id: number | string;
   name: string;
   slug: string | null;
   summary: string;

@@ -6,7 +6,7 @@ export const SITE = {
   // it is only escaped when placed inside attributes.
   tagline: "AI customer support, grounded in your business knowledge",
   description:
-    "Plug & Play is an AI customer-support chatbot for your website. It answers from your approved business knowledge and helps shoppers find products in your WooCommerce catalog.",
+    "Plug & Play is an AI customer-support chatbot for your website. It answers from your approved business knowledge and helps shoppers find products in WooCommerce and Shopify catalogs.",
   url: "https://plugandplay.gr",
   // Where the marketing CTAs send people to sign in / register.
   appUrl: import.meta.env.PUBLIC_APP_URL ?? "https://app.plugandplay.gr",

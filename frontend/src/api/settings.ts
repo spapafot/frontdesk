@@ -1,6 +1,7 @@
 import { API_BASE } from "./client";
 
 export type LauncherPosition = "bottom-right" | "bottom-left";
+export type CatalogProvider = "woocommerce" | "shopify";
 
 export interface Settings {
   business_name: string;
@@ -27,6 +28,10 @@ export interface Settings {
   woocommerce_store_url: string | null;
   woocommerce_catalog_enabled: boolean;
   woocommerce_catalog_verified_at: string | null;
+  catalog_provider: CatalogProvider | null;
+  catalog_store_url: string | null;
+  catalog_enabled: boolean;
+  catalog_verified_at: string | null;
 }
 
 export interface WooCommerceVerification {
@@ -35,6 +40,16 @@ export interface WooCommerceVerification {
   currency_code: string | null;
   categories: number;
   attributes: number;
+}
+
+export interface CatalogVerification {
+  provider: CatalogProvider;
+  store_url: string;
+  product_count: number | null;
+  currency_code: string | null;
+  categories: number | null;
+  attributes: number | null;
+  capabilities: string[];
 }
 
 export const settingsKey = (siteId: number) => `${API_BASE}/settings?site_id=${siteId}`;
@@ -78,8 +93,9 @@ export async function updateSettings(
     greeting: string;
     launcher_label: string;
     show_branding: boolean;
-    woocommerce_store_url: string;
-    woocommerce_catalog_enabled: boolean;
+    catalog_provider: CatalogProvider;
+    catalog_store_url: string;
+    catalog_enabled: boolean;
   }
 ): Promise<Settings> {
   return handle(
@@ -87,6 +103,20 @@ export async function updateSettings(
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
+    })
+  );
+}
+
+export async function verifyCatalog(
+  siteId: number,
+  provider: CatalogProvider,
+  storeUrl: string
+): Promise<CatalogVerification> {
+  return handle(
+    await fetch(`${API_BASE}/settings/catalog/verify?site_id=${siteId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ provider, store_url: storeUrl }),
     })
   );
 }

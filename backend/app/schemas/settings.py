@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -36,6 +37,10 @@ class SettingsOut(BaseModel):
     woocommerce_store_url: str | None = None
     woocommerce_catalog_enabled: bool = False
     woocommerce_catalog_verified_at: datetime | None = None
+    catalog_provider: Literal["woocommerce", "shopify"] | None = None
+    catalog_store_url: str | None = None
+    catalog_enabled: bool = False
+    catalog_verified_at: datetime | None = None
 
 
 class SettingsUpdate(BaseModel):
@@ -57,6 +62,9 @@ class SettingsUpdate(BaseModel):
     show_branding: bool | None = None
     woocommerce_store_url: str | None = Field(default=None, max_length=2048)
     woocommerce_catalog_enabled: bool | None = None
+    catalog_provider: Literal["woocommerce", "shopify"] | None = None
+    catalog_store_url: str | None = Field(default=None, max_length=2048)
+    catalog_enabled: bool | None = None
 
     @field_validator("notification_email")
     @classmethod
@@ -82,7 +90,7 @@ class SettingsUpdate(BaseModel):
             raise ValueError(f"launcher_position must be one of {sorted(LAUNCHER_POSITIONS)}")
         return value
 
-    @field_validator("woocommerce_store_url")
+    @field_validator("woocommerce_store_url", "catalog_store_url")
     @classmethod
     def _trim_store_url(cls, value: str | None) -> str | None:
         return value.strip() if value is not None else None
@@ -98,3 +106,18 @@ class WooCommerceVerifyOut(BaseModel):
     currency_code: str | None = None
     categories: int = 0
     attributes: int = 0
+
+
+class CatalogVerifyRequest(BaseModel):
+    provider: Literal["woocommerce", "shopify"]
+    store_url: str = Field(..., min_length=1, max_length=2048)
+
+
+class CatalogVerifyOut(BaseModel):
+    provider: Literal["woocommerce", "shopify"]
+    store_url: str
+    product_count: int | None = None
+    currency_code: str | None = None
+    categories: int | None = None
+    attributes: int | None = None
+    capabilities: list[str] = Field(default_factory=list)

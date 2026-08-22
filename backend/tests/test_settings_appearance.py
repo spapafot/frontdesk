@@ -120,3 +120,18 @@ def test_woocommerce_catalog_fields_are_optional_and_trimmed():
 def test_woocommerce_store_url_has_a_bounded_length():
     with pytest.raises(ValidationError):
         SettingsUpdate(woocommerce_store_url="https://" + "x" * 2048)
+
+
+def test_generic_catalog_fields_are_optional_and_trimmed():
+    untouched = SettingsUpdate()
+    assert "catalog_provider" not in untouched.model_fields_set
+    assert untouched.catalog_enabled is None
+
+    configured = SettingsUpdate(
+        catalog_provider="shopify",
+        catalog_store_url="  https://shop.example  ",
+        catalog_enabled=True,
+    )
+    assert configured.catalog_provider == "shopify"
+    assert configured.catalog_store_url == "https://shop.example"
+    assert configured.catalog_enabled is True
