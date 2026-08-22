@@ -36,6 +36,7 @@ const TIERS: Tier[] = [
       "500 messages / month",
       "50 MB knowledge base",
       "1 seat",
+      "AI product catalog search (WooCommerce & Shopify)",
     ],
   },
   {
@@ -49,6 +50,7 @@ const TIERS: Tier[] = [
       "5,000 messages / month",
       "500 MB knowledge base",
       "5 seats",
+      "AI product catalog search (WooCommerce & Shopify)",
       "Live human handoff",
       "Remove branding",
     ],
@@ -65,6 +67,7 @@ const TIERS: Tier[] = [
       "50,000 messages / month",
       "2 GB knowledge base",
       "Unlimited seats",
+      "AI product catalog search (WooCommerce & Shopify)",
       "Live human handoff",
       "Remove branding",
       "Priority support",
