@@ -819,6 +819,12 @@ describe("embedded widget verification flow", () => {
     expect(actions).toHaveTextContent("Talk to a person");
     const storageKey = `wx_conv_17_${encodeURIComponent("https://customer.example")}`;
     expect(localStorage.getItem(`${storageKey}_visitor_count`)).toBe("3");
+
+    const dismiss = document.getElementById("wx-talk-dismiss") as HTMLButtonElement;
+    dismiss.click();
+    expect(talk.hidden).toBe(true);
+    expect(document.getElementById("wx-talk-heading")).toHaveAttribute("hidden");
+    expect(localStorage.getItem(`${storageKey}_talk_dismissed`)).toBe("true");
   });
 
   it("honors a per-site talk-to-person threshold from the session", async () => {
@@ -1879,6 +1885,7 @@ describe("embedded widget verification flow", () => {
             type: "product_results",
             page: 1,
             has_more: true,
+            more_prompt: "Πείτε «δείξε μου περισσότερα» για να δείτε κι άλλα προϊόντα.",
             products: [
               {
                 id: 21,
@@ -1921,7 +1928,7 @@ describe("embedded widget verification flow", () => {
 
     const form = document.getElementById("wx-form") as HTMLFormElement;
     const input = document.getElementById("wx-input") as HTMLInputElement;
-    input.value = "medium dresses";
+    input.value = "φορέματα";
     form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
 
     await vi.waitFor(() =>
@@ -1934,7 +1941,12 @@ describe("embedded widget verification flow", () => {
       "href",
       "https://shop.example/product/blue-dress/",
     );
-    expect(document.getElementById("wx-messages")).toHaveTextContent("show me more");
+    expect(document.getElementById("wx-messages")).toHaveTextContent(
+      "Πείτε «δείξε μου περισσότερα» για να δείτε κι άλλα προϊόντα.",
+    );
+    expect(document.getElementById("wx-messages")).not.toHaveTextContent(
+      "Ask “show me more”",
+    );
   });
 });
 

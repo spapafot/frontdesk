@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+import unicodedata
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
@@ -236,9 +237,11 @@ async def _select_product_search(
 filter, compare, or inspect products in the connected WooCommerce store. If so, call
 search_products exactly once. Otherwise reply with NO_PRODUCT_SEARCH and do not call a
 tool. Use only category, taxonomy, and term slugs present in catalog_metadata. Put prices
-in the store's smallest currency unit using currency.minor_unit. For refinements, merge
-the latest request with previous_catalog_state. For 'show more', preserve its filters and
-increment page. Never invent unavailable taxonomy slugs.
+in the store's smallest currency unit using currency.minor_unit. Set context_mode to
+refine when a short follow-up changes the previous product search (for example "on sale",
+"black", or "under €50"), and include only the filters that changed. Set it to more only
+for a request for the next page. Set it to new only when the customer starts a separate
+product search. Never invent unavailable taxonomy slugs.
 
 catalog_metadata:
 {metadata}
@@ -268,7 +271,10 @@ previous_catalog_state:
         call = calls[0]
         if call.function.name != "search_products":
             return None
-        query = ProductSearchQuery.model_validate_json(call.function.arguments)
+        query = _merge_product_query(
+            ProductSearchQuery.model_validate_json(call.function.arguments),
+            previous_state,
+        )
         allowed_categories = {
             str(item.get("slug"))
             for item in catalog_metadata.get("categories", [])
@@ -302,14 +308,210 @@ previous_catalog_state:
         return None
 
 
-def _catalog_reply(message: str, count: int) -> str:
-    if _reply_language(message) == "el":
+_SALE_REFINEMENT_WORDS = frozenset(
+    {
+        "sale",
+        "discount",
+        "discounted",
+        "offer",
+        "offers",
+        "only",
+        "on",
+        "with",
+        "items",
+        "products",
+        "σε",
+        "με",
+        "εκπτωση",
+        "εκπτωσεις",
+        "προσφορα",
+        "προσφορες",
+        "μονο",
+        "προιοντα",
+    }
+)
+
+
+def _normalized_words(value: str) -> set[str]:
+    normalized = unicodedata.normalize("NFKD", value.casefold())
+    without_marks = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    return set(re.findall(r"[\w]+", without_marks, flags=re.UNICODE))
+
+
+def _sale_only_search(query: ProductSearchQuery) -> bool:
+    words = _normalized_words(query.search or "")
+    return bool(words) and words <= _SALE_REFINEMENT_WORDS
+
+
+def _merge_product_query(
+    current: ProductSearchQuery, previous_state: dict | None
+) -> ProductSearchQuery:
+    """Apply product follow-ups to the last effective query on the server.
+
+    The model identifies which fields changed; it never has to repeat the entire
+    previous query correctly. A modifier-only sale request is also recognized as
+    a refinement even if the model labels it as a new search.
+    """
+    current_fields = set(current.model_fields_set)
+    sale_only = _sale_only_search(current)
+    if sale_only:
+        # Models sometimes encode "σε έκπτωση" as free-text search instead of
+        # the Store API's on_sale flag. Normalize that even without history.
+        current = current.model_copy(update={"search": None, "on_sale": True})
+        current_fields.discard("search")
+        current_fields.add("on_sale")
+
+    previous_raw = (
+        previous_state.get("catalog_search")
+        if isinstance(previous_state, dict)
+        else None
+    )
+    if not isinstance(previous_raw, dict):
+        return current.model_copy(update={"context_mode": "new"})
+    try:
+        previous = ProductSearchQuery.model_validate(previous_raw)
+    except Exception:
+        return current.model_copy(update={"context_mode": "new"})
+
+    identity_fields = {"search", "slug", "sku", "category", "attributes"}
+    effective_identity_fields = current_fields & identity_fields
+    modifier_fields = {
+        "min_price",
+        "max_price",
+        "on_sale",
+        "stock_status",
+        "orderby",
+        "order",
+    }
+    mode = current.context_mode
+    if (
+        mode == "new"
+        and not effective_identity_fields
+        and bool(current_fields & modifier_fields)
+    ):
+        mode = "refine"
+
+    if mode == "new":
+        return current.model_copy(update={"context_mode": "new"})
+
+    merged = previous.model_dump(mode="python")
+    merged["context_mode"] = mode
+    if mode == "more":
+        merged["page"] = min(previous.page + 1, 100)
+        if "per_page" in current_fields:
+            merged["per_page"] = current.per_page
+        return ProductSearchQuery.model_validate(merged)
+
+    # A changed filter starts again from the first page. Scalar fields omitted
+    # by the model retain their prior value.
+    merged["page"] = 1
+    for field in current_fields - {"context_mode", "attributes", "page"}:
+        merged[field] = getattr(current, field)
+    if "attributes" in current_fields:
+        by_taxonomy = {item.taxonomy: item for item in previous.attributes}
+        by_taxonomy.update({item.taxonomy: item for item in current.attributes})
+        merged["attributes"] = list(by_taxonomy.values())
+    return ProductSearchQuery.model_validate(merged)
+
+
+def _catalog_filter_summary(
+    query: ProductSearchQuery, catalog_metadata: dict, language: str
+) -> str:
+    categories = {
+        str(item.get("slug")): plain_name
+        for item in catalog_metadata.get("categories", [])
+        if isinstance(item, dict)
+        and item.get("slug")
+        and (plain_name := str(item.get("name") or item.get("slug")))
+    }
+    attribute_names: dict[str, str] = {}
+    term_names: dict[tuple[str, str], str] = {}
+    for attribute in catalog_metadata.get("attributes", []):
+        if not isinstance(attribute, dict) or not attribute.get("taxonomy"):
+            continue
+        taxonomy = str(attribute["taxonomy"])
+        attribute_names[taxonomy] = str(attribute.get("name") or taxonomy)
+        for term in attribute.get("terms", []):
+            if isinstance(term, dict) and term.get("slug"):
+                term_names[(taxonomy, str(term["slug"]))] = str(
+                    term.get("name") or term["slug"]
+                )
+
+    parts: list[str] = []
+    if query.search:
+        parts.append(
+            f"αναζήτηση «{query.search}»"
+            if language == "el"
+            else f'search “{query.search}”'
+        )
+    if query.sku:
+        parts.append(f"SKU {query.sku}")
+    if query.category:
+        label = categories.get(query.category, query.category)
+        parts.append(f"κατηγορία {label}" if language == "el" else f"category {label}")
+    for attribute in query.attributes:
+        attribute_label = attribute_names.get(attribute.taxonomy, attribute.taxonomy)
+        term_label = term_names.get(
+            (attribute.taxonomy, attribute.slug), attribute.slug
+        )
+        parts.append(f"{attribute_label}: {term_label}")
+
+    currency = catalog_metadata.get("currency") or {}
+    code = str(currency.get("code") or "").strip()
+    try:
+        minor_unit = min(max(int(currency.get("minor_unit", 2)), 0), 6)
+    except (TypeError, ValueError):
+        minor_unit = 2
+
+    def display_price(value: int) -> str:
+        amount = value / (10**minor_unit)
+        rendered = f"{amount:.{minor_unit}f}".rstrip("0").rstrip(".")
+        return f"{rendered} {code}".strip()
+
+    if query.min_price is not None:
+        value = display_price(query.min_price)
+        parts.append(f"από {value}" if language == "el" else f"from {value}")
+    if query.max_price is not None:
+        value = display_price(query.max_price)
+        parts.append(f"έως {value}" if language == "el" else f"up to {value}")
+    if query.on_sale is True:
+        parts.append("σε έκπτωση" if language == "el" else "on sale")
+    elif query.on_sale is False:
+        parts.append("χωρίς έκπτωση" if language == "el" else "not on sale")
+    if query.stock_status:
+        stock_labels = {
+            "instock": "σε απόθεμα" if language == "el" else "in stock",
+            "outofstock": "εκτός αποθέματος" if language == "el" else "out of stock",
+            "onbackorder": "σε προπαραγγελία" if language == "el" else "on backorder",
+        }
+        parts.append(", ".join(stock_labels[item] for item in query.stock_status))
+    return ", ".join(parts)
+
+
+def _catalog_reply(
+    message: str,
+    count: int,
+    query: ProductSearchQuery,
+    catalog_metadata: dict,
+) -> str:
+    language = _reply_language(message)
+    filters = _catalog_filter_summary(query, catalog_metadata, language)
+    suffix = (
+        f" Φίλτρα: {filters}." if language == "el" else f" Filters: {filters}."
+    ) if filters else ""
+    if language == "el":
         if count == 0:
-            return "Δεν βρήκα προϊόντα που να ταιριάζουν σε αυτή την αναζήτηση."
-        return f"Βρήκα {count} προϊόντα που ταιριάζουν στην αναζήτησή σας."
+            return "Δεν βρήκα προϊόντα που να ταιριάζουν σε αυτή την αναζήτηση." + suffix
+        return f"Βρήκα {count} προϊόντα που ταιριάζουν στην αναζήτησή σας." + suffix
     if count == 0:
-        return "I couldn't find products matching that search."
-    return f"I found {count} matching product{'s' if count != 1 else ''}."
+        return "I couldn't find products matching that search." + suffix
+    return f"I found {count} matching product{'s' if count != 1 else ''}." + suffix
+
+
+def _catalog_more_prompt(message: str) -> str:
+    if _reply_language(message) == "el":
+        return "Πείτε «δείξε μου περισσότερα» για να δείτε κι άλλα προϊόντα."
+    return "Ask “show me more” for the next page."
 
 
 def _catalog_unavailable_reply(message: str) -> str:
@@ -581,17 +783,33 @@ async def run_turn(
                 await conversation_repo.add_message(conversation.id, "user", message)
                 await session.commit()
                 try:
+                    product_cursor = (
+                        previous_catalog_state.get("catalog_cursor")
+                        if product_query.context_mode == "more"
+                        and isinstance(previous_catalog_state, dict)
+                        else None
+                    )
                     product_result = await WooCommerceStoreClient(
                         catalog.store_url
-                    ).search_products(product_query)
+                    ).search_products(product_query, cursor=product_cursor)
                     products = product_result["products"]
                     answered = bool(products)
-                    final_text = _catalog_reply(message, len(products))
+                    final_text = _catalog_reply(
+                        message,
+                        len(products),
+                        product_query,
+                        catalog.catalog_metadata or {},
+                    )
                     yield {
                         "type": "product_results",
                         "products": products,
                         "page": product_result["page"],
                         "has_more": product_result["has_more"],
+                        "more_prompt": (
+                            _catalog_more_prompt(message)
+                            if product_result["has_more"]
+                            else None
+                        ),
                     }
                 except WooCommerceError:
                     logger.warning(
@@ -601,6 +819,7 @@ async def run_turn(
                         "query": product_query.model_dump(mode="json"),
                         "page": product_query.page,
                         "has_more": False,
+                        "cursor": None,
                     }
                     products = []
                     answered = False
@@ -627,6 +846,7 @@ async def run_turn(
                         "catalog_search": product_result["query"],
                         "catalog_page": product_result["page"],
                         "catalog_has_more": product_result["has_more"],
+                        "catalog_cursor": product_result.get("cursor"),
                         "catalog_products": [
                             {
                                 "id": item["id"],

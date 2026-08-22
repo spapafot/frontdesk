@@ -138,6 +138,7 @@ class Settings(BaseSettings):
     woocommerce_timeout: float = 8.0
     woocommerce_max_response_bytes: int = 2_000_000
     woocommerce_max_products: int = 24
+    woocommerce_max_scan_pages: int = 5
     woocommerce_metadata_ttl_seconds: int = 86400
 
     @property

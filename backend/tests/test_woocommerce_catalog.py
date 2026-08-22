@@ -5,7 +5,12 @@ import httpx
 import pytest
 
 from app.services import chat_service
-from app.services.chat_service import _select_product_search, run_turn
+from app.services.chat_service import (
+    _catalog_more_prompt,
+    _catalog_reply,
+    _select_product_search,
+    run_turn,
+)
 from app.services.woocommerce import (
     ProductSearchQuery,
     WooCommerceError,
@@ -137,6 +142,7 @@ async def test_search_maps_filters_and_normalizes_untrusted_product_html():
             "attributes": [{"taxonomy": "pa_size", "slug": "medium"}],
             "max_price": 5000,
             "page": 1,
+            "per_page": 1,
         }
     )
 
@@ -155,6 +161,131 @@ async def test_search_maps_filters_and_normalizes_untrusted_product_html():
     assert product["summary"] == "Lightweight summer dress."
     assert product["price"] == "25.99"
     assert product["product_url"].startswith("https://shop.example/")
+
+
+async def test_search_rejects_prices_outside_bounds_when_store_lookup_is_stale():
+    def product(product_id: int, name: str, price: object) -> dict:
+        return {
+            "id": product_id,
+            "name": name,
+            "permalink": f"https://shop.example/product/{product_id}/",
+            "prices": {
+                "price": price,
+                "regular_price": price,
+                "sale_price": price,
+                "currency_code": "EUR",
+                "currency_minor_unit": 2,
+            },
+            "is_in_stock": True,
+        }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params["min_price"] == "1000"
+        assert request.url.params["max_price"] == "7000"
+        return httpx.Response(
+            200,
+            headers={"x-wp-totalpages": "1"},
+            json=[
+                product(1, "Within range", "6320"),
+                product(2, "Over stale maximum", "17680"),
+                product(3, "Under minimum", "900"),
+                product(4, "Malformed price", "not-a-price"),
+                product(5, "Missing price", None),
+            ],
+        )
+
+    client = WooCommerceStoreClient(
+        "https://shop.example",
+        transport=httpx.MockTransport(handler),
+        validate_dns=False,
+    )
+
+    result = await client.search_products(
+        ProductSearchQuery(min_price=1000, max_price=7000)
+    )
+
+    assert [item["name"] for item in result["products"]] == ["Within range"]
+    assert result["products"][0]["price"] == "63.20"
+    assert result["has_more"] is False
+
+
+async def test_search_keeps_products_without_prices_when_no_price_filter_is_used():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "id": 1,
+                    "name": "Contact for price",
+                    "permalink": "https://shop.example/product/1/",
+                    "prices": {"price": None, "currency_minor_unit": 2},
+                }
+            ],
+        )
+
+    client = WooCommerceStoreClient(
+        "https://shop.example",
+        transport=httpx.MockTransport(handler),
+        validate_dns=False,
+    )
+
+    result = await client.search_products(ProductSearchQuery())
+
+    assert [item["name"] for item in result["products"]] == ["Contact for price"]
+    assert result["products"][0]["price"] is None
+
+
+async def test_price_hardening_backfills_pages_and_cursor_avoids_repeats():
+    def product(product_id: int, price: str) -> dict:
+        return {
+            "id": product_id,
+            "name": f"Product {product_id}",
+            "permalink": f"https://shop.example/product/{product_id}/",
+            "prices": {
+                "price": price,
+                "regular_price": price,
+                "sale_price": price,
+                "currency_code": "EUR",
+                "currency_minor_unit": 2,
+            },
+        }
+
+    pages = {
+        1: [product(1, "5000"), product(99, "17000")],
+        2: [product(2, "6000"), product(3, "6500")],
+        3: [product(4, "6900")],
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        page = int(request.url.params["page"])
+        assert request.url.params["per_page"] == "2"
+        return httpx.Response(
+            200,
+            headers={"x-wp-totalpages": "3"},
+            json=pages[page],
+        )
+
+    client = WooCommerceStoreClient(
+        "https://shop.example",
+        transport=httpx.MockTransport(handler),
+        validate_dns=False,
+    )
+    query = ProductSearchQuery(max_price=7000, per_page=2)
+
+    first = await client.search_products(query)
+
+    assert [item["id"] for item in first["products"]] == [1, 2]
+    assert first["cursor"] == {"store_page": 2, "offset": 1}
+    assert first["has_more"] is True
+
+    second = await client.search_products(
+        query.model_copy(update={"context_mode": "more", "page": 2}),
+        cursor=first["cursor"],
+    )
+
+    assert [item["id"] for item in second["products"]] == [3, 4]
+    assert second["cursor"] is None
+    assert second["has_more"] is False
 
 
 async def test_router_constrains_invented_taxonomy_values():
@@ -208,11 +339,159 @@ async def test_router_constrains_invented_taxonomy_values():
     assert query.search == "medium dresses"
 
 
+def _tool_response(arguments: str):
+    return SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(
+                    tool_calls=[
+                        SimpleNamespace(
+                            function=SimpleNamespace(
+                                name="search_products", arguments=arguments
+                            )
+                        )
+                    ]
+                )
+            )
+        ]
+    )
+
+
+class _FakeCompletions:
+    def __init__(self, arguments: str):
+        self.response = _tool_response(arguments)
+
+    async def create(self, **kwargs):
+        return self.response
+
+
+def _fake_tool_client(arguments: str):
+    return SimpleNamespace(
+        chat=SimpleNamespace(completions=_FakeCompletions(arguments))
+    )
+
+
+def _shoe_state():
+    return {
+        "catalog_search": ProductSearchQuery(
+            search="παπούτσι",
+            attributes=[
+                {"taxonomy": "pa_size", "slug": "38"},
+                {"taxonomy": "pa_color", "slug": "black"},
+            ],
+        ).model_dump(mode="json")
+    }
+
+
+def _shoe_metadata():
+    return {
+        "currency": {"code": "EUR", "minor_unit": 2},
+        "categories": [],
+        "attributes": [
+            {
+                "name": "Μέγεθος",
+                "taxonomy": "pa_size",
+                "terms": [{"name": "38", "slug": "38"}],
+            },
+            {
+                "name": "Χρώμα",
+                "taxonomy": "pa_color",
+                "terms": [{"name": "Μαύρο", "slug": "black"}],
+            },
+        ],
+    }
+
+
+async def test_sale_refinement_inherits_previous_product_filters():
+    query = await _select_product_search(
+        _fake_tool_client('{"context_mode":"refine","on_sale":true}'),
+        "σε έκπτωση",
+        catalog_metadata=_shoe_metadata(),
+        previous_state=_shoe_state(),
+    )
+
+    assert query is not None
+    assert query.search == "παπούτσι"
+    assert query.on_sale is True
+    assert {(item.taxonomy, item.slug) for item in query.attributes} == {
+        ("pa_size", "38"),
+        ("pa_color", "black"),
+    }
+    assert query.page == 1
+
+
+async def test_sale_only_search_is_refined_even_when_model_calls_it_new():
+    query = await _select_product_search(
+        _fake_tool_client('{"search":"με έκπτωση"}'),
+        "σε έκπτωση",
+        catalog_metadata=_shoe_metadata(),
+        previous_state=_shoe_state(),
+    )
+
+    assert query is not None
+    assert query.context_mode == "refine"
+    assert query.search == "παπούτσι"
+    assert query.on_sale is True
+    assert len(query.attributes) == 2
+
+
+async def test_show_more_preserves_filters_and_advances_page():
+    state = _shoe_state()
+    state["catalog_search"]["page"] = 2
+    query = await _select_product_search(
+        _fake_tool_client('{"context_mode":"more"}'),
+        "δείξε μου περισσότερα",
+        catalog_metadata=_shoe_metadata(),
+        previous_state=state,
+    )
+
+    assert query is not None
+    assert query.page == 3
+    assert query.search == "παπούτσι"
+    assert len(query.attributes) == 2
+
+
+def test_catalog_reply_states_effective_filters_in_greek():
+    query = ProductSearchQuery.model_validate(
+        {
+            **_shoe_state()["catalog_search"],
+            "on_sale": True,
+            "max_price": 6000,
+        }
+    )
+
+    reply = _catalog_reply("σε έκπτωση", 3, query, _shoe_metadata())
+
+    assert reply.startswith("Βρήκα 3 προϊόντα")
+    assert "αναζήτηση «παπούτσι»" in reply
+    assert "Μέγεθος: 38" in reply
+    assert "Χρώμα: Μαύρο" in reply
+    assert "έως 60 EUR" in reply
+    assert "σε έκπτωση" in reply
+    assert "σε απόθεμα" in reply
+
+
+def test_catalog_more_prompt_matches_the_customer_language():
+    assert _catalog_more_prompt("Έχεις φορέματα κάτω από 70 ευρώ;") == (
+        "Πείτε «δείξε μου περισσότερα» για να δείτε κι άλλα προϊόντα."
+    )
+    assert _catalog_more_prompt("Show me dresses under 70 euros") == (
+        "Ask “show me more” for the next page."
+    )
+
+
 def test_tool_schema_exposes_only_read_only_product_search():
     schema = product_tool_schema()
     assert schema["function"]["name"] == "search_products"
     assert "store_url" not in str(schema)
     assert "order" not in schema["function"]["name"]
+    assert schema["function"]["parameters"]["properties"]["per_page"] == {
+        "default": 4,
+        "maximum": 4,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer",
+    }
 
 
 async def test_catalog_turn_streams_products_and_skips_rag(monkeypatch, settings):
@@ -282,8 +561,9 @@ async def test_catalog_turn_streams_products_and_skips_rag(monkeypatch, settings
         def __init__(self, store_url):
             assert store_url == "https://shop.example"
 
-        async def search_products(self, query):
+        async def search_products(self, query, *, cursor=None):
             assert query.category == "dresses"
+            assert cursor is None
             return {
                 "products": [
                     {
@@ -295,6 +575,7 @@ async def test_catalog_turn_streams_products_and_skips_rag(monkeypatch, settings
                 ],
                 "page": 1,
                 "has_more": False,
+                "cursor": None,
                 "query": query.model_dump(mode="json"),
             }
 
@@ -323,5 +604,6 @@ async def test_catalog_turn_streams_products_and_skips_rag(monkeypatch, settings
         "done",
     ]
     assert events[1]["products"][0]["name"] == "Blue Dress"
+    assert "Filters: category dresses, in stock." in events[2]["content"]
     assert [message["role"] for message in stored_messages] == ["user", "assistant"]
     assert stored_messages[1]["meta"]["catalog_search"]["category"] == "dresses"

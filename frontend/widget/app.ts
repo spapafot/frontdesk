@@ -117,7 +117,10 @@ app.innerHTML = `
   </section>
   <div class="wx-messages" id="wx-messages" role="log" aria-live="polite" hidden></div>
   <div class="wx-live-actions" id="wx-live-actions" hidden>
-    <p id="wx-live-prompt">Need more help?</p>
+    <div class="wx-talk-heading" id="wx-talk-heading">
+      <p id="wx-live-prompt">Need more help?</p>
+      <button class="wx-talk-dismiss" type="button" id="wx-talk-dismiss" title="Dismiss" aria-label="Dismiss talk to a person offer">&times;</button>
+    </div>
     <button class="wx-talk" type="button" id="wx-talk">
       <span class="wx-talk-icon">${HEADSET_ICON}</span>
       <span id="wx-talk-label">Talk to a person</span>
@@ -167,6 +170,12 @@ const liveActionsEl = document.getElementById(
 const livePromptEl = document.getElementById(
   "wx-live-prompt",
 ) as HTMLParagraphElement;
+const talkHeadingEl = document.getElementById(
+  "wx-talk-heading",
+) as HTMLDivElement;
+const talkDismissEl = document.getElementById(
+  "wx-talk-dismiss",
+) as HTMLButtonElement;
 const talkEl = document.getElementById("wx-talk") as HTMLButtonElement;
 const talkLabelEl = document.getElementById("wx-talk-label") as HTMLSpanElement;
 const newChatEl = document.getElementById("wx-new-chat") as HTMLButtonElement;
@@ -192,6 +201,7 @@ let conversationStorageKey = "";
 let conversationTokenStorageKey = "";
 let visitorMessageCountStorageKey = "";
 let conversationRatingStorageKey = "";
+let talkDismissedStorageKey = "";
 let conversationToken = "";
 let visitorMessageCount = 0;
 let conversationRated: Rating | "" = "";
@@ -207,6 +217,7 @@ let liveEnabled = false;
 let talkThreshold = 3;
 let humanRequested = false; // visitor's message matched HUMAN_REQUEST_PATTERN
 let unansweredTurn = false; // a done event carried answered === false
+let talkDismissed = false;
 let liveMode: LiveMode = "ai";
 let liveSocket: WebSocket | null = null;
 let liveConnectionPromise: Promise<WebSocket> | null = null;
@@ -296,6 +307,7 @@ function showChat(session: WidgetSession) {
   conversationTokenStorageKey = `${conversationStorageKey}_token`;
   visitorMessageCountStorageKey = `${conversationStorageKey}_visitor_count`;
   conversationRatingStorageKey = `${conversationStorageKey}_rating`;
+  talkDismissedStorageKey = `${conversationStorageKey}_talk_dismissed`;
   const stored = Number(localStorage.getItem(conversationStorageKey));
   conversationId = Number.isFinite(stored) && stored > 0 ? stored : null;
   conversationToken = localStorage.getItem(conversationTokenStorageKey) || "";
@@ -327,6 +339,13 @@ function showChat(session: WidgetSession) {
   ratingDismissed = conversationRated !== "";
   if (!conversationId || !conversationToken) {
     localStorage.removeItem(conversationRatingStorageKey);
+  }
+  talkDismissed =
+    conversationId !== null &&
+    conversationToken.length > 0 &&
+    localStorage.getItem(talkDismissedStorageKey) === "true";
+  if (!conversationId || !conversationToken) {
+    localStorage.removeItem(talkDismissedStorageKey);
   }
   renderRatingSelection();
   liveEnabled = session.live_human_escalation_enabled === true;
@@ -476,7 +495,11 @@ function safeHttpsUrl(value: unknown): string | null {
   }
 }
 
-function addProductResults(products: WidgetProductResult[], hasMore: boolean) {
+function addProductResults(
+  products: WidgetProductResult[],
+  hasMore: boolean,
+  morePrompt?: string,
+) {
   if (!products.length) return;
   const grid = document.createElement("div");
   grid.className = "wx-products";
@@ -532,7 +555,7 @@ function addProductResults(products: WidgetProductResult[], hasMore: boolean) {
   if (hasMore) {
     const more = document.createElement("p");
     more.className = "wx-product-more";
-    more.textContent = "Ask “show me more” for the next page.";
+    more.textContent = morePrompt || "Ask “show me more” for the next page.";
     messagesEl.appendChild(more);
   }
   scrollToBottom();
@@ -557,10 +580,12 @@ function clearConversationSession() {
   unansweredTurn = false;
   conversationRated = "";
   ratingDismissed = false;
+  talkDismissed = false;
   localStorage.removeItem(conversationStorageKey);
   localStorage.removeItem(conversationTokenStorageKey);
   localStorage.removeItem(visitorMessageCountStorageKey);
   localStorage.removeItem(conversationRatingStorageKey);
+  localStorage.removeItem(talkDismissedStorageKey);
   renderRatingSelection();
 }
 
@@ -645,6 +670,7 @@ function setLiveMode(mode: LiveMode) {
     liveEnabled &&
     (mode === "waiting" ||
       (mode === "ai" &&
+        !talkDismissed &&
         (humanRequested ||
           unansweredTurn ||
           visitorMessageCount >= talkThreshold) &&
@@ -665,7 +691,9 @@ function setLiveMode(mode: LiveMode) {
         visitorMessageCount >= RATING_MESSAGE_THRESHOLD &&
         !streaming));
   liveActionsEl.hidden = !showTalk && !showNewChat && !showRating;
-  livePromptEl.hidden = !showTalk;
+  talkHeadingEl.hidden = !showTalk || mode !== "ai";
+  livePromptEl.hidden = !showTalk || mode !== "ai";
+  talkDismissEl.hidden = !showTalk || mode !== "ai";
   talkEl.hidden = !showTalk;
   talkEl.disabled = connectingToHuman;
   talkLabelEl.textContent =
@@ -1056,7 +1084,11 @@ async function send(text: string) {
   const userBubble = addBubble("user", trimmed);
   inputEl.value = "";
   setStreaming(true);
-  if (asksForHuman) humanRequested = true;
+  if (asksForHuman) {
+    humanRequested = true;
+    talkDismissed = false;
+    localStorage.removeItem(talkDismissedStorageKey);
+  }
   recordVisitorMessage();
 
   const pending = addBubble("assistant", "");
@@ -1180,6 +1212,9 @@ async function send(text: string) {
                 ? (event.products as WidgetProductResult[])
                 : [],
               event.has_more === true,
+              typeof event.more_prompt === "string"
+                ? event.more_prompt
+                : undefined,
             );
             break;
           case "error":
@@ -1268,6 +1303,16 @@ talkEl.addEventListener("click", async () => {
   } catch (error) {
     addBubble("assistant", (error as Error).message);
   }
+});
+
+talkDismissEl.addEventListener("click", () => {
+  if (liveMode !== "ai") return;
+  talkDismissed = true;
+  if (talkDismissedStorageKey) {
+    localStorage.setItem(talkDismissedStorageKey, "true");
+  }
+  setLiveMode(liveMode);
+  inputEl.focus();
 });
 
 rateUpEl.addEventListener("click", () => void submitRating("up"));

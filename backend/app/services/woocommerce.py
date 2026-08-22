@@ -35,6 +35,13 @@ class ProductAttributeFilter(BaseModel):
 
 
 class ProductSearchQuery(BaseModel):
+    context_mode: Literal["new", "refine", "more"] = Field(
+        default="new",
+        description=(
+            "Use refine when this request changes the previous product search, more "
+            "for its next page, and new only for a separate product search."
+        ),
+    )
     search: str | None = Field(default=None, max_length=200)
     slug: str | None = Field(default=None, max_length=200)
     sku: str | None = Field(default=None, max_length=100)
@@ -51,7 +58,7 @@ class ProductSearchQuery(BaseModel):
     ] = "menu_order"
     order: Literal["asc", "desc"] = "asc"
     page: int = Field(default=1, ge=1, le=100)
-    per_page: int = Field(default=8, ge=1, le=24)
+    per_page: int = Field(default=4, ge=1, le=4)
 
     @field_validator("search", "slug", "sku", "category")
     @classmethod
@@ -168,6 +175,32 @@ def _format_price(raw: Any, minor_unit: int) -> str | None:
     except (InvalidOperation, TypeError, ValueError):
         return None
     return f"{amount:.{minor_unit}f}"
+
+
+def _current_price_matches(item: dict[str, Any], query: ProductSearchQuery) -> bool:
+    """Verify WooCommerce's returned price instead of trusting its lookup table.
+
+    The Store API applies price filters through WooCommerce's denormalized product
+    lookup table. Some stores leave that table stale, so an API response can contain
+    a current price outside the requested bounds. When a price bound is active, fail
+    closed if the response has no valid current price.
+    """
+    if query.min_price is None and query.max_price is None:
+        return True
+    prices = item.get("prices")
+    if not isinstance(prices, dict):
+        return False
+    try:
+        current = Decimal(str(prices.get("price")))
+    except (InvalidOperation, TypeError, ValueError):
+        return False
+    if not current.is_finite():
+        return False
+    if query.min_price is not None and current < query.min_price:
+        return False
+    if query.max_price is not None and current > query.max_price:
+        return False
+    return True
 
 
 class WooCommerceStoreClient:
@@ -298,10 +331,15 @@ class WooCommerceStoreClient:
             "attributes": attributes,
         }
 
-    async def search_products(self, query: ProductSearchQuery) -> dict[str, Any]:
+    async def search_products(
+        self,
+        query: ProductSearchQuery,
+        *,
+        cursor: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        page_size = min(query.per_page, settings.woocommerce_max_products)
         params: list[tuple[str, str]] = [
-            ("page", str(query.page)),
-            ("per_page", str(min(query.per_page, settings.woocommerce_max_products))),
+            ("per_page", str(page_size)),
             ("catalog_visibility", "visible"),
             ("orderby", query.orderby),
             ("order", query.order),
@@ -328,19 +366,72 @@ class WooCommerceStoreClient:
         if len(query.attributes) > 1:
             params.append(("attribute_relation", "and"))
 
-        raw, headers = await self._get_json("products", params)
-        if not isinstance(raw, list):
-            raise WooCommerceError("The store returned an invalid product list.")
-        products = [self._normalize_product(item) for item in raw if isinstance(item, dict)]
-        products = [item for item in products if item is not None]
-        try:
-            total_pages = int(headers.get("x-wp-totalpages", query.page))
-        except ValueError:
-            total_pages = query.page
+        store_page = query.page
+        store_offset = 0
+        if isinstance(cursor, dict):
+            cursor_page = cursor.get("store_page")
+            cursor_offset = cursor.get("offset")
+            if (
+                isinstance(cursor_page, int)
+                and 1 <= cursor_page <= 10000
+                and isinstance(cursor_offset, int)
+                and 0 <= cursor_offset <= page_size
+            ):
+                store_page = cursor_page
+                store_offset = cursor_offset
+
+        products: list[dict[str, Any]] = []
+        next_cursor: dict[str, int] | None = None
+        # Scan extra Store API pages only when price hardening can reject stale
+        # lookup results. The cursor preserves unconsumed products in the final
+        # page so a later "show more" cannot skip or repeat them.
+        scan_limit = (
+            max(settings.woocommerce_max_scan_pages, 1)
+            if query.min_price is not None or query.max_price is not None
+            else 1
+        )
+        for _ in range(scan_limit):
+            raw, headers = await self._get_json(
+                "products", [("page", str(store_page)), *params]
+            )
+            if not isinstance(raw, list):
+                raise WooCommerceError("The store returned an invalid product list.")
+            page_products = [
+                self._normalize_product(item)
+                for item in raw
+                if isinstance(item, dict) and _current_price_matches(item, query)
+            ]
+            page_products = [item for item in page_products if item is not None]
+            try:
+                total_pages = max(
+                    int(headers.get("x-wp-totalpages", store_page)), store_page
+                )
+            except ValueError:
+                total_pages = store_page
+
+            available = page_products[store_offset:]
+            needed = page_size - len(products)
+            products.extend(available[:needed])
+            consumed = min(len(available), needed)
+            next_offset = store_offset + consumed
+
+            if next_offset < len(page_products):
+                next_cursor = {"store_page": store_page, "offset": next_offset}
+            elif store_page < total_pages:
+                next_cursor = {"store_page": store_page + 1, "offset": 0}
+            else:
+                next_cursor = None
+
+            if len(products) >= page_size or next_cursor is None:
+                break
+            store_page = next_cursor["store_page"]
+            store_offset = next_cursor["offset"]
+
         return {
             "products": products,
             "page": query.page,
-            "has_more": query.page < total_pages,
+            "has_more": next_cursor is not None,
+            "cursor": next_cursor,
             "query": query.model_dump(mode="json"),
         }
 
