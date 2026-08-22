@@ -344,6 +344,81 @@ describe("embedded widget verification flow", () => {
     expect(localStorage.getItem(`${storageKey}_token`)).toBe("fresh-token");
   });
 
+  it("recovers from a deleted conversation by starting a new one on send", async () => {
+    window.turnstile = {
+      render: vi.fn(() => "widget-id"),
+      reset: vi.fn(),
+    };
+    const fetchMock = vi.fn(async () => {
+      // The stored conversation was deleted server-side (e.g. from the
+      // dashboard): the first send 404s, the fresh-conversation retry succeeds.
+      if (fetchMock.mock.calls.length <= 1) {
+        return new Response(
+          JSON.stringify({ detail: "Conversation not found." }),
+          { status: 404, headers: { "content-type": "application/json" } }
+        );
+      }
+      return new Response(
+        [
+          `data: ${JSON.stringify({
+            type: "conversation",
+            conversation_id: 61,
+            conversation_token: "fresh-token",
+          })}`,
+          `data: ${JSON.stringify({ type: "token", content: "Fresh answer" })}`,
+          `data: ${JSON.stringify({ type: "done" })}`,
+          "",
+        ].join("\n\n"),
+        { status: 200, headers: { "content-type": "text/event-stream" } }
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const storageKey = `wx_conv_17_${encodeURIComponent("https://customer.example")}`;
+    localStorage.setItem(storageKey, "999");
+    localStorage.setItem(`${storageKey}_token`, "stale-conversation-token");
+
+    const widget = await import("./app");
+    widget.handleParentMessage(
+      new MessageEvent("message", {
+        origin: location.origin,
+        source: window,
+        data: {
+          type: "wx-session",
+          session: {
+            token: "signed-session",
+            installation_id: 17,
+            origin: "https://customer.example",
+            assistant_name: "Helper",
+            business_name: "Acme",
+            live_human_escalation_enabled: false,
+          },
+        },
+      })
+    );
+
+    const form = document.getElementById("wx-form") as HTMLFormElement;
+    const input = document.getElementById("wx-input") as HTMLInputElement;
+    input.value = "Hello again";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
+      conversation_id: 999,
+      conversation_token: "stale-conversation-token",
+    });
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toMatchObject({
+      conversation_id: null,
+      conversation_token: null,
+    });
+    await vi.waitFor(() =>
+      expect(document.getElementById("wx-messages")).toHaveTextContent("Fresh answer")
+    );
+    expect(document.querySelector(".wx-error")).toBeNull();
+    expect(localStorage.getItem(storageKey)).toBe("61");
+    expect(localStorage.getItem(`${storageKey}_token`)).toBe("fresh-token");
+  });
+
   it("surfaces the server's daily-limit message when a send is rejected", async () => {
     window.turnstile = {
       render: vi.fn(() => "widget-id"),

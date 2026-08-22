@@ -1019,6 +1019,28 @@ async function send(text: string) {
         }
       }
     }
+    if (res.status === 404 && conversationId && conversationToken) {
+      const body = (await res.clone().json().catch(() => null)) as {
+        detail?: unknown;
+      } | null;
+      if (body?.detail === "Conversation not found.") {
+        // The stored conversation was deleted server-side (e.g. from the
+        // dashboard, or a site reset). Same recovery as the expired-session
+        // 401 above: start a fresh conversation instead of failing every
+        // message from now on.
+        liveSocket?.close(1000, "conversation reset");
+        liveSocket = null;
+        liveConnectionPromise = null;
+        clearConversationSession();
+        previousVisitorMessageCount = 0;
+        previousHumanRequested = false;
+        displayedLiveMessageIds.clear();
+        hydrateLiveHistory = false;
+        if (asksForHuman) humanRequested = true;
+        recordVisitorMessage();
+        res = await request();
+      }
+    }
     if (!res.ok) {
       // Surface the server's own message when it sends one (e.g. the daily
       // message limit 429) instead of a bare status code.

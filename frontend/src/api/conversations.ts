@@ -18,6 +18,10 @@ export interface ConversationSummary {
   // conversations are read-only in the history view. Optional so optimistically
   // inserted test conversations (which are never visitor-owned) can omit it.
   is_visitor?: boolean;
+  // Hidden behind the History view's "Archived" section. Dashboard-only: the
+  // visitor can keep chatting, and new activity un-archives. Optional for the
+  // same optimistic-insert reason as is_visitor.
+  archived?: boolean;
 }
 
 export interface StoredMessage {
@@ -62,11 +66,18 @@ export async function renameConversation(
   return (await response.json()) as ConversationSummary;
 }
 
-export async function deleteConversation(siteId: number, id: number): Promise<void> {
-  const response = await fetch(`${base}/${id}?site_id=${siteId}`, { method: "DELETE" });
-  if (!response.ok && response.status !== 204) {
-    throw new Error(`Failed to delete conversation (${response.status})`);
-  }
+export async function archiveConversation(
+  siteId: number,
+  id: number,
+  archived: boolean
+): Promise<ConversationSummary> {
+  const response = await fetch(`${base}/${id}/archive?site_id=${siteId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ archived }),
+  });
+  if (!response.ok) throw new Error(`Failed to archive conversation (${response.status})`);
+  return (await response.json()) as ConversationSummary;
 }
 
 export async function getConversationDetail(

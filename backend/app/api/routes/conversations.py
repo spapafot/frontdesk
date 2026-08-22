@@ -7,6 +7,7 @@ from app.core.db import get_session
 from app.models.profile import AssistantProfile
 from app.repositories.conversation_repository import ConversationRepository
 from app.schemas.conversation import (
+    ArchiveRequest,
     ConversationOut,
     MessageOut,
     RatingRequest,
@@ -33,6 +34,7 @@ def _to_out(conversation) -> ConversationOut:
         closed_at=conversation.closed_at,
         last_message_at=conversation.last_message_at,
         is_visitor=conversation.visitor_session_id_hash is not None,
+        archived=conversation.archived_at is not None,
     )
 
 
@@ -66,6 +68,22 @@ async def rename_conversation(
     return _to_out(conversation)
 
 
+@router.post("/{conversation_id}/archive", response_model=ConversationOut)
+async def archive_conversation(
+    conversation_id: int,
+    body: ArchiveRequest,
+    session: AsyncSession = Depends(get_session),
+    profile: AssistantProfile = Depends(get_selected_site),
+) -> ConversationOut:
+    repo, conversation = await _get_owned(conversation_id, profile.id, session)
+    await repo.set_archived(conversation, body.archived)
+    await session.commit()
+    return _to_out(conversation)
+
+
+# Deliberately kept although the dashboard now archives instead: hard deletion
+# remains available at the API level for data-erasure requests. It cascades
+# messages, audit events, and any escalation ticket with the conversation.
 @router.delete("/{conversation_id}", status_code=204)
 async def delete_conversation(
     conversation_id: int,

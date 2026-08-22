@@ -22,6 +22,7 @@ def _conversation(summary=None):
         closed_at=None,
         last_message_at=None,
         visitor_session_id_hash="visitor-hash",
+        archived_at=None,
     )
 
 

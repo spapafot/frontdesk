@@ -54,6 +54,15 @@ class ConversationRepository:
         await self.session.flush()
         return conversation
 
+    async def set_archived(
+        self, conversation: Conversation, archived: bool
+    ) -> Conversation:
+        conversation.archived_at = (
+            datetime.now(timezone.utc) if archived else None
+        )
+        await self.session.flush()
+        return conversation
+
     async def delete(self, conversation: Conversation) -> None:
         await self.session.delete(conversation)
         await self.session.flush()
@@ -85,6 +94,9 @@ class ConversationRepository:
         conversation = await self.get(conversation_id)
         if conversation is not None:
             conversation.last_message_at = datetime.now(timezone.utc)
+            # New activity resurfaces an archived conversation in History so
+            # a returning visitor's messages are never invisible to the owner.
+            conversation.archived_at = None
         await self.session.flush()
         return message
 

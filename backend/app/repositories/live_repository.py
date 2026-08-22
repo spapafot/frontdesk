@@ -212,6 +212,9 @@ class LiveRepository:
             conversation = await self.session.get(Conversation, conversation_id)
             if conversation is not None:
                 conversation.last_message_at = datetime.now(timezone.utc)
+                # New activity resurfaces an archived conversation in History
+                # (mirrors ConversationRepository.add_message).
+                conversation.archived_at = None
             return inserted, True
         existing = (
             await self.session.execute(

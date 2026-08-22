@@ -20,6 +20,9 @@ class ConversationOut(BaseModel):
     # visitor session). The admin's own test chats have no visitor session, so
     # this is False for them. Drives the read-only history view.
     is_visitor: bool = False
+    # Hidden behind the History view's "Archived" section. Dashboard-only:
+    # the visitor can keep chatting, and new activity un-archives.
+    archived: bool = False
 
 
 class MessageOut(BaseModel):
@@ -37,6 +40,10 @@ class RenameRequest(BaseModel):
 
 class RatingRequest(BaseModel):
     rating: Literal["up", "down"]
+
+
+class ArchiveRequest(BaseModel):
+    archived: bool = True
 
 
 class WidgetRatingRequest(BaseModel):

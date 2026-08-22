@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { ConversationSummary } from "../api/conversations";
 import { useAuth } from "./AuthGate";
-import { ConfirmDialog } from "./ConfirmDialog";
 import { Skeleton } from "./Skeleton";
 import { useSite } from "./SiteProvider";
 import { SiteSwitcher } from "./SiteSwitcher";
 import {
   BarChart3,
   BookOpen,
+  ChevronRight,
   CreditCard,
   Headphones,
   HelpCircle,
@@ -49,7 +49,7 @@ interface Props {
   onSetLiveOnline: (online: boolean) => void;
   onNavigate: (view: View) => void;
   onRenameConversation: (id: number, title: string) => void;
-  onDeleteConversation: (id: number) => void;
+  onArchiveConversation: (id: number, archived: boolean) => void;
 }
 
 function formatTime(startedAt: string): string {
@@ -101,23 +101,25 @@ export function Sidebar({
   onSetLiveOnline,
   onNavigate,
   onRenameConversation,
-  onDeleteConversation,
+  onArchiveConversation,
 }: Props) {
   const { canSignOut, signOut, isSuperAdmin, userEmail } = useAuth();
   const { isOwner, ownsAnySite } = useSite();
   const [editingId, setEditingId] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
-  const [pendingDelete, setPendingDelete] =
-    useState<ConversationSummary | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
   const liveConversations = conversations?.filter(
     (item) => item.mode === "waiting" || item.mode === "human",
   );
   const historyConversations = conversations?.filter(
     (item) =>
-      item.mode === "ai" ||
-      item.mode === "pending_ticket" ||
-      item.mode === "closed",
+      !item.archived &&
+      (item.mode === "ai" ||
+        item.mode === "pending_ticket" ||
+        item.mode === "closed"),
   );
+  const archivedConversations =
+    conversations?.filter((item) => item.archived) ?? [];
   const visibleConversations =
     view === "live"
       ? liveConversations
@@ -291,10 +293,12 @@ export function Sidebar({
                       </button>
                       <button
                         type="button"
-                        onClick={() => setPendingDelete(conversation)}
-                        className="pointer-events-auto rounded px-1 text-[11px] text-red-500 hover:bg-red-100"
+                        onClick={() =>
+                          onArchiveConversation(conversation.id, true)
+                        }
+                        className="pointer-events-auto rounded px-1 text-[11px] text-slate-500 hover:bg-slate-300"
                       >
-                        Delete
+                        Archive
                       </button>
                     </div>
                   )}
@@ -302,6 +306,69 @@ export function Sidebar({
               );
             })}
           </ul>
+          {view === "history" && archivedConversations.length > 0 && (
+            <div className="mt-3 border-t border-slate-200 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowArchived((value) => !value)}
+                className="flex w-full items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-100"
+              >
+                <ChevronRight
+                  className={`h-3.5 w-3.5 transition-transform ${showArchived ? "rotate-90" : ""}`}
+                  aria-hidden="true"
+                />
+                Archived ({archivedConversations.length})
+              </button>
+              {showArchived && (
+                <ul className="mt-1 space-y-1">
+                  {archivedConversations.map((conversation) => {
+                    const active = conversation.id === selectedConversationId;
+                    const title =
+                      conversation.title?.trim() ||
+                      formatTime(conversation.started_at) ||
+                      "Conversation";
+                    return (
+                      <li
+                        key={conversation.id}
+                        className={`group relative rounded-xl ${active ? "bg-sky-100" : "hover:bg-slate-100"}`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onSelectConversation(conversation.id, "history")
+                          }
+                          className="block w-full rounded-xl px-3 py-2.5 text-left group-hover:pr-16"
+                        >
+                          <span
+                            className={`block truncate text-sm ${active ? "text-sky-800" : "text-slate-500"}`}
+                          >
+                            {title}
+                          </span>
+                          <span className="text-[11px] text-slate-400">
+                            {formatTime(
+                              conversation.last_message_at ||
+                                conversation.started_at,
+                            )}
+                          </span>
+                        </button>
+                        <div className="pointer-events-none absolute inset-y-0 right-0 hidden items-center pr-2 group-hover:flex">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onArchiveConversation(conversation.id, false)
+                            }
+                            className="pointer-events-auto rounded px-1 text-[11px] text-slate-500 hover:bg-slate-300"
+                          >
+                            Restore
+                          </button>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -410,22 +477,6 @@ export function Sidebar({
         </div>
       </div>
 
-      <ConfirmDialog
-        open={pendingDelete !== null}
-        title="Delete conversation"
-        message={
-          pendingDelete
-            ? `"${pendingDelete.title?.trim() || "this conversation"}" will be permanently deleted. This can't be undone.`
-            : ""
-        }
-        confirmLabel="Delete"
-        destructive
-        onConfirm={() => {
-          if (pendingDelete) onDeleteConversation(pendingDelete.id);
-          setPendingDelete(null);
-        }}
-        onCancel={() => setPendingDelete(null)}
-      />
     </aside>
   );
 }

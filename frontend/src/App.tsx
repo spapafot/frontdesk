@@ -9,8 +9,8 @@ import {
 import useSWR, { useSWRConfig } from "swr";
 import { analyticsKey, getAnalytics } from "./api/analytics";
 import {
+  archiveConversation,
   conversationsKey,
-  deleteConversation,
   listConversations,
   rateConversation,
   Rating,
@@ -424,24 +424,28 @@ function AppShell() {
     }
   };
 
-  const onDeleteConversation = async (id: number) => {
+  const onArchiveConversation = async (id: number, archived: boolean) => {
     if (selectedSiteId == null) return;
-    if (id === selectedConversationId) navigate("/history");
+    if (archived && id === selectedConversationId) navigate("/history");
     try {
       await mutateConversations(
         async (list) => {
-          await deleteConversation(selectedSiteId, id);
-          return list?.filter((c) => c.id !== id) ?? [];
+          const updated = await archiveConversation(selectedSiteId, id, archived);
+          return list?.map((c) => (c.id === updated.id ? updated : c)) ?? [];
         },
         {
-          optimisticData: (list) => list?.filter((c) => c.id !== id) ?? [],
+          optimisticData: (list) =>
+            list?.map((c) => (c.id === id ? { ...c, archived } : c)) ?? [],
           rollbackOnError: true,
           revalidate: false,
         },
       );
-      mutateAnalytics();
     } catch {
-      showToast("Couldn't delete the conversation. Restored.");
+      showToast(
+        archived
+          ? "Couldn't archive the conversation. Restored."
+          : "Couldn't restore the conversation.",
+      );
     }
   };
 
@@ -541,7 +545,7 @@ function AppShell() {
         onSetLiveOnline={inbox.setOnline}
         onNavigate={(next) => navigate(VIEW_PATHS[next])}
         onRenameConversation={onRenameConversation}
-        onDeleteConversation={onDeleteConversation}
+        onArchiveConversation={onArchiveConversation}
       />
 
       {/* Scrim behind the mobile drawer. */}
