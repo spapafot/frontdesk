@@ -169,6 +169,11 @@ def _safe_https_url(value: Any, *, same_origin: str | None = None) -> str | None
     return parsed.geturl()
 
 
+def safe_store_link(value: Any, store_url: str) -> str | None:
+    """Return an HTTPS link only when it stays on the configured store origin."""
+    return _safe_https_url(value, same_origin=store_url)
+
+
 def _format_price(raw: Any, minor_unit: int) -> str | None:
     try:
         amount = Decimal(str(raw)) / (Decimal(10) ** minor_unit)
@@ -277,7 +282,12 @@ class WooCommerceStoreClient:
             "products/attributes", [("per_page", "100")]
         )
         categories = [
-            {"id": item.get("id"), "name": plain_text(item.get("name"), limit=100), "slug": item.get("slug")}
+            {
+                "id": item.get("id"),
+                "name": plain_text(item.get("name"), limit=100),
+                "slug": item.get("slug"),
+                "permalink": safe_store_link(item.get("permalink"), self.store_url),
+            }
             for item in (categories_raw if isinstance(categories_raw, list) else [])[:200]
             if isinstance(item, dict) and item.get("slug")
         ]
@@ -325,6 +335,7 @@ class WooCommerceStoreClient:
         except ValueError:
             product_count = len(products)
         return {
+            "schema_version": 2,
             "product_count": max(product_count, 0),
             "currency": currency,
             "categories": categories,

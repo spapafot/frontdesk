@@ -1885,7 +1885,9 @@ describe("embedded widget verification flow", () => {
             type: "product_results",
             page: 1,
             has_more: true,
-            more_prompt: "Πείτε «δείξε μου περισσότερα» για να δείτε κι άλλα προϊόντα.",
+            more_prompt: "Πείτε «δείξε μου περισσότερα» για να δείτε άλλα 4 προϊόντα.",
+            browse_url: "https://shop.example/product-category/dresses/",
+            browse_label: "Δείτε όλα τα φορέματα στο κατάστημα",
             products: [
               {
                 id: 21,
@@ -1942,7 +1944,14 @@ describe("embedded widget verification flow", () => {
       "https://shop.example/product/blue-dress/",
     );
     expect(document.getElementById("wx-messages")).toHaveTextContent(
-      "Πείτε «δείξε μου περισσότερα» για να δείτε κι άλλα προϊόντα.",
+      "Πείτε «δείξε μου περισσότερα» για να δείτε άλλα 4 προϊόντα.",
+    );
+    expect(document.querySelector(".wx-product-browse")).toHaveAttribute(
+      "href",
+      "https://shop.example/product-category/dresses/",
+    );
+    expect(document.querySelector(".wx-product-browse")).toHaveTextContent(
+      "Δείτε όλα τα φορέματα στο κατάστημα",
     );
     expect(document.getElementById("wx-messages")).not.toHaveTextContent(
       "Ask “show me more”",

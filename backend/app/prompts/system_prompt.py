@@ -73,6 +73,8 @@ Style rules:
 - Reply in the SAME language as the customer's most recent message. Do not translate
   your answer into another language or switch languages on your own. (The underlying
   information may be in a different language; still answer in the customer's language.)
+  Treat Greek written with Latin characters (Greeklish) as Greek and reply in natural
+  Greek script, not English.
 - Write in plain text only. Do NOT use any Markdown or special formatting: no asterisks
   (* or **), no underscores, no backticks, no headings (#), and no bullet/numbered list
   markers. Use ordinary sentences, and if you must list a few items, separate them with

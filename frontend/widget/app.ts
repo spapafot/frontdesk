@@ -499,12 +499,13 @@ function addProductResults(
   products: WidgetProductResult[],
   hasMore: boolean,
   morePrompt?: string,
+  browseUrlValue?: string,
+  browseLabel?: string,
 ) {
-  if (!products.length) return;
   const grid = document.createElement("div");
   grid.className = "wx-products";
   grid.setAttribute("aria-label", "Product results");
-  for (const product of products) {
+  for (const product of products.slice(0, 4)) {
     const productUrl = safeHttpsUrl(product.product_url);
     if (!productUrl || !Number.isInteger(product.id) || !product.name) continue;
     const card = document.createElement("article");
@@ -550,13 +551,22 @@ function addProductResults(
     card.appendChild(body);
     grid.appendChild(card);
   }
-  if (!grid.childElementCount) return;
-  messagesEl.appendChild(grid);
+  if (grid.childElementCount) messagesEl.appendChild(grid);
   if (hasMore) {
     const more = document.createElement("p");
     more.className = "wx-product-more";
     more.textContent = morePrompt || "Ask “show me more” for the next page.";
     messagesEl.appendChild(more);
+  }
+  const browseUrl = safeHttpsUrl(browseUrlValue);
+  if (browseUrl && browseLabel) {
+    const browse = document.createElement("a");
+    browse.className = "wx-product-browse";
+    browse.href = browseUrl;
+    browse.target = "_blank";
+    browse.rel = "noopener noreferrer";
+    browse.textContent = browseLabel;
+    messagesEl.appendChild(browse);
   }
   scrollToBottom();
 }
@@ -1214,6 +1224,12 @@ async function send(text: string) {
               event.has_more === true,
               typeof event.more_prompt === "string"
                 ? event.more_prompt
+                : undefined,
+              typeof event.browse_url === "string"
+                ? event.browse_url
+                : undefined,
+              typeof event.browse_label === "string"
+                ? event.browse_label
                 : undefined,
             );
             break;

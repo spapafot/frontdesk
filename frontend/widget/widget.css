@@ -539,6 +539,24 @@ body {
   margin: -4px 0 0 0;
 }
 
+.wx-product-browse {
+  align-self: stretch;
+  display: block;
+  border-radius: 11px;
+  padding: 10px 12px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+  text-align: center;
+  text-decoration: none;
+}
+
+.wx-product-browse:hover {
+  background: var(--accent-strong);
+}
+
 .wx-sensitive-block {
   color: #92400e;
   background: #fffbeb;

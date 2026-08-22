@@ -6,6 +6,7 @@ import pytest
 
 from app.services import chat_service
 from app.services.chat_service import (
+    _catalog_browse_link,
     _catalog_more_prompt,
     _catalog_reply,
     _select_product_search,
@@ -61,7 +62,15 @@ async def test_discovers_public_catalog_metadata():
             )
         if path.endswith("/products/categories"):
             return httpx.Response(
-                200, json=[{"id": 7, "name": "Dresses", "slug": "dresses"}]
+                200,
+                json=[
+                    {
+                        "id": 7,
+                        "name": "Dresses",
+                        "slug": "dresses",
+                        "permalink": "https://shop.example/product-category/dresses/",
+                    }
+                ],
             )
         if path.endswith("/products/attributes"):
             return httpx.Response(
@@ -83,8 +92,12 @@ async def test_discovers_public_catalog_metadata():
     metadata = await client.verify_and_discover()
 
     assert metadata["product_count"] == 42
+    assert metadata["schema_version"] == 2
     assert metadata["currency"]["code"] == "EUR"
     assert metadata["categories"][0]["slug"] == "dresses"
+    assert metadata["categories"][0]["permalink"] == (
+        "https://shop.example/product-category/dresses/"
+    )
     assert metadata["attributes"][0]["terms"][0]["slug"] == "medium"
 
 
@@ -473,11 +486,63 @@ def test_catalog_reply_states_effective_filters_in_greek():
 
 def test_catalog_more_prompt_matches_the_customer_language():
     assert _catalog_more_prompt("Έχεις φορέματα κάτω από 70 ευρώ;") == (
-        "Πείτε «δείξε μου περισσότερα» για να δείτε κι άλλα προϊόντα."
+        "Πείτε «δείξε μου περισσότερα» για να δείτε άλλα 4 προϊόντα."
     )
     assert _catalog_more_prompt("Show me dresses under 70 euros") == (
-        "Ask “show me more” for the next page."
+        "Ask “show me more” to see 4 more products."
     )
+
+
+def test_catalog_browse_link_uses_canonical_category_archive_in_greek():
+    url, label = _catalog_browse_link(
+        "Έχεις φορέματα;",
+        ProductSearchQuery(category="dresses", max_price=5000),
+        {
+            "currency": {"code": "EUR", "minor_unit": 2},
+            "categories": [
+                {
+                    "slug": "dresses",
+                    "name": "Φορέματα",
+                    "permalink": "https://shop.example/product-category/dresses/",
+                }
+            ]
+        },
+        "https://shop.example",
+    )
+
+    assert url == "https://shop.example/product-category/dresses/"
+    assert label == "Δείτε όλα τα φορέματα στο κατάστημα"
+
+
+def test_catalog_reply_and_pagination_are_greek_for_greeklish():
+    query = ProductSearchQuery(category="dresses", max_price=5000)
+    metadata = {
+        "currency": {"code": "EUR", "minor_unit": 2},
+        "categories": [{"slug": "dresses", "name": "Φορέματα"}],
+        "attributes": [],
+    }
+
+    reply = _catalog_reply(
+        "exete foremata kato apo 50 euro",
+        4,
+        query,
+        metadata,
+    )
+
+    assert reply.startswith("Βρήκα 4 προϊόντα")
+    assert "έως 50 EUR" in reply
+    assert _catalog_more_prompt("deikse mou perissotera") == (
+        "Πείτε «δείξε μου περισσότερα» για να δείτε άλλα 4 προϊόντα."
+    )
+
+
+def test_catalog_browse_link_falls_back_to_store_without_category():
+    assert _catalog_browse_link(
+        "Δείξε μου προϊόντα",
+        ProductSearchQuery(),
+        {"categories": []},
+        "https://shop.example",
+    ) == ("https://shop.example", "Περιηγηθείτε στο κατάστημα")
 
 
 def test_tool_schema_exposes_only_read_only_product_search():
@@ -508,7 +573,7 @@ async def test_catalog_turn_streams_products_and_skips_rag(monkeypatch, settings
     catalog = SimpleNamespace(
         store_url="https://shop.example",
         enabled=True,
-        catalog_metadata={"categories": [], "attributes": []},
+        catalog_metadata={"schema_version": 2, "categories": [], "attributes": []},
         metadata_refreshed_at=datetime.now(timezone.utc),
     )
 

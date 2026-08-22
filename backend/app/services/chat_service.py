@@ -26,6 +26,7 @@ from app.services.woocommerce import (
     WooCommerceError,
     WooCommerceStoreClient,
     product_tool_schema,
+    safe_store_link,
 )
 from app.services.live_auth import (
     create_conversation_token,
@@ -109,6 +110,85 @@ LIMIT_CLOSED = {
 }
 
 _GREEK_RE = re.compile(r"[\u0370-\u03ff\u1f00-\u1fff]")
+_GREEKLISH_STRONG_WORDS = frozenset(
+    {
+        "akribotera",
+        "aspro",
+        "aspra",
+        "deikse",
+        "deixte",
+        "ekptosi",
+        "ekptoseis",
+        "exeis",
+        "exete",
+        "exo",
+        "exoume",
+        "forema",
+        "foremata",
+        "fousta",
+        "foustes",
+        "fthina",
+        "ftina",
+        "kokkina",
+        "kokkino",
+        "lefka",
+        "lefko",
+        "ligotera",
+        "mavra",
+        "mavri",
+        "mavro",
+        "megethos",
+        "mplouza",
+        "mplouzes",
+        "nai",
+        "noumero",
+        "olokliri",
+        "oxi",
+        "panteloni",
+        "pantelonia",
+        "papoutsi",
+        "papoutsia",
+        "perissotera",
+        "proion",
+        "proionta",
+        "prosfora",
+        "prosfores",
+        "psaxno",
+        "psaxnete",
+        "rouxa",
+        "rouxo",
+        "thelete",
+        "thelo",
+        "tsanta",
+        "tsantes",
+        "yparxei",
+        "yparxoun",
+    }
+)
+_GREEKLISH_CONTEXT_WORDS = frozenset(
+    {
+        "apo",
+        "eos",
+        "gia",
+        "kai",
+        "kato",
+        "me",
+        "mexri",
+        "mou",
+        "na",
+        "pano",
+        "pou",
+        "sas",
+        "se",
+        "sta",
+        "stin",
+        "sto",
+        "ta",
+        "tin",
+        "to",
+        "ton",
+    }
+)
 _DISCLOSURE_PATTERNS = tuple(
     re.compile(pattern, re.IGNORECASE)
     for pattern in (
@@ -132,7 +212,16 @@ _DISCLOSURE_PATTERNS = tuple(
 
 def _reply_language(message: str) -> str:
     """Canned replies mirror the language of the visitor's message."""
-    return "el" if _GREEK_RE.search(message) else "en"
+    if _GREEK_RE.search(message):
+        return "el"
+    words = set(re.findall(r"[a-z]+", message.casefold()))
+    strong_count = len(words & _GREEKLISH_STRONG_WORDS)
+    context_count = len(words & _GREEKLISH_CONTEXT_WORDS)
+    short_answer = words and words <= {"nai", "oxi"}
+    looks_greeklish = (
+        strong_count >= 2 or (strong_count and context_count) or short_answer
+    )
+    return "el" if looks_greeklish else "en"
 
 
 def safe_fallback(message: str) -> str:
@@ -510,8 +599,43 @@ def _catalog_reply(
 
 def _catalog_more_prompt(message: str) -> str:
     if _reply_language(message) == "el":
-        return "Πείτε «δείξε μου περισσότερα» για να δείτε κι άλλα προϊόντα."
-    return "Ask “show me more” for the next page."
+        return "Πείτε «δείξε μου περισσότερα» για να δείτε άλλα 4 προϊόντα."
+    return "Ask “show me more” to see 4 more products."
+
+
+def _catalog_browse_link(
+    message: str,
+    query: ProductSearchQuery,
+    catalog_metadata: dict,
+    store_url: str,
+) -> tuple[str, str]:
+    """Build a store CTA, preferring WooCommerce's canonical category archive."""
+    language = _reply_language(message)
+    fallback_label = (
+        "Περιηγηθείτε στο κατάστημα"
+        if language == "el"
+        else "Browse the store"
+    )
+    if query.category:
+        category = next(
+            (
+                item
+                for item in catalog_metadata.get("categories", [])
+                if isinstance(item, dict) and item.get("slug") == query.category
+            ),
+            None,
+        )
+        if category:
+            category_url = safe_store_link(category.get("permalink"), store_url)
+            category_name = str(category.get("name") or "").strip()
+            if category_url and category_name:
+                if language == "el":
+                    return (
+                        category_url,
+                        f"Δείτε όλα τα {category_name.lower()} στο κατάστημα",
+                    )
+                return category_url, f"View all {category_name} in the store"
+    return store_url, fallback_label
 
 
 def _catalog_unavailable_reply(message: str) -> str:
@@ -747,10 +871,12 @@ async def run_turn(
         catalog = await catalog_repo.get(profile.id)
         if catalog is not None and catalog.enabled and settings.deepseek_api_key:
             refreshed_at = catalog.metadata_refreshed_at
+            metadata = catalog.catalog_metadata or {}
             stale = (
                 refreshed_at is None
                 or (datetime.now(timezone.utc) - refreshed_at).total_seconds()
                 >= settings.woocommerce_metadata_ttl_seconds
+                or metadata.get("schema_version") != 2
             )
             if stale:
                 try:
@@ -800,6 +926,12 @@ async def run_turn(
                         product_query,
                         catalog.catalog_metadata or {},
                     )
+                    browse_url, browse_label = _catalog_browse_link(
+                        message,
+                        product_query,
+                        catalog.catalog_metadata or {},
+                        catalog.store_url,
+                    )
                     yield {
                         "type": "product_results",
                         "products": products,
@@ -810,6 +942,8 @@ async def run_turn(
                             if product_result["has_more"]
                             else None
                         ),
+                        "browse_url": browse_url,
+                        "browse_label": browse_label,
                     }
                 except WooCommerceError:
                     logger.warning(
