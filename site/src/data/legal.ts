@@ -14,7 +14,7 @@ export type LegalPage = {
 };
 
 // Shown under every legal page heading. Bump when the policies change.
-export const LEGAL_UPDATED = "17 July 2026";
+export const LEGAL_UPDATED = "31 October 2026";
 
 // Single contact address for privacy, billing, and general enquiries.
 export const LEGAL_CONTACT = "contact@plugandplay.gr";
@@ -55,6 +55,7 @@ export const LEGAL_PAGES: Record<string, LegalPage> = {
         heading: "Service providers and where data goes",
         body: [
           "We rely on the following processors to run the service: our authentication and database provider (account, workspace, and conversation storage); OpenAI (to create search embeddings from uploaded text, and to screen widget messages for abuse); DeepSeek (to generate assistant answers and summaries from the relevant knowledge-base context and conversation content); Jina AI (to fetch a web page as text when an administrator adds it by URL, and to re-rank search results); Stripe (to process subscription and top-up payments - we never see or store your full card details); and our hosting and edge providers, which operate the servers and content-delivery/edge network that carry requests.",
+          "The chat widget is protected by Cloudflare Turnstile, which runs in the background without showing visitors a challenge. When a visitor opens the chat, and again if the chat session needs renewing, Turnstile collects signals from the visitor's browser, including the IP address, TLS fingerprint, and User-Agent, to tell people from bots. Cloudflare processes these signals on our behalf for bot detection, and as a data controller to improve Turnstile's bot detection. For more information, see Cloudflare's Turnstile Privacy Addendum: https://www.cloudflare.com/en-gb/turnstile-privacy-policy/",
           "Some of these providers process data outside the European Economic Area. Where that happens, transfers are covered by the safeguards those providers offer (such as the European Commission's Standard Contractual Clauses).",
           "Our marketing website uses Google Analytics to measure site usage, and only after you consent through the cookie banner - see the Cookie Policy.",
         ],
@@ -114,6 +115,7 @@ export const LEGAL_PAGES: Record<string, LegalPage> = {
         heading: "The widget and account security",
         body: [
           "The widget is authorised for one exact website origin and can be disabled or have its site key rotated from the workspace at any time. Public widget access is granted through short-lived signed sessions tied to that origin; do not attempt to reuse or share those credentials outside the authorised site.",
+          "The widget uses Cloudflare Turnstile to block automated traffic. The check runs in the background, so visitors do not see a challenge; a visitor who does not pass it sees an error with a retry option and cannot chat until a retry succeeds. The Privacy Policy describes the data involved.",
           "Usage is subject to the message and storage quotas of your plan (see Billing and Refunds). We may apply rate limits and abuse protections to keep the service available to everyone.",
         ],
       },

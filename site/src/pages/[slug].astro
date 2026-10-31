@@ -21,6 +21,10 @@ interface Props {
 }
 const { page, slug } = Astro.props as Props;
 
+// Legal copy is plain text, so links are written as bare URLs. The capture group
+// makes split() place each URL at an odd index; trailing punctuation stays text.
+const URL_PATTERN = /(https:\/\/\S*[^\s.,;:)])/;
+
 const path = `/${slug}`;
 const description = page.summary;
 const schema = [
@@ -55,7 +59,22 @@ const schema = [
             </h2>
             <div class="mt-3 space-y-3 leading-7 text-slate-600">
               {section.body.map((paragraph) => (
-                <p>{paragraph}</p>
+                <p>
+                  {paragraph.split(URL_PATTERN).map((part, index) =>
+                    index % 2 === 1 ? (
+                      <a
+                        href={part}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="break-words text-sky-700 underline hover:text-sky-800"
+                      >
+                        {part}
+                      </a>
+                    ) : (
+                      part
+                    ),
+                  )}
+                </p>
               ))}
             </div>
           </section>
