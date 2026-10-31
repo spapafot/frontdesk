@@ -310,6 +310,14 @@ body {
   line-height: 1.3;
 }
 
+.wx-talk-heading {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .wx-live-actions button {
   display: inline-flex;
   align-items: center;
@@ -337,6 +345,19 @@ body {
   cursor: wait;
   opacity: 0.6;
   transform: none;
+}
+
+.wx-live-actions button.wx-talk-dismiss {
+  min-height: 28px;
+  width: 28px;
+  flex: 0 0 28px;
+  border: 0;
+  border-radius: 50%;
+  padding: 0;
+  color: var(--muted);
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 1;
 }
 
 .wx-live-status-dots,
@@ -452,6 +473,96 @@ body {
   background: var(--surface);
 }
 
+.wx-products {
+  align-self: stretch;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  animation: wx-pop 0.18s ease-out;
+}
+
+.wx-product {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.wx-product img {
+  display: block;
+  width: 100%;
+  height: 112px;
+  object-fit: cover;
+  background: var(--surface-alt);
+}
+
+.wx-product-body {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px;
+  font-size: 12px;
+}
+
+.wx-product-body strong {
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.wx-product-price {
+  color: var(--accent-strong);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.wx-product-detail,
+.wx-product-more {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.wx-product-body a {
+  margin-top: 2px;
+  color: var(--accent-strong);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.wx-product-body a:hover {
+  text-decoration: underline;
+}
+
+.wx-product-more {
+  align-self: flex-start;
+  margin: -4px 0 0 0;
+}
+
+.wx-product-browse {
+  align-self: stretch;
+  display: block;
+  border-radius: 11px;
+  padding: 10px 12px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+  text-align: center;
+  text-decoration: none;
+}
+
+.wx-product-browse:hover {
+  background: var(--accent-strong);
+}
+
+.wx-sensitive-block {
+  color: #92400e;
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
 .wx-input {
   flex: 1;
   border: 1px solid var(--border);
@@ -462,6 +573,14 @@ body {
   color: var(--text);
   background: var(--surface-alt);
   transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+/* iOS Safari zooms the page when a focused input's font is under 16px,
+   pushing the send button past the screen edge. Touch devices get 16px. */
+@media (pointer: coarse) {
+  .wx-input {
+    font-size: 16px;
+  }
 }
 
 .wx-input:focus {

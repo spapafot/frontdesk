@@ -1,5 +1,12 @@
 import { useCallback, useRef, useState } from "react";
-import { Source, StreamEvent, ToolCall, streamChat } from "../api/chat";
+import {
+  Source,
+  ProductResults,
+  StreamEvent,
+  ToolCall,
+  formatChatError,
+  streamChat,
+} from "../api/chat";
 import { getConversationMessages } from "../api/conversations";
 
 export interface ChatMessage {
@@ -8,6 +15,7 @@ export interface ChatMessage {
   content: string;
   toolCalls: ToolCall[];
   sources: Source[];
+  productResults: ProductResults | null;
 }
 
 interface Options {
@@ -52,6 +60,7 @@ export function useChatStream(options?: Options) {
           content: m.content,
           toolCalls: [],
           sources: [],
+          productResults: null,
         }))
       );
     } catch {
@@ -74,6 +83,7 @@ export function useChatStream(options?: Options) {
         content: trimmed,
         toolCalls: [],
         sources: [],
+        productResults: null,
       };
       const assistantId = nextId();
       const assistantMessage: ChatMessage = {
@@ -82,6 +92,7 @@ export function useChatStream(options?: Options) {
         content: "",
         toolCalls: [],
         sources: [],
+        productResults: null,
       };
       setMessages((prev) => [...prev, userMessage, assistantMessage]);
       setIsStreaming(true);
@@ -104,14 +115,40 @@ export function useChatStream(options?: Options) {
           case "sources":
             updateAssistant(assistantId, (m) => ({ ...m, sources: event.sources }));
             break;
+          case "product_results":
+            updateAssistant(assistantId, (m) => ({
+              ...m,
+              productResults: {
+                products: event.products,
+                page: event.page,
+                has_more: event.has_more,
+              },
+            }));
+            break;
           case "token":
             updateAssistant(assistantId, (m) => ({ ...m, content: m.content + event.content }));
             break;
           case "error":
             updateAssistant(assistantId, (m) => ({
               ...m,
-              content: m.content || `\u26a0\ufe0f ${event.message}`,
+              content: [
+                m.content,
+                `\u26a0\ufe0f ${formatChatError(event)}`,
+              ]
+                .filter(Boolean)
+                .join("\n\n"),
             }));
+            break;
+          case "input_blocked":
+            setMessages((prev) =>
+              prev
+                .filter((message) => message.id !== userMessage.id)
+                .map((message) =>
+                  message.id === assistantId
+                    ? { ...message, content: `\u26a0\ufe0f ${event.message}` }
+                    : message
+                )
+            );
             break;
           case "done":
             break;

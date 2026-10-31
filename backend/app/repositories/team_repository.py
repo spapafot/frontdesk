@@ -24,7 +24,7 @@ class TeamRepository:
 
     async def add_member(self, owner_user_id: str, email: str) -> TeamMember:
         """Create an invite row. The (owner, email) unique constraint surfaces
-        duplicates as IntegrityError — the caller maps it to a 409."""
+        duplicates as IntegrityError - the caller maps it to a 409."""
         member = TeamMember(
             owner_user_id=owner_user_id, invited_email=_normalize_email(email)
         )

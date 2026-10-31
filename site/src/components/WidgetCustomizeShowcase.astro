@@ -13,13 +13,13 @@ const swatches = [
 ---
 
 <DeviceFrame label="Settings · Appearance">
-  <div class="p-5">
+  <div class="p-3 sm:p-5">
     <div class="grid gap-5 sm:grid-cols-2">
       <!-- controls -->
       <div class="space-y-4">
         <div>
           <p class="text-xs font-medium text-slate-600">Accent color</p>
-          <div class="mt-2 flex gap-2">
+          <div class="mt-2 flex flex-wrap gap-2">
             {
               swatches.map((swatch) => (
                 <span

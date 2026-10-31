@@ -60,7 +60,7 @@ async def _operator_can_access(
     profile: AssistantProfile, user_id: str | None, session: AsyncSession
 ) -> bool:
     """Owner or activated team member. Socket-ticket claims carry only the
-    user id (no email) — correct, because a member must have made a REST call
+    user id (no email) - correct, because a member must have made a REST call
     (which activates their membership) to obtain a socket ticket at all."""
     if not user_id:
         return False

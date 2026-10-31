@@ -16,7 +16,6 @@ class WidgetInstallation(Base):
     public_key: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     allowed_origin: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    monthly_limit: Mapped[int] = mapped_column(Integer, default=5000)
     # Appearance. Delivered to the embedded widget via the generated snippet's
     # data-* attributes; persisted here so the dashboard remembers the choices
     # and can regenerate a matching snippet.
@@ -47,4 +46,26 @@ class WidgetUsage(Base):
         ForeignKey("widget_installations.id", ondelete="CASCADE"), index=True
     )
     period: Mapped[date] = mapped_column(Date)
+    message_count: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class VisitorUsage(Base):
+    """Daily widget-message budget per visitor IP per installation.
+
+    ``ip_hash`` is the SHA-256 hex of the Worker-attested client IP - the raw
+    address is never stored. Enforced by the guarded upsert in
+    ``WidgetRepository.reserve_visitor_message``.
+    """
+
+    __tablename__ = "visitor_usage"
+    __table_args__ = (
+        UniqueConstraint("installation_id", "ip_hash", "day", name="uq_visitor_usage_daily"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    installation_id: Mapped[int] = mapped_column(
+        ForeignKey("widget_installations.id", ondelete="CASCADE"), index=True
+    )
+    ip_hash: Mapped[str] = mapped_column(String(64))
+    day: Mapped[date] = mapped_column(Date)
     message_count: Mapped[int] = mapped_column(Integer, default=0)

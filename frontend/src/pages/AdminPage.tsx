@@ -21,7 +21,7 @@ import { useSite } from "../components/SiteProvider";
 import { Skeleton } from "../components/Skeleton";
 import { useToast } from "../components/Toast";
 
-const ACCEPT = ".txt,.pdf,.doc,.docx,.xls,.xlsx";
+const ACCEPT = ".txt,.md,.pdf,.doc,.docx,.xls,.xlsx";
 type KnowledgeTab = "documents" | "web-pages" | "faqs";
 
 export function AdminPage() {
@@ -382,7 +382,7 @@ export function AdminPage() {
         <div className="mb-4">
           <h2 className="text-base font-semibold text-slate-900">Documents</h2>
           <p className="mt-1 text-sm text-slate-500">
-            Upload TXT, PDF, DOC, DOCX, XLS, or XLSX files for the assistant to use.
+            Upload TXT, MD, PDF, DOC, DOCX, XLS, or XLSX files for the assistant to use.
           </p>
         </div>
 

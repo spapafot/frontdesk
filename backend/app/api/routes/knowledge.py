@@ -4,6 +4,7 @@ import uuid
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.auth import AdminUser, require_admin
 from app.core.db import get_session
 from app.api.dependencies import get_selected_site
 from app.models.profile import AssistantProfile
@@ -15,7 +16,7 @@ from app.schemas.knowledge import (
     LinkRequest,
     ToggleRequest,
 )
-from app.services import aws_ingestion, jina_reader
+from app.services import aws_ingestion, billing, jina_reader
 from app.services.ingestion_service import (
     SUPPORTED_EXTENSIONS,
     ExtractionError,
@@ -55,6 +56,34 @@ def _faq_text(question: str, answer: str) -> str:
     return f"{question}\n\n{answer}"
 
 
+async def _enforce_knowledge_limit(
+    session, user: AdminUser, profile: AssistantProfile
+) -> None:
+    """402 when the account's plan knowledge allowance is reached.
+
+    Knowledge is metered in chunks (≈ pgvector rows) pooled **account-wide**
+    across all the owner's sites, covering files, scanned pages, and FAQs alike.
+    Entitlements resolve by the site's owning account, so a team member adding to
+    an owner's site is bound by the owner's plan; super-admins are unlimited.
+
+    Ingestion is asynchronous, so we gate on the *current* chunk total before
+    accepting a new source; the 10 MB/file cap bounds any single overshoot.
+    """
+    owner_user_id = profile.owner_user_id
+    entitlements = await billing.resolve_entitlements(session, user, owner_user_id)
+    if entitlements.knowledge_chunks is None:
+        return
+    used = await KnowledgeRepository(session).count_chunks_for_owner(owner_user_id)
+    if used >= entitlements.knowledge_chunks:
+        raise HTTPException(
+            status_code=402,
+            detail=(
+                "Your plan's knowledge limit has been reached. "
+                "Upgrade to add more documents, pages, and FAQs."
+            ),
+        )
+
+
 def _link_storage_key(profile_id: int) -> str:
     return f"profiles/{profile_id}/{uuid.uuid4().hex}/{LINK_STORAGE_FILENAME}"
 
@@ -90,7 +119,9 @@ async def upload_document(
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_session),
     profile: AssistantProfile = Depends(get_selected_site),
+    user: AdminUser = Depends(require_admin),
 ) -> DocumentOut:
+    await _enforce_knowledge_limit(session, user, profile)
     data = await file.read()
     if not data:
         raise HTTPException(status_code=400, detail="The uploaded file is empty.")
@@ -164,7 +195,9 @@ async def add_link(
     body: LinkRequest,
     session: AsyncSession = Depends(get_session),
     profile: AssistantProfile = Depends(get_selected_site),
+    user: AdminUser = Depends(require_admin),
 ) -> DocumentOut:
+    await _enforce_knowledge_limit(session, user, profile)
     url = str(body.url)
     if not aws_ingestion.is_configured():
         raise HTTPException(
@@ -232,12 +265,14 @@ async def add_faq(
     body: FaqRequest,
     session: AsyncSession = Depends(get_session),
     profile: AssistantProfile = Depends(get_selected_site),
+    user: AdminUser = Depends(require_admin),
 ) -> DocumentOut:
     """Store a question/answer pair and index it synchronously.
 
-    No S3/SQS involved — the entry is ready and active when the request
+    No S3/SQS involved - the entry is ready and active when the request
     returns, so FAQs work even when the async ingestion stack is unconfigured.
     """
+    await _enforce_knowledge_limit(session, user, profile)
     try:
         document, chunk_count = await ingest_text_document(
             session,

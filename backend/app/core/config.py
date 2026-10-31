@@ -13,6 +13,8 @@ _REDACTED_SETTINGS = frozenset(
         "supabase_jwt_secret",
         "supabase_service_role_key",
         "ingestion_queue_url",
+        "stripe_secret_key",
+        "stripe_webhook_secret",
     }
 )
 
@@ -29,6 +31,10 @@ class Settings(BaseSettings):
     # V4-Flash defaults thinking ON; we keep it OFF since answers come straight
     # from the knowledge base (lower latency/cost, simpler streaming).
     deepseek_thinking: bool = False
+    # Optional on-demand LLM summaries for conversation history. Disabled by
+    # default because the stored transcripts are usually short and already
+    # readable, making the extra model call mostly latency and cost.
+    conversation_summaries_enabled: bool = False
 
     # OpenAI embeddings. Uses the real OpenAI API, separate from the
     # DeepSeek-compatible chat client above.
@@ -37,9 +43,10 @@ class Settings(BaseSettings):
     # Embeddings. API-based OpenAI model (no local PyTorch), so the backend stays
     # small enough for serverless/Lambda. text-embedding-3-large is multilingual
     # and defaults to 3072-dim vectors, but we request 1536 dims explicitly (via
-    # the `dimensions` API param) to keep the pgvector column size unchanged.
-    # Changing embedding_dim requires a pgvector column migration + a full
-    # re-index of existing documents.
+    # the `dimensions` API param) to keep the column size unchanged. Stored as
+    # half-precision pgvector `halfvec(1536)` (migration 0028). Changing
+    # embedding_dim requires a pgvector column migration + a full re-index of
+    # existing documents.
     openai_embedding_model: str = "text-embedding-3-large"
     embedding_dim: int = 1536
 
@@ -105,11 +112,44 @@ class Settings(BaseSettings):
     widget_allowed_origins: str = ""
     widget_session_secret: str = ""
     widget_session_ttl_seconds: int = 900
-    widget_monthly_limit: int = 5000
     live_human_escalation_enabled: bool = False
     live_conversation_token_ttl_seconds: int = 14400
     live_socket_ticket_ttl_seconds: int = 60
     live_accept_timeout_seconds: int = 60
+    # Visitor abuse moderation (OpenAI Moderation API; reuses openai_api_key).
+    # Fail-open: errors/timeouts/missing key never block a normal answer.
+    moderation_enabled: bool = True
+    moderation_model: str = "omni-moderation-latest"
+    moderation_timeout: float = 5.0
+    moderation_strike_limit: int = 3
+    # Widget abuse budgets (widget traffic only; admin test chat is exempt).
+    # 0 disables a limit. The visitor IP is attested by the edge Worker in
+    # ``visitor_ip_header`` (spoof-safe: the Worker strips inbound copies
+    # before setting its own). When the header is absent (local dev, no
+    # Worker) the daily budget is skipped - fail-open like the other
+    # unconfigured gates.
+    chat_conversation_message_limit: int = 30
+    chat_daily_ip_message_limit: int = 100
+    visitor_ip_header: str = "x-visitor-ip"
+
+    # Public WooCommerce Store API catalog lookup. These calls are read-only,
+    # but their destination is configured by a tenant, so keep the request and
+    # response bounds deliberately small.
+    woocommerce_timeout: float = 8.0
+    woocommerce_max_response_bytes: int = 2_000_000
+    woocommerce_max_products: int = 24
+    woocommerce_max_scan_pages: int = 5
+    woocommerce_metadata_ttl_seconds: int = 86400
+    # Anonymous Shopify Storefront Catalog MCP. The agent profile is a public
+    # capability declaration, not a credential.
+    shopify_ucp_agent_profile_url: str = (
+        "https://plugandplay.gr/.well-known/ucp-agent.json"
+    )
+    shopify_timeout: float = 8.0
+    shopify_max_response_bytes: int = 2_000_000
+    shopify_max_scan_pages: int = 5
+    shopify_max_pagination_pages: int = 100
+    shopify_metadata_ttl_seconds: int = 86400
 
     @property
     def allowed_origins(self) -> list[str]:
@@ -144,14 +184,40 @@ class Settings(BaseSettings):
     supabase_jwt_audience: str = "authenticated"
     # Cache lifetime for the fetched JWKS (seconds). Signing keys rotate rarely.
     supabase_jwks_cache_seconds: int = 600
-    # Service-role key for the Supabase Admin API — used only to create invited
-    # team members' accounts (generate_link). Empty disables account creation;
-    # invites still work for people who already have an account.
+    # Service-role key for the Supabase Admin API - used to create invited team
+    # members' accounts, generate password-recovery links (generate_link), and
+    # look up a user's MFA factors for aal2 enforcement. Empty disables all
+    # three; invites still work for people who already have an account.
     supabase_service_role_key: str = ""
+    # Require an aal2 (MFA-verified) token on admin routes for users who have a
+    # verified MFA factor. The factor lookup uses the Supabase Admin API
+    # (supabase_service_role_key); an unset key/url or a lookup error fails
+    # OPEN - same philosophy as moderation - so an auxiliary outage never locks
+    # the dashboard out. This flag is the operator kill-switch.
+    mfa_enforcement_enabled: bool = True
+    # Cache lifetime for a user's has-verified-factor answer (seconds).
+    supabase_mfa_cache_seconds: int = 300
     # Public URL of the admin app; used as the redirect target for invite links
     # (must be in Supabase Auth's Redirect URLs allow-list). Empty falls back to
-    # the Supabase project's configured Site URL.
+    # the Supabase project's configured Site URL. Also the base for Stripe
+    # Checkout success/cancel and billing-portal return URLs.
     app_base_url: str = ""
+
+    # --- Stripe billing (all optional; empty = billing disabled, so local dev
+    # and self-hosting run without payments) --------------------------------
+    # Secret API key and webhook signing secret. Both redacted (see
+    # _REDACTED_SETTINGS). Price ids are not secret and identify the plan/interval
+    # a Checkout session subscribes to; keep them in sync with app.core.plans.
+    stripe_secret_key: str = ""
+    stripe_webhook_secret: str = ""
+    stripe_price_starter_month: str = ""
+    stripe_price_starter_year: str = ""
+    stripe_price_pro_month: str = ""
+    stripe_price_pro_year: str = ""
+    stripe_price_business_month: str = ""
+    stripe_price_business_year: str = ""
+    # One-time "1,000 messages" top-up pack (Phase 2).
+    stripe_price_topup: str = ""
 
     @property
     def supabase_jwks_url(self) -> str:
@@ -159,9 +225,6 @@ class Settings(BaseSettings):
         if not self.supabase_url:
             return ""
         return f"{self.supabase_url.rstrip('/')}/auth/v1/.well-known/jwks.json"
-
-    # Tool loop safety
-    max_tool_iterations: int = 5
 
     def __repr_args__(self):
         """Keep credentials out of tracebacks, pytest fixture dumps, and logs."""

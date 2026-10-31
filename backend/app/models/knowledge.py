@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from pgvector.sqlalchemy import Vector
+from pgvector.sqlalchemy import HALFVEC
 from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -51,7 +51,7 @@ class KnowledgeChunk(Base):
         ForeignKey("knowledge_documents.id", ondelete="CASCADE"), index=True
     )
     content: Mapped[str] = mapped_column(Text)
-    embedding: Mapped[list[float]] = mapped_column(Vector(settings.embedding_dim))
+    embedding: Mapped[list[float]] = mapped_column(HALFVEC(settings.embedding_dim))
     meta: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB, default=dict)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

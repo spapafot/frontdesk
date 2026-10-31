@@ -49,6 +49,10 @@ npm run build    # static output to dist/
 Deploy to Cloudflare Pages (project `plugandplay-site`) with
 `deploy/cloudflare/deploy-site.sh`.
 
+The deploy script always targets the Pages production branch (`dev`), even when
+run from a different local Git branch. Set `PAGES_PRODUCTION_BRANCH` only if the
+production branch is renamed in Cloudflare.
+
 ## Notes
 
 - `public/og.png` is the 1200×630 social-share image referenced by

@@ -55,6 +55,16 @@ CLAUDE.md
 docs/
 deploy/
 
+# Track the safe Cloudflare Pages entry points. Everything else under deploy/
+# stays ignored, including credentials and machine-specific AWS configuration.
+!deploy/
+deploy/*
+!deploy/cloudflare/
+deploy/cloudflare/*
+!deploy/cloudflare/deploy-app.sh
+!deploy/cloudflare/deploy-widget.sh
+!deploy/cloudflare/deploy-site.sh
+
 # --- Cloudflare Worker (folded in from deploy/cloudflare/worker/.gitignore) ---
 lambda.env
 .dev.vars

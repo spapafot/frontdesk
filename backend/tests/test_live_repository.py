@@ -110,6 +110,48 @@ async def test_close_requires_human_mode_and_the_assigned_operator():
 
 
 @pytest.mark.asyncio
+async def test_add_strike_atomically_increments_and_returns_the_total():
+    result = Mock()
+    result.scalar_one_or_none.return_value = 2
+    session = Mock()
+    session.execute = AsyncMock(return_value=result)
+
+    strikes = await LiveRepository(session).add_strike(11)
+
+    assert strikes == 2
+    sql = _executed_sql(session)
+    assert "UPDATE conversations" in sql
+    assert "moderation_strikes" in sql
+    assert "RETURNING" in sql
+
+
+@pytest.mark.asyncio
+async def test_close_flagged_is_conditional_on_the_ai_mode():
+    conversation = Conversation(id=11, profile_id=7, mode="closed")
+    session = _session_returning(conversation)
+
+    closed = await LiveRepository(session).close_flagged(
+        11, datetime.now(timezone.utc)
+    )
+
+    assert closed is conversation
+    sql = _executed_sql(session)
+    assert "UPDATE conversations" in sql
+    assert "conversations.mode = " in sql
+    assert "closed_at" in sql
+
+
+@pytest.mark.asyncio
+async def test_close_flagged_reports_a_lost_race_instead_of_writing_blindly():
+    session = _session_returning(None)
+
+    assert (
+        await LiveRepository(session).close_flagged(11, datetime.now(timezone.utc))
+        is None
+    )
+
+
+@pytest.mark.asyncio
 async def test_timeout_only_expires_a_passed_deadline():
     conversation = Conversation(id=11, profile_id=7, mode="pending_ticket")
     session = _session_returning(conversation)

@@ -4,6 +4,7 @@ from sqlalchemy import delete, func, literal_column, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.knowledge import KnowledgeChunk, KnowledgeDocument
+from app.models.profile import AssistantProfile
 
 
 class KnowledgeRepository:
@@ -58,6 +59,20 @@ class KnowledgeRepository:
         )
         result = await self.session.execute(stmt)
         return result.scalars().first()
+
+    async def count_chunks_for_owner(self, owner_user_id: str) -> int:
+        """Total knowledge chunks across all of an account's sites.
+
+        Chunks (≈ one pgvector row each) are the plan's knowledge unit, enforced
+        account-wide. ``knowledge_chunks`` carries ``profile_id`` directly, so a
+        single join to ``assistant_profiles`` resolves ownership.
+        """
+        result = await self.session.execute(
+            select(func.count(KnowledgeChunk.id))
+            .join(AssistantProfile, AssistantProfile.id == KnowledgeChunk.profile_id)
+            .where(AssistantProfile.owner_user_id == owner_user_id)
+        )
+        return int(result.scalar_one())
 
     async def list_documents(self, profile_id: int) -> list[tuple[KnowledgeDocument, int]]:
         """Return (document, chunk_count) tuples for the business, newest first."""

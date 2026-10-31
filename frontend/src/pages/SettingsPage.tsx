@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import useSWR from "swr";
 import {
   Settings,
@@ -6,10 +7,14 @@ import {
   settingsKey,
   rotateWidgetKey,
   updateSettings,
+  verifyCatalog,
+  CatalogProvider,
+  CatalogVerification,
 } from "../api/settings";
 import { WidgetInstall } from "../components/WidgetInstall";
 import { WidgetAppearance, AppearanceState } from "../components/WidgetAppearance";
 import { WidgetPreview } from "../components/WidgetPreview";
+import { usePlan } from "../components/PlanProvider";
 import { useSite } from "../components/SiteProvider";
 import { Skeleton } from "../components/Skeleton";
 import { RenameWebsiteDialog } from "../components/RenameWebsiteDialog";
@@ -26,6 +31,12 @@ const DEFAULT_APPEARANCE: AppearanceState = {
 
 export function SettingsPage() {
   const { selectedSiteId, sites, current, renameSite, deleteSite } = useSite();
+  const { entitlements, isSuperAdmin } = usePlan();
+  const navigate = useNavigate();
+  // Super-admins get every plan feature regardless of subscription. Live
+  // handoff additionally needs the deployment-level flag (not a plan gate).
+  const canRemoveBranding = isSuperAdmin || entitlements.remove_branding;
+  const canLiveHandoff = isSuperAdmin || entitlements.live_handoff;
   const { data, error, isLoading, mutate } = useSWR<Settings>(
     selectedSiteId != null ? settingsKey(selectedSiteId) : null,
     () => getSettings(selectedSiteId as number)
@@ -40,7 +51,17 @@ export function SettingsPage() {
   const [widgetOrigin, setWidgetOrigin] = useState("");
   const [widgetEnabled, setWidgetEnabled] = useState(true);
   const [liveHumanEscalationEnabled, setLiveHumanEscalationEnabled] = useState(false);
+  const [talkToPersonAfter, setTalkToPersonAfter] = useState("3");
+  const [moderationEnabled, setModerationEnabled] = useState(true);
   const [notificationEmail, setNotificationEmail] = useState("");
+  const [showBranding, setShowBranding] = useState(true);
+  const [catalogProvider, setCatalogProvider] = useState<CatalogProvider>("woocommerce");
+  const [catalogStoreUrl, setCatalogStoreUrl] = useState("");
+  const [catalogEnabled, setCatalogEnabled] = useState(false);
+  const [catalogVerification, setCatalogVerification] =
+    useState<CatalogVerification | null>(null);
+  const [catalogVerifying, setCatalogVerifying] = useState(false);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
   const [appearance, setAppearance] = useState<AppearanceState>(DEFAULT_APPEARANCE);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -54,7 +75,15 @@ export function SettingsPage() {
       setWidgetOrigin(data.widget_origin ?? "");
       setWidgetEnabled(data.widget_enabled ?? true);
       setLiveHumanEscalationEnabled(data.live_human_escalation_enabled ?? false);
+      setTalkToPersonAfter(String(data.talk_to_person_after ?? 3));
+      setModerationEnabled(data.moderation_enabled ?? true);
       setNotificationEmail(data.notification_email ?? "");
+      setShowBranding(data.show_branding ?? true);
+      setCatalogProvider(data.catalog_provider ?? "woocommerce");
+      setCatalogStoreUrl(data.catalog_store_url ?? data.woocommerce_store_url ?? "");
+      setCatalogEnabled(data.catalog_enabled ?? data.woocommerce_catalog_enabled ?? false);
+      setCatalogVerification(null);
+      setCatalogError(null);
       setAppearance({
         accentColor: data.accent_color,
         launcherIcon: data.launcher_icon,
@@ -78,12 +107,19 @@ export function SettingsPage() {
         widget_origin: widgetOrigin,
         widget_enabled: widgetEnabled,
         live_human_escalation_enabled: liveHumanEscalationEnabled,
+        talk_to_person_after:
+          talkToPersonAfter === "" ? undefined : Math.min(50, Number(talkToPersonAfter)),
+        moderation_enabled: moderationEnabled,
         notification_email: notificationEmail.trim() || undefined,
         accent_color: appearance.accentColor.trim(),
         launcher_icon: appearance.launcherIcon,
         launcher_position: appearance.launcherPosition,
         greeting: appearance.greeting.trim(),
         launcher_label: appearance.launcherLabel.trim(),
+        show_branding: showBranding,
+        catalog_provider: catalogProvider,
+        catalog_store_url: catalogStoreUrl.trim(),
+        catalog_enabled: catalogEnabled,
       });
       await mutate(updated, { revalidate: false });
       setSaved(true);
@@ -91,6 +127,26 @@ export function SettingsPage() {
       setSaveError((err as Error).message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const testCatalogConnection = async () => {
+    if (!catalogStoreUrl.trim() || selectedSiteId == null) return;
+    setCatalogVerifying(true);
+    setCatalogError(null);
+    setCatalogVerification(null);
+    try {
+      const result = await verifyCatalog(
+        selectedSiteId,
+        catalogProvider,
+        catalogStoreUrl.trim(),
+      );
+      setCatalogStoreUrl(result.store_url);
+      setCatalogVerification(result);
+    } catch (err) {
+      setCatalogError((err as Error).message);
+    } finally {
+      setCatalogVerifying(false);
     }
   };
 
@@ -170,17 +226,114 @@ export function SettingsPage() {
                 <WidgetAppearance
                   value={appearance}
                   onChange={setAppearance}
-                  showBranding={data.show_branding}
+                  showBranding={showBranding}
+                  onShowBrandingChange={setShowBranding}
+                  canRemoveBranding={canRemoveBranding}
+                  onUpgrade={() => navigate("/billing")}
                 />
                 <div className="lg:sticky lg:top-4 lg:self-start">
                   <WidgetPreview
                     appearance={appearance}
                     assistantName={assistantName}
                     businessName={businessName}
-                    showBranding={data.show_branding}
+                    showBranding={showBranding}
                   />
                 </div>
               </div>
+            </section>
+
+            {/* Product catalog */}
+            <section className="max-w-3xl rounded-2xl border border-slate-200 bg-white p-5">
+              <h3 className="text-sm font-semibold text-slate-900">Product catalog</h3>
+              <p className="mt-1 text-xs text-slate-500">
+                Connect WooCommerce or Shopify so visitors can find and list products in
+                natural language. This integration is read-only and does not use store credentials.
+              </p>
+              <label className="mt-4 block text-sm font-medium text-slate-700">
+                Provider
+              </label>
+              <select
+                value={catalogProvider}
+                onChange={(event) => {
+                  setCatalogProvider(event.target.value as CatalogProvider);
+                  setCatalogEnabled(false);
+                  setCatalogVerification(null);
+                  setCatalogError(null);
+                }}
+                className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-sky-500"
+              >
+                <option value="woocommerce">WooCommerce</option>
+                <option value="shopify">Shopify</option>
+              </select>
+              <label className="mt-4 block text-sm font-medium text-slate-700">
+                Store URL
+              </label>
+              <div className="mt-1.5 flex flex-col gap-2 sm:flex-row">
+                <input
+                  type="url"
+                  value={catalogStoreUrl}
+                  onChange={(event) => {
+                    const nextUrl = event.target.value;
+                    setCatalogStoreUrl(nextUrl);
+                    if (!nextUrl.trim()) setCatalogEnabled(false);
+                    setCatalogVerification(null);
+                    setCatalogError(null);
+                  }}
+                  placeholder={
+                    catalogProvider === "shopify"
+                      ? "https://your-store.example.com"
+                      : "https://shop.example.com"
+                  }
+                  className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-sky-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => void testCatalogConnection()}
+                  disabled={!catalogStoreUrl.trim() || catalogVerifying}
+                  className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {catalogVerifying ? "Testing…" : "Test connection"}
+                </button>
+              </div>
+              {catalogProvider === "shopify" && (
+                <p className="mt-1.5 text-xs text-slate-400">
+                  Use the customer-facing HTTPS store origin, without a path or credentials.
+                </p>
+              )}
+              {catalogVerification && (
+                <p className="mt-2 text-xs text-emerald-700">
+                  Connected
+                  {catalogVerification.product_count != null
+                    ? `: ${catalogVerification.product_count} products`
+                    : ": catalog tools available"}
+                  {catalogVerification.categories != null
+                    ? `, ${catalogVerification.categories} categories`
+                    : ""}
+                  {catalogVerification.attributes != null
+                    ? `, ${catalogVerification.attributes} attributes`
+                    : ""}
+                  {catalogVerification.currency_code
+                    ? `, ${catalogVerification.currency_code}`
+                    : ""}.
+                </p>
+              )}
+              {catalogError && (
+                <p className="mt-2 text-xs text-red-600">{catalogError}</p>
+              )}
+              {data.catalog_verified_at && !catalogVerification && (
+                <p className="mt-2 text-xs text-slate-400">
+                  Last verified {new Date(data.catalog_verified_at).toLocaleString()}.
+                </p>
+              )}
+              <label className="mt-4 flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={catalogEnabled}
+                  disabled={!catalogStoreUrl.trim()}
+                  onChange={(event) => setCatalogEnabled(event.target.checked)}
+                />
+                Allow visitors to search this product catalog
+              </label>
             </section>
 
             {/* Website & access */}
@@ -209,17 +362,67 @@ export function SettingsPage() {
                 <input
                   type="checkbox"
                   checked={liveHumanEscalationEnabled}
-                  disabled={!data.live_human_escalation_available}
+                  disabled={!data.live_human_escalation_available || !canLiveHandoff}
                   onChange={(e) => setLiveHumanEscalationEnabled(e.target.checked)}
                 />
                 Allow visitors to talk to a person
+                {data.live_human_escalation_available && !canLiveHandoff && (
+                  <button
+                    type="button"
+                    onClick={() => navigate("/billing")}
+                    className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-700 hover:bg-sky-200"
+                  >
+                    Upgrade
+                  </button>
+                )}
               </label>
-              {!data.live_human_escalation_available && (
+              {!data.live_human_escalation_available ? (
                 <p className="mt-1 text-xs text-slate-400">
                   Live support is disabled for this deployment. Enable the global flag after
                   deploying the Lambda migration and Durable Objects.
                 </p>
+              ) : (
+                !canLiveHandoff && (
+                  <p className="mt-1 text-xs text-slate-400">
+                    Live human handoff is available on the Pro and Business plans.
+                  </p>
+                )
               )}
+              <div className="mt-3">
+                <label className="block text-sm font-medium text-slate-700">
+                  Show &ldquo;Talk to a person&rdquo; after
+                </label>
+                <p className="text-xs text-slate-400">
+                  Number of visitor messages before the option appears (0 = from the first
+                  message). It also appears sooner if the assistant can&apos;t answer or the
+                  visitor asks for a human.
+                </p>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={talkToPersonAfter}
+                  disabled={!data.live_human_escalation_available || !liveHumanEscalationEnabled}
+                  onChange={(e) => setTalkToPersonAfter(e.target.value.replace(/\D/g, ""))}
+                  maxLength={2}
+                  placeholder="3"
+                  className="mt-1.5 w-24 rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50 disabled:text-slate-400"
+                />
+              </div>
+              <label className="mt-3 flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={moderationEnabled}
+                  disabled={!data.moderation_available}
+                  onChange={(e) => setModerationEnabled(e.target.checked)}
+                />
+                Automatically moderate abusive visitor messages
+              </label>
+              <p className="mt-1 text-xs text-slate-400">
+                {data.moderation_available
+                  ? "Abusive messages get a warning instead of an answer; repeated abuse closes the conversation."
+                  : "Moderation is unavailable for this deployment (requires an OpenAI API key)."}
+              </p>
               <div className="mt-4">
                 <label className="block text-sm font-medium text-slate-700">
                   Notification email
@@ -237,8 +440,11 @@ export function SettingsPage() {
                 />
               </div>
               <p className="mt-2 text-xs text-slate-500">
-                {(data.widget_monthly_usage ?? 0).toLocaleString()} of{" "}
-                {(data.widget_monthly_limit ?? 0).toLocaleString()} messages used this month
+                {(data.widget_monthly_usage ?? 0).toLocaleString()} messages from
+                this site this month · check your total quota on the{" "}
+                <Link to="/billing" className="text-sky-600 hover:underline">
+                  Billing page
+                </Link>
               </p>
             </section>
 
@@ -264,7 +470,7 @@ export function SettingsPage() {
             launcherPosition={data.launcher_position}
             greeting={data.greeting}
             launcherLabel={data.launcher_label ?? ""}
-            showBranding={data.show_branding}
+            showBranding={showBranding}
             onRotate={async () => {
               const updated = await rotateWidgetKey(selectedSiteId as number);
               await mutate(updated, { revalidate: false });

@@ -1,3 +1,6 @@
+from datetime import datetime
+from typing import Literal
+
 from pydantic import BaseModel, Field, field_validator
 
 # Preset launcher-icon keys. Kept in sync with the frontend source of truth,
@@ -16,7 +19,6 @@ class SettingsOut(BaseModel):
     public_key: str | None = None
     widget_origin: str | None = None
     widget_enabled: bool = True
-    widget_monthly_limit: int = 5000
     widget_monthly_usage: int = 0
     widget_resets_at: str
     # Appearance
@@ -28,7 +30,17 @@ class SettingsOut(BaseModel):
     show_branding: bool = True
     live_human_escalation_enabled: bool = False
     live_human_escalation_available: bool = False
+    moderation_enabled: bool = True
+    moderation_available: bool = False
     notification_email: str | None = None
+    talk_to_person_after: int = 3
+    woocommerce_store_url: str | None = None
+    woocommerce_catalog_enabled: bool = False
+    woocommerce_catalog_verified_at: datetime | None = None
+    catalog_provider: Literal["woocommerce", "shopify"] | None = None
+    catalog_store_url: str | None = None
+    catalog_enabled: bool = False
+    catalog_verified_at: datetime | None = None
 
 
 class SettingsUpdate(BaseModel):
@@ -38,7 +50,9 @@ class SettingsUpdate(BaseModel):
     widget_origin: str | None = Field(default=None, max_length=255)
     widget_enabled: bool | None = None
     live_human_escalation_enabled: bool | None = None
+    moderation_enabled: bool | None = None
     notification_email: str | None = Field(default=None, max_length=254)
+    talk_to_person_after: int | None = Field(default=None, ge=0, le=50)
     # Appearance
     accent_color: str | None = Field(default=None, pattern=_HEX_COLOR)
     launcher_icon: str | None = Field(default=None, max_length=32)
@@ -46,6 +60,11 @@ class SettingsUpdate(BaseModel):
     greeting: str | None = Field(default=None, min_length=1, max_length=500)
     launcher_label: str | None = Field(default=None, max_length=60)
     show_branding: bool | None = None
+    woocommerce_store_url: str | None = Field(default=None, max_length=2048)
+    woocommerce_catalog_enabled: bool | None = None
+    catalog_provider: Literal["woocommerce", "shopify"] | None = None
+    catalog_store_url: str | None = Field(default=None, max_length=2048)
+    catalog_enabled: bool | None = None
 
     @field_validator("notification_email")
     @classmethod
@@ -70,3 +89,35 @@ class SettingsUpdate(BaseModel):
         if value is not None and value not in LAUNCHER_POSITIONS:
             raise ValueError(f"launcher_position must be one of {sorted(LAUNCHER_POSITIONS)}")
         return value
+
+    @field_validator("woocommerce_store_url", "catalog_store_url")
+    @classmethod
+    def _trim_store_url(cls, value: str | None) -> str | None:
+        return value.strip() if value is not None else None
+
+
+class WooCommerceVerifyRequest(BaseModel):
+    store_url: str = Field(..., min_length=1, max_length=2048)
+
+
+class WooCommerceVerifyOut(BaseModel):
+    store_url: str
+    product_count: int = 0
+    currency_code: str | None = None
+    categories: int = 0
+    attributes: int = 0
+
+
+class CatalogVerifyRequest(BaseModel):
+    provider: Literal["woocommerce", "shopify"]
+    store_url: str = Field(..., min_length=1, max_length=2048)
+
+
+class CatalogVerifyOut(BaseModel):
+    provider: Literal["woocommerce", "shopify"]
+    store_url: str
+    product_count: int | None = None
+    currency_code: str | None = None
+    categories: int | None = None
+    attributes: int | None = None
+    capabilities: list[str] = Field(default_factory=list)

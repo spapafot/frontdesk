@@ -96,6 +96,10 @@ import { contrastColor, shiftColor } from "./theme";
         bottom: 0; right: 0; left: 0; width: 100vw; height: 100dvh;
         max-width: 100vw; max-height: 100dvh; border-radius: 0;
       }
+      /* Full-screen chat covers the launcher's spot, so it would float on
+         top of the composer's send button. The header's minimize button is
+         the close control on phones. */
+      .launcher.open { display: none; }
     }
     @media (prefers-reduced-motion: reduce) {
       .launcher, .frame-wrap, .launcher-icon svg { animation: none; transition: none; }

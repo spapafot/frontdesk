@@ -1,11 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.db import get_session
 from app.api.dependencies import get_selected_site
+from app.core.config import settings
+from app.core.db import get_session
 from app.models.profile import AssistantProfile
 from app.repositories.conversation_repository import ConversationRepository
 from app.schemas.conversation import (
+    ArchiveRequest,
     ConversationOut,
     MessageOut,
     RatingRequest,
@@ -22,13 +24,17 @@ def _to_out(conversation) -> ConversationOut:
         title=conversation.title,
         started_at=conversation.started_at,
         rating=conversation.rating,
-        summary=conversation.summary,
+        summary=(
+            conversation.summary if settings.conversation_summaries_enabled else None
+        ),
         mode=conversation.mode,
         assigned_user_id=conversation.assigned_user_id,
         escalation_requested_at=conversation.escalation_requested_at,
         accepted_at=conversation.accepted_at,
         closed_at=conversation.closed_at,
         last_message_at=conversation.last_message_at,
+        is_visitor=conversation.visitor_session_id_hash is not None,
+        archived=conversation.archived_at is not None,
     )
 
 
@@ -62,6 +68,22 @@ async def rename_conversation(
     return _to_out(conversation)
 
 
+@router.post("/{conversation_id}/archive", response_model=ConversationOut)
+async def archive_conversation(
+    conversation_id: int,
+    body: ArchiveRequest,
+    session: AsyncSession = Depends(get_session),
+    profile: AssistantProfile = Depends(get_selected_site),
+) -> ConversationOut:
+    repo, conversation = await _get_owned(conversation_id, profile.id, session)
+    await repo.set_archived(conversation, body.archived)
+    await session.commit()
+    return _to_out(conversation)
+
+
+# Deliberately kept although the dashboard now archives instead: hard deletion
+# remains available at the API level for data-erasure requests. It cascades
+# messages, audit events, and any escalation ticket with the conversation.
 @router.delete("/{conversation_id}", status_code=204)
 async def delete_conversation(
     conversation_id: int,
@@ -93,7 +115,7 @@ async def get_conversation(
     profile: AssistantProfile = Depends(get_selected_site),
 ) -> ConversationOut:
     repo, conversation = await _get_owned(conversation_id, profile.id, session)
-    if not conversation.summary:
+    if settings.conversation_summaries_enabled and not conversation.summary:
         messages = await repo.get_messages(conversation_id)
         history = [
             {"role": m.role, "content": m.content}

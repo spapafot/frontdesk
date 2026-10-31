@@ -1,19 +1,21 @@
 import { useState } from "react";
 import { ConversationSummary } from "../api/conversations";
 import { useAuth } from "./AuthGate";
-import { ConfirmDialog } from "./ConfirmDialog";
 import { Skeleton } from "./Skeleton";
 import { useSite } from "./SiteProvider";
 import { SiteSwitcher } from "./SiteSwitcher";
 import {
   BarChart3,
   BookOpen,
+  ChevronRight,
+  CreditCard,
   Headphones,
   HelpCircle,
   LogOut,
   MessageSquare,
   Plus,
   Settings,
+  ShieldCheck,
   Tag,
   X,
 } from "lucide-react";
@@ -25,7 +27,9 @@ export type View =
   | "admin"
   | "settings"
   | "analytics"
-  | "widgetDocs";
+  | "billing"
+  | "widgetDocs"
+  | "account";
 
 interface Props {
   conversations: ConversationSummary[] | undefined;
@@ -45,7 +49,7 @@ interface Props {
   onSetLiveOnline: (online: boolean) => void;
   onNavigate: (view: View) => void;
   onRenameConversation: (id: number, title: string) => void;
-  onDeleteConversation: (id: number) => void;
+  onArchiveConversation: (id: number, archived: boolean) => void;
 }
 
 function formatTime(startedAt: string): string {
@@ -67,13 +71,15 @@ function NavIcon({ view }: { view: View }) {
         ? BookOpen
         : view === "analytics"
           ? BarChart3
-          : view === "widgetDocs"
-            ? HelpCircle
-            : view === "tickets"
-              ? Tag
-              : view === "live"
-                ? Headphones
-                : MessageSquare;
+          : view === "billing"
+            ? CreditCard
+            : view === "widgetDocs"
+              ? HelpCircle
+              : view === "tickets"
+                ? Tag
+                : view === "live"
+                  ? Headphones
+                  : MessageSquare;
   return <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />;
 }
 
@@ -95,23 +101,25 @@ export function Sidebar({
   onSetLiveOnline,
   onNavigate,
   onRenameConversation,
-  onDeleteConversation,
+  onArchiveConversation,
 }: Props) {
-  const { canSignOut, signOut } = useAuth();
-  const { isOwner } = useSite();
+  const { canSignOut, signOut, isSuperAdmin, userEmail } = useAuth();
+  const { isOwner, ownsAnySite } = useSite();
   const [editingId, setEditingId] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
-  const [pendingDelete, setPendingDelete] =
-    useState<ConversationSummary | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
   const liveConversations = conversations?.filter(
     (item) => item.mode === "waiting" || item.mode === "human",
   );
   const historyConversations = conversations?.filter(
     (item) =>
-      item.mode === "ai" ||
-      item.mode === "pending_ticket" ||
-      item.mode === "closed",
+      !item.archived &&
+      (item.mode === "ai" ||
+        item.mode === "pending_ticket" ||
+        item.mode === "closed"),
   );
+  const archivedConversations =
+    conversations?.filter((item) => item.archived) ?? [];
   const visibleConversations =
     view === "live"
       ? liveConversations
@@ -182,124 +190,203 @@ export function Sidebar({
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto px-3 py-2.5">
+      <div className="flex min-h-0 flex-1 flex-col">
         {view === "history" && (
-          <button
-            type="button"
-            onClick={onNewChat}
-            className="mb-2 flex w-full items-center justify-center gap-2 rounded-xl bg-sky-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-sky-700"
-          >
-            <Plus className="h-4 w-4" /> New chat
-          </button>
-        )}
-        {(view === "live" || view === "history") &&
-          conversations === undefined && (
-            <div
-              className="space-y-2"
-              role="status"
-              aria-label="Loading conversations"
+          <div className="shrink-0 px-3 pt-3">
+            <button
+              type="button"
+              onClick={onNewChat}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-sky-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-sky-700"
             >
-              {Array.from({ length: 5 }).map((_, index) => (
-                <Skeleton key={index} className="h-11 w-full rounded-lg" />
-              ))}
-            </div>
-          )}
-        {visibleConversations?.length === 0 && (
-          <p className="px-2 py-3 text-xs text-slate-400">
-            {view === "live"
-              ? "No visitors are waiting or live."
-              : "No conversations yet."}
-          </p>
+              <Plus className="h-4 w-4" /> New chat
+            </button>
+          </div>
         )}
-        <ul className="space-y-1">
-          {visibleConversations?.map((conversation) => {
-            const active = conversation.id === selectedConversationId;
-            const title =
-              conversation.title?.trim() ||
-              formatTime(conversation.started_at) ||
-              "Conversation";
-            if (editingId === conversation.id) {
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+          {(view === "live" || view === "history") &&
+            conversations === undefined && (
+              <div
+                className="space-y-2"
+                role="status"
+                aria-label="Loading conversations"
+              >
+                {Array.from({ length: 5 }).map((_, index) => (
+                  <Skeleton key={index} className="h-11 w-full rounded-lg" />
+                ))}
+              </div>
+            )}
+          {visibleConversations?.length === 0 && (
+            <p className="px-2 py-3 text-xs text-slate-400">
+              {view === "live"
+                ? "No visitors are waiting or live."
+                : "No conversations yet."}
+            </p>
+          )}
+          <ul className="space-y-1">
+            {visibleConversations?.map((conversation) => {
+              const active = conversation.id === selectedConversationId;
+              const title =
+                conversation.title?.trim() ||
+                formatTime(conversation.started_at) ||
+                "Conversation";
+              if (editingId === conversation.id) {
+                return (
+                  <li key={conversation.id}>
+                    <input
+                      autoFocus
+                      value={draft}
+                      onChange={(event) => setDraft(event.target.value)}
+                      onBlur={() => commitRename(conversation.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter")
+                          commitRename(conversation.id);
+                        if (event.key === "Escape") setEditingId(null);
+                      }}
+                      maxLength={160}
+                      className="w-full rounded-lg border border-sky-400 px-3 py-2 text-sm outline-none"
+                    />
+                  </li>
+                );
+              }
+              const section = view as "live" | "history";
               return (
-                <li key={conversation.id}>
-                  <input
-                    autoFocus
-                    value={draft}
-                    onChange={(event) => setDraft(event.target.value)}
-                    onBlur={() => commitRename(conversation.id)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") commitRename(conversation.id);
-                      if (event.key === "Escape") setEditingId(null);
-                    }}
-                    maxLength={160}
-                    className="w-full rounded-lg border border-sky-400 px-3 py-2 text-sm outline-none"
-                  />
+                <li
+                  key={conversation.id}
+                  className={`group relative rounded-xl ${active ? "bg-sky-100" : "hover:bg-slate-100"}`}
+                >
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onSelectConversation(conversation.id, section)
+                    }
+                    className="block w-full rounded-xl px-3 py-2.5 text-left group-hover:pr-24"
+                  >
+                    <span
+                      className={`block truncate text-sm ${active ? "text-sky-800" : "text-slate-700"}`}
+                    >
+                      {title}
+                    </span>
+                    <span className="flex items-center gap-1 text-[11px] text-slate-400">
+                      {view === "live" && (
+                        <span
+                          className={`font-semibold ${conversation.mode === "waiting" ? "text-amber-600" : "text-emerald-600"}`}
+                        >
+                          {conversation.mode === "waiting" ? "Waiting" : "Live"}
+                        </span>
+                      )}
+                      <span>
+                        {formatTime(
+                          conversation.last_message_at ||
+                            conversation.started_at,
+                        )}
+                      </span>
+                    </span>
+                  </button>
+                  {view === "history" && (
+                    <div className="pointer-events-none absolute inset-y-0 right-0 hidden items-center gap-1 pr-2 group-hover:flex">
+                      <button
+                        type="button"
+                        onClick={() => startRename(conversation)}
+                        className="pointer-events-auto rounded px-1 text-[11px] text-slate-500 hover:bg-slate-300"
+                      >
+                        Rename
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onArchiveConversation(conversation.id, true)
+                        }
+                        className="pointer-events-auto rounded px-1 text-[11px] text-slate-500 hover:bg-slate-300"
+                      >
+                        Archive
+                      </button>
+                    </div>
+                  )}
                 </li>
               );
-            }
-            const section = view as "live" | "history";
-            return (
-              <li
-                key={conversation.id}
-                className={`group relative rounded-xl ${active ? "bg-sky-100" : "hover:bg-slate-100"}`}
+            })}
+          </ul>
+          {view === "history" && archivedConversations.length > 0 && (
+            <div className="mt-3 border-t border-slate-200 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowArchived((value) => !value)}
+                className="flex w-full items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-100"
               >
-                <button
-                  type="button"
-                  onClick={() => onSelectConversation(conversation.id, section)}
-                  className="block w-full rounded-xl px-3 py-2.5 text-left group-hover:pr-24"
-                >
-                  <span
-                    className={`block truncate text-sm ${active ? "text-sky-800" : "text-slate-700"}`}
-                  >
-                    {title}
-                  </span>
-                  <span className="flex items-center gap-1 text-[11px] text-slate-400">
-                    {view === "live" && (
-                      <span
-                        className={`font-semibold ${conversation.mode === "waiting" ? "text-amber-600" : "text-emerald-600"}`}
+                <ChevronRight
+                  className={`h-3.5 w-3.5 transition-transform ${showArchived ? "rotate-90" : ""}`}
+                  aria-hidden="true"
+                />
+                Archived ({archivedConversations.length})
+              </button>
+              {showArchived && (
+                <ul className="mt-1 space-y-1">
+                  {archivedConversations.map((conversation) => {
+                    const active = conversation.id === selectedConversationId;
+                    const title =
+                      conversation.title?.trim() ||
+                      formatTime(conversation.started_at) ||
+                      "Conversation";
+                    return (
+                      <li
+                        key={conversation.id}
+                        className={`group relative rounded-xl ${active ? "bg-sky-100" : "hover:bg-slate-100"}`}
                       >
-                        {conversation.mode === "waiting" ? "Waiting" : "Live"}
-                      </span>
-                    )}
-                    <span>
-                      {formatTime(
-                        conversation.last_message_at || conversation.started_at,
-                      )}
-                    </span>
-                  </span>
-                </button>
-                {view === "history" && (
-                  <div className="pointer-events-none absolute inset-y-0 right-0 hidden items-center gap-1 pr-2 group-hover:flex">
-                    <button
-                      type="button"
-                      onClick={() => startRename(conversation)}
-                      className="pointer-events-auto rounded px-1 text-[11px] text-slate-500 hover:bg-slate-300"
-                    >
-                      Rename
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPendingDelete(conversation)}
-                      className="pointer-events-auto rounded px-1 text-[11px] text-red-500 hover:bg-red-100"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                )}
-              </li>
-            );
-          })}
-        </ul>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onSelectConversation(conversation.id, "history")
+                          }
+                          className="block w-full rounded-xl px-3 py-2.5 text-left group-hover:pr-16"
+                        >
+                          <span
+                            className={`block truncate text-sm ${active ? "text-sky-800" : "text-slate-500"}`}
+                          >
+                            {title}
+                          </span>
+                          <span className="text-[11px] text-slate-400">
+                            {formatTime(
+                              conversation.last_message_at ||
+                                conversation.started_at,
+                            )}
+                          </span>
+                        </button>
+                        <div className="pointer-events-none absolute inset-y-0 right-0 hidden items-center pr-2 group-hover:flex">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onArchiveConversation(conversation.id, false)
+                            }
+                            className="pointer-events-auto rounded px-1 text-[11px] text-slate-500 hover:bg-slate-300"
+                          >
+                            Restore
+                          </button>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
-      <div className="border-t border-slate-200 px-3 py-3">
+      <div className="mt-2 border-t border-slate-200 px-3 py-3">
         {(
           [
             ["settings", "Settings"],
             ["admin", "Knowledge base"],
+            ["billing", "Billing"],
           ] as const
         )
-          // Site settings are owner-only; members never see the entry.
-          .filter(([target]) => target !== "settings" || isOwner)
+          // Site settings are owner-only; billing is account-owner-only. Members
+          // see neither.
+          .filter(
+            ([target]) =>
+              (target !== "settings" || isOwner) &&
+              (target !== "billing" || ownsAnySite),
+          )
           .map(([target, label]) => (
             <button
               key={target}
@@ -345,18 +432,37 @@ export function Sidebar({
             </button>
           )}
         </div>
-        <div className="mt-2 flex items-center gap-2 px-3 py-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-sky-600 text-xs font-semibold text-white">
-            {(businessName ?? "?").charAt(0).toUpperCase()}
+        {isSuperAdmin && (
+          <div
+            className="mt-2 flex items-center gap-1.5 rounded-lg bg-sky-50 px-2.5 py-1.5 text-[11px] font-semibold text-sky-800"
+            title="Internal super-admin - all features unlocked, no billing"
+          >
+            <ShieldCheck className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            Super-admin · full access
           </div>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-xs font-medium text-slate-700">
-              {businessName ?? "Account"}
-            </p>
-            <p className="truncate text-[11px] text-slate-400">
-              {assistantName ?? "Assistant"}
-            </p>
-          </div>
+        )}
+        <div className="mt-2 flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => onNavigate("account")}
+            title="Account settings"
+            aria-label="Account settings"
+            className={`flex min-w-0 flex-1 items-center gap-2 rounded-xl px-3 py-2 text-left transition ${view === "account" ? "bg-sky-100" : "hover:bg-slate-100"}`}
+          >
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-sky-600 text-xs font-semibold text-white">
+              {(businessName ?? "?").charAt(0).toUpperCase()}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p
+                className={`truncate text-xs font-medium ${view === "account" ? "text-sky-800" : "text-slate-700"}`}
+              >
+                {businessName ?? "Account"}
+              </p>
+              <p className="truncate text-[11px] text-slate-400">
+                {userEmail ?? assistantName ?? "Account settings"}
+              </p>
+            </div>
+          </button>
           {canSignOut && (
             <button
               type="button"
@@ -371,22 +477,6 @@ export function Sidebar({
         </div>
       </div>
 
-      <ConfirmDialog
-        open={pendingDelete !== null}
-        title="Delete conversation"
-        message={
-          pendingDelete
-            ? `"${pendingDelete.title?.trim() || "this conversation"}" will be permanently deleted. This can't be undone.`
-            : ""
-        }
-        confirmLabel="Delete"
-        destructive
-        onConfirm={() => {
-          if (pendingDelete) onDeleteConversation(pendingDelete.id);
-          setPendingDelete(null);
-        }}
-        onCancel={() => setPendingDelete(null)}
-      />
     </aside>
   );
 }

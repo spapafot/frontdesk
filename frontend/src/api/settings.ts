@@ -1,6 +1,7 @@
 import { API_BASE } from "./client";
 
 export type LauncherPosition = "bottom-right" | "bottom-left";
+export type CatalogProvider = "woocommerce" | "shopify";
 
 export interface Settings {
   business_name: string;
@@ -9,7 +10,6 @@ export interface Settings {
   public_key: string | null;
   widget_origin: string | null;
   widget_enabled: boolean;
-  widget_monthly_limit: number;
   widget_monthly_usage: number;
   widget_resets_at: string;
   // Appearance
@@ -21,7 +21,35 @@ export interface Settings {
   show_branding: boolean;
   live_human_escalation_enabled: boolean;
   live_human_escalation_available: boolean;
+  moderation_enabled: boolean;
+  moderation_available: boolean;
   notification_email: string | null;
+  talk_to_person_after: number;
+  woocommerce_store_url: string | null;
+  woocommerce_catalog_enabled: boolean;
+  woocommerce_catalog_verified_at: string | null;
+  catalog_provider: CatalogProvider | null;
+  catalog_store_url: string | null;
+  catalog_enabled: boolean;
+  catalog_verified_at: string | null;
+}
+
+export interface WooCommerceVerification {
+  store_url: string;
+  product_count: number;
+  currency_code: string | null;
+  categories: number;
+  attributes: number;
+}
+
+export interface CatalogVerification {
+  provider: CatalogProvider;
+  store_url: string;
+  product_count: number | null;
+  currency_code: string | null;
+  categories: number | null;
+  attributes: number | null;
+  capabilities: string[];
 }
 
 export const settingsKey = (siteId: number) => `${API_BASE}/settings?site_id=${siteId}`;
@@ -53,14 +81,21 @@ export async function updateSettings(
     widget_origin: string;
     widget_enabled: boolean;
     live_human_escalation_enabled: boolean;
+    moderation_enabled: boolean;
     // Omitted (undefined) when empty: the backend rejects a blank email and
     // treats an absent field as "leave unchanged".
     notification_email?: string;
+    // Omitted (undefined) when the input is left blank.
+    talk_to_person_after?: number;
     accent_color: string;
     launcher_icon: string;
     launcher_position: LauncherPosition;
     greeting: string;
     launcher_label: string;
+    show_branding: boolean;
+    catalog_provider: CatalogProvider;
+    catalog_store_url: string;
+    catalog_enabled: boolean;
   }
 ): Promise<Settings> {
   return handle(
@@ -68,6 +103,33 @@ export async function updateSettings(
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
+    })
+  );
+}
+
+export async function verifyCatalog(
+  siteId: number,
+  provider: CatalogProvider,
+  storeUrl: string
+): Promise<CatalogVerification> {
+  return handle(
+    await fetch(`${API_BASE}/settings/catalog/verify?site_id=${siteId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ provider, store_url: storeUrl }),
+    })
+  );
+}
+
+export async function verifyWooCommerceCatalog(
+  siteId: number,
+  storeUrl: string
+): Promise<WooCommerceVerification> {
+  return handle(
+    await fetch(`${API_BASE}/settings/woocommerce/verify?site_id=${siteId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ store_url: storeUrl }),
     })
   );
 }

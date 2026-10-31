@@ -23,7 +23,6 @@ class SiteSummaryOut(BaseModel):
     public_key: str | None = None
     widget_origin: str | None = None
     widget_enabled: bool = True
-    widget_monthly_limit: int = 5000
     widget_monthly_usage: int = 0
     # The caller's relationship to the site: team members see it as "member".
     role: Literal["owner", "member"] = "owner"

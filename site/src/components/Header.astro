@@ -3,19 +3,24 @@ import { SITE, NAV } from "../config";
 ---
 
 <header class="border-b border-slate-200 bg-white">
-  <div class="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-    <a href="/" class="inline-flex items-center" aria-label={SITE.name}>
+  <div class="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6 sm:py-4">
+    <a href="/" class="inline-flex min-w-0 shrink items-center" aria-label={SITE.name}>
       <img
         src="/logo-horizontal-full-color.png"
         alt={SITE.name}
-        class="h-16 w-auto sm:h-16"
+        class="h-10 w-auto max-w-full sm:h-14"
       />
     </a>
-    <nav class="flex items-center gap-4 text-sm font-medium">
-      <a href={NAV.login} class="text-slate-600 hover:text-slate-950">Log in</a>
+    <nav aria-label="Account" class="flex shrink-0 items-center gap-2 text-sm font-medium sm:gap-4">
+      <a
+        href={NAV.login}
+        class="inline-flex min-h-11 items-center rounded-lg px-2 text-slate-600 hover:bg-slate-50 hover:text-slate-950"
+      >
+        Log in
+      </a>
       <a
         href={NAV.register}
-        class="rounded-lg bg-sky-600 px-4 py-2 text-white hover:bg-sky-700"
+        class="inline-flex min-h-11 items-center rounded-lg bg-sky-600 px-3 text-white hover:bg-sky-700 sm:px-4"
       >
         Register
       </a>

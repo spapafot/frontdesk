@@ -18,6 +18,8 @@ interface WidgetSession {
   assistant_name: string;
   business_name: string;
   live_human_escalation_enabled: boolean;
+  // Optional: backends predating the configurable threshold omit it.
+  talk_to_person_after?: number;
 }
 
 type LiveMode = "ai" | "waiting" | "human" | "pending_ticket" | "closed";
@@ -31,6 +33,7 @@ interface TurnstileApi {
       action: string;
       theme: "auto";
       size: "flexible";
+      "refresh-expired": "never";
       callback: (token: string) => void;
       "error-callback": () => void;
       "expired-callback": () => void;
@@ -81,6 +84,17 @@ const THUMB_ICON =
 const TYPING =
   '<span class="wx-typing"><span></span><span></span><span></span></span>';
 
+function formatChatStreamError(event: Record<string, unknown>): string {
+  const message =
+    typeof event.message === "string" && event.message
+      ? event.message
+      : "Something went wrong.";
+  const correlationId =
+    typeof event.correlation_id === "string" ? event.correlation_id : "";
+  const reference = correlationId.slice(0, 12).toUpperCase();
+  return reference ? `${message} Reference: ${reference}.` : message;
+}
+
 const app = document.getElementById("app") as HTMLDivElement;
 app.innerHTML = `
   <header class="wx-header">
@@ -103,7 +117,10 @@ app.innerHTML = `
   </section>
   <div class="wx-messages" id="wx-messages" role="log" aria-live="polite" hidden></div>
   <div class="wx-live-actions" id="wx-live-actions" hidden>
-    <p id="wx-live-prompt">Need more help?</p>
+    <div class="wx-talk-heading" id="wx-talk-heading">
+      <p id="wx-live-prompt">Need more help?</p>
+      <button class="wx-talk-dismiss" type="button" id="wx-talk-dismiss" title="Dismiss" aria-label="Dismiss talk to a person offer">&times;</button>
+    </div>
     <button class="wx-talk" type="button" id="wx-talk">
       <span class="wx-talk-icon">${HEADSET_ICON}</span>
       <span id="wx-talk-label">Talk to a person</span>
@@ -147,34 +164,60 @@ const messagesEl = document.getElementById("wx-messages") as HTMLDivElement;
 const formEl = document.getElementById("wx-form") as HTMLFormElement;
 const inputEl = document.getElementById("wx-input") as HTMLInputElement;
 const sendEl = document.getElementById("wx-send") as HTMLButtonElement;
-const liveActionsEl = document.getElementById("wx-live-actions") as HTMLDivElement;
-const livePromptEl = document.getElementById("wx-live-prompt") as HTMLParagraphElement;
+const liveActionsEl = document.getElementById(
+  "wx-live-actions",
+) as HTMLDivElement;
+const livePromptEl = document.getElementById(
+  "wx-live-prompt",
+) as HTMLParagraphElement;
+const talkHeadingEl = document.getElementById(
+  "wx-talk-heading",
+) as HTMLDivElement;
+const talkDismissEl = document.getElementById(
+  "wx-talk-dismiss",
+) as HTMLButtonElement;
 const talkEl = document.getElementById("wx-talk") as HTMLButtonElement;
 const talkLabelEl = document.getElementById("wx-talk-label") as HTMLSpanElement;
 const newChatEl = document.getElementById("wx-new-chat") as HTMLButtonElement;
 const ratingEl = document.getElementById("wx-rating") as HTMLDivElement;
-const ratingPromptEl = document.getElementById("wx-rating-prompt") as HTMLSpanElement;
+const ratingPromptEl = document.getElementById(
+  "wx-rating-prompt",
+) as HTMLSpanElement;
 const rateUpEl = document.getElementById("wx-rate-up") as HTMLButtonElement;
 const rateDownEl = document.getElementById("wx-rate-down") as HTMLButtonElement;
 const callbackEl = document.getElementById("wx-callback") as HTMLFormElement;
-const callbackNameEl = document.getElementById("wx-callback-name") as HTMLInputElement;
-const callbackEmailEl = document.getElementById("wx-callback-email") as HTMLInputElement;
-const callbackMessageEl = document.getElementById("wx-callback-message") as HTMLTextAreaElement;
+const callbackNameEl = document.getElementById(
+  "wx-callback-name",
+) as HTMLInputElement;
+const callbackEmailEl = document.getElementById(
+  "wx-callback-email",
+) as HTMLInputElement;
+const callbackMessageEl = document.getElementById(
+  "wx-callback-message",
+) as HTMLTextAreaElement;
 
 let conversationId: number | null = null;
 let conversationStorageKey = "";
 let conversationTokenStorageKey = "";
 let visitorMessageCountStorageKey = "";
 let conversationRatingStorageKey = "";
+let talkDismissedStorageKey = "";
 let conversationToken = "";
 let visitorMessageCount = 0;
 let conversationRated: Rating | "" = "";
+let ratingDismissed = false;
 let streaming = false;
 let widgetToken = "";
 let turnstileWidgetId: string | null = null;
 let refreshResolver: ((token: string | null) => void) | null = null;
 let chatInitialized = false;
 let liveEnabled = false;
+// Must equal DEFAULT_TALK_THRESHOLD (declared below the state block); showChat
+// re-derives it from the session before any message can be sent.
+let talkThreshold = 3;
+let humanRequested = false; // visitor's message matched HUMAN_REQUEST_PATTERN
+let unansweredTurn = false; // a done event carried answered === false
+let talkDismissed = false;
 let liveMode: LiveMode = "ai";
 let liveSocket: WebSocket | null = null;
 let liveConnectionPromise: Promise<WebSocket> | null = null;
@@ -190,6 +233,44 @@ let activeStream: AbortController | null = null;
 let hydrateLiveHistory = false;
 const displayedLiveMessageIds = new Set<number>();
 
+// Typing indicator: while composing, refresh the outbound signal at most every
+// TYPING_REFRESH_MS; the inbound indicator hides after TYPING_EXPIRE_MS without
+// a refresh so a lost "stopped typing" event can never strand the dots.
+const TYPING_REFRESH_MS = 2000;
+const TYPING_EXPIRE_MS = 5000;
+// An edge Worker predating the typing relay rejects the hint with exactly
+// "Unsupported live action." — feature-detected per connection so the visitor
+// never sees that as an error bubble.
+const LEGACY_TYPING_REJECTION = "Unsupported live action.";
+let typingSupported = true;
+let typingSent = false;
+let typingSentAt = 0;
+let operatorTypingRow: HTMLElement | null = null;
+let operatorTypingTimer = 0;
+
+// "Talk to a person" appears after this many visitor messages unless a signal
+// (the visitor asked for a human / a turn went unanswered) reveals it sooner.
+const DEFAULT_TALK_THRESHOLD = 3;
+// Highest configurable threshold; also bounds the persisted message counter so
+// raising the threshold later still credits messages already sent.
+const MAX_TALK_THRESHOLD = 50;
+// The conversation-rating offer is deliberately independent of the
+// configurable talk threshold.
+const RATING_MESSAGE_THRESHOLD = 3;
+// High-precision on purpose: a false positive surfaces the bar too early,
+// while a miss still falls back to the message-count threshold.
+const HUMAN_REQUEST_PATTERN = new RegExp(
+  [
+    "\\b(?:talk|speak|chat)(?:ing)?\\s+(?:to|with)\\s+(?:a\\s+|an\\s+)?(?:real\\s+|live\\s+|actual\\s+)?(?:human|person|agent|representative|operator|someone|somebody)\\b",
+    "\\b(?:real|live|actual)\\s+(?:human|person|agent)\\b",
+    "\\bhuman\\s+(?:agent|support|being)\\b",
+    "\\b(?:connect|transfer)\\s+me\\b",
+    "\\bput\\s+me\\s+through\\b",
+    "\\bnot\\s+(?:a\\s+)?(?:bot|robot)\\b",
+  ].join("|"),
+  "i",
+);
+
 function postToParent(message: object) {
   if (params.origin) parent.postMessage(message, params.origin);
 }
@@ -200,6 +281,8 @@ function showVerificationError(
   verificationEl.hidden = false;
   messagesEl.hidden = true;
   formEl.hidden = true;
+  liveActionsEl.hidden = true;
+  callbackEl.hidden = true;
   verificationMessageEl.textContent = message;
   verificationMessageEl.classList.add("wx-error");
   retryEl.hidden = false;
@@ -210,6 +293,12 @@ function showChat(session: WidgetSession) {
   if (chatInitialized && refreshResolver) {
     refreshResolver(session.token);
     refreshResolver = null;
+    // A mid-session wx-verify hid the chat behind the verification pane;
+    // bring it back now that the fresh session is here. setLiveMode restores
+    // the mode-driven panels (composer, live actions, callback form).
+    verificationEl.hidden = true;
+    messagesEl.hidden = false;
+    setLiveMode(liveMode);
     return;
   }
   titleEl.textContent = session.assistant_name || "Chat";
@@ -218,6 +307,7 @@ function showChat(session: WidgetSession) {
   conversationTokenStorageKey = `${conversationStorageKey}_token`;
   visitorMessageCountStorageKey = `${conversationStorageKey}_visitor_count`;
   conversationRatingStorageKey = `${conversationStorageKey}_rating`;
+  talkDismissedStorageKey = `${conversationStorageKey}_talk_dismissed`;
   const stored = Number(localStorage.getItem(conversationStorageKey));
   conversationId = Number.isFinite(stored) && stored > 0 ? stored : null;
   conversationToken = localStorage.getItem(conversationTokenStorageKey) || "";
@@ -228,24 +318,45 @@ function showChat(session: WidgetSession) {
   const storedVisitorMessageCount = Number(
     localStorage.getItem(visitorMessageCountStorageKey),
   );
-  visitorMessageCount = conversationId && conversationToken &&
-      Number.isInteger(storedVisitorMessageCount) && storedVisitorMessageCount >= 0
-    ? Math.min(storedVisitorMessageCount, 3)
-    : 0;
+  visitorMessageCount =
+    conversationId &&
+    conversationToken &&
+    Number.isInteger(storedVisitorMessageCount) &&
+    storedVisitorMessageCount >= 0
+      ? Math.min(storedVisitorMessageCount, MAX_TALK_THRESHOLD)
+      : 0;
   if (!conversationId || !conversationToken) {
     localStorage.removeItem(visitorMessageCountStorageKey);
   }
   const storedRating = localStorage.getItem(conversationRatingStorageKey);
   conversationRated =
-    conversationId && conversationToken &&
+    conversationId &&
+    conversationToken &&
     (storedRating === "up" || storedRating === "down")
       ? storedRating
       : "";
+  // A rated conversation was already thanked - never offer the rating again.
+  ratingDismissed = conversationRated !== "";
   if (!conversationId || !conversationToken) {
     localStorage.removeItem(conversationRatingStorageKey);
   }
+  talkDismissed =
+    conversationId !== null &&
+    conversationToken.length > 0 &&
+    localStorage.getItem(talkDismissedStorageKey) === "true";
+  if (!conversationId || !conversationToken) {
+    localStorage.removeItem(talkDismissedStorageKey);
+  }
   renderRatingSelection();
   liveEnabled = session.live_human_escalation_enabled === true;
+  const configuredThreshold = session.talk_to_person_after;
+  talkThreshold =
+    typeof configuredThreshold === "number" &&
+    Number.isInteger(configuredThreshold) &&
+    configuredThreshold >= 0 &&
+    configuredThreshold <= MAX_TALK_THRESHOLD
+      ? configuredThreshold
+      : DEFAULT_TALK_THRESHOLD;
   hydrateLiveHistory = conversationId !== null;
   verificationEl.hidden = true;
   messagesEl.hidden = false;
@@ -270,6 +381,8 @@ function renderVerification() {
   verificationEl.hidden = false;
   messagesEl.hidden = true;
   formEl.hidden = true;
+  liveActionsEl.hidden = true;
+  callbackEl.hidden = true;
 
   // Local development can run without Turnstile. Production enforcement at
   // the Worker/backend still rejects an empty token, so this cannot fail open.
@@ -292,13 +405,22 @@ function renderVerification() {
     action: "widget-session",
     theme: "auto",
     size: "flexible",
+    // The token is consumed as soon as the session is minted, but the widget
+    // stays mounted (hidden) and would otherwise re-challenge every 5 minutes
+    // when its spent token expires. wx-verify resets it when a fresh token is
+    // actually needed.
+    "refresh-expired": "never",
     callback: (token) => {
       verificationMessageEl.textContent = "Finishing verification…";
       postToParent({ type: "wx-turnstile", token });
     },
     "error-callback": () => showVerificationError(),
-    "expired-callback": () =>
-      showVerificationError("Verification expired. Please try again."),
+    "expired-callback": () => {
+      // Only meaningful while we are still waiting to exchange the token -
+      // after that the chat is running on its own session, so stay quiet.
+      if (verificationEl.hidden) return;
+      showVerificationError("Verification expired. Please try again.");
+    },
     "timeout-callback": () =>
       showVerificationError("Verification timed out. Please try again."),
   });
@@ -349,12 +471,117 @@ function addBubble(role: "user" | "assistant", text: string): HTMLDivElement {
   return bubble;
 }
 
+interface WidgetProductResult {
+  id: number | string;
+  name: string;
+  price: string | null;
+  currency_code: string | null;
+  is_in_stock: boolean;
+  image_url: string | null;
+  product_url: string;
+  attributes: Array<{
+    name: string;
+    terms: Array<{ name: string }>;
+  }>;
+}
+
+function safeHttpsUrl(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+function addProductResults(
+  products: WidgetProductResult[],
+  hasMore: boolean,
+  morePrompt?: string,
+  browseUrlValue?: string,
+  browseLabel?: string,
+) {
+  const grid = document.createElement("div");
+  grid.className = "wx-products";
+  grid.setAttribute("aria-label", "Product results");
+  for (const product of products.slice(0, 4)) {
+    const productUrl = safeHttpsUrl(product.product_url);
+    const validId =
+      (typeof product.id === "number" && Number.isInteger(product.id)) ||
+      (typeof product.id === "string" && product.id.length > 0);
+    if (!productUrl || !validId || !product.name) continue;
+    const card = document.createElement("article");
+    card.className = "wx-product";
+    const imageUrl = safeHttpsUrl(product.image_url);
+    if (imageUrl) {
+      const image = document.createElement("img");
+      image.src = imageUrl;
+      image.alt = "";
+      image.loading = "lazy";
+      image.referrerPolicy = "no-referrer";
+      card.appendChild(image);
+    }
+    const body = document.createElement("div");
+    body.className = "wx-product-body";
+    const name = document.createElement("strong");
+    name.textContent = product.name;
+    body.appendChild(name);
+    if (product.price) {
+      const price = document.createElement("span");
+      price.className = "wx-product-price";
+      price.textContent = `${product.price} ${product.currency_code || ""}`.trim();
+      body.appendChild(price);
+    }
+    for (const attribute of (product.attributes || []).slice(0, 2)) {
+      const terms = (attribute.terms || []).map((term) => term.name).filter(Boolean);
+      if (!attribute.name || !terms.length) continue;
+      const detail = document.createElement("span");
+      detail.className = "wx-product-detail";
+      detail.textContent = `${attribute.name}: ${terms.join(", ")}`;
+      body.appendChild(detail);
+    }
+    const stock = document.createElement("span");
+    stock.className = "wx-product-detail";
+    stock.textContent = product.is_in_stock ? "In stock" : "Out of stock";
+    body.appendChild(stock);
+    const link = document.createElement("a");
+    link.href = productUrl;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = "View product";
+    body.appendChild(link);
+    card.appendChild(body);
+    grid.appendChild(card);
+  }
+  if (grid.childElementCount) messagesEl.appendChild(grid);
+  if (hasMore) {
+    const more = document.createElement("p");
+    more.className = "wx-product-more";
+    more.textContent = morePrompt || "Ask “show me more” for the next page.";
+    messagesEl.appendChild(more);
+  }
+  const browseUrl = safeHttpsUrl(browseUrlValue);
+  if (browseUrl && browseLabel) {
+    const browse = document.createElement("a");
+    browse.className = "wx-product-browse";
+    browse.href = browseUrl;
+    browse.target = "_blank";
+    browse.rel = "noopener noreferrer";
+    browse.textContent = browseLabel;
+    messagesEl.appendChild(browse);
+  }
+  scrollToBottom();
+}
+
 function persistConversation(id: number, token?: string) {
   conversationId = id;
-  if (conversationStorageKey) localStorage.setItem(conversationStorageKey, String(id));
+  if (conversationStorageKey)
+    localStorage.setItem(conversationStorageKey, String(id));
   if (token) {
     conversationToken = token;
-    if (conversationTokenStorageKey) localStorage.setItem(conversationTokenStorageKey, token);
+    if (conversationTokenStorageKey)
+      localStorage.setItem(conversationTokenStorageKey, token);
   }
 }
 
@@ -362,11 +589,16 @@ function clearConversationSession() {
   conversationId = null;
   conversationToken = "";
   visitorMessageCount = 0;
+  humanRequested = false;
+  unansweredTurn = false;
   conversationRated = "";
+  ratingDismissed = false;
+  talkDismissed = false;
   localStorage.removeItem(conversationStorageKey);
   localStorage.removeItem(conversationTokenStorageKey);
   localStorage.removeItem(visitorMessageCountStorageKey);
   localStorage.removeItem(conversationRatingStorageKey);
+  localStorage.removeItem(talkDismissedStorageKey);
   renderRatingSelection();
 }
 
@@ -374,6 +606,11 @@ function showConnectionStatus(message: string, loading = false) {
   if (!connectionStatusBubble?.isConnected) {
     connectionStatusBubble = addBubble("assistant", "");
     connectionStatusBubble.classList.add("wx-live-status");
+  } else if (loading) {
+    // A repeat request reuses the resolved status bubble from the previous
+    // attempt; bring it below any messages exchanged since.
+    const row = connectionStatusBubble.closest(".wx-row");
+    if (row) messagesEl.appendChild(row);
   }
   connectionStatusBubble.replaceChildren(document.createTextNode(message));
   if (loading) {
@@ -385,36 +622,95 @@ function showConnectionStatus(message: string, loading = false) {
   scrollToBottom();
 }
 
+function notifyTyping(active: boolean) {
+  if (!typingSupported) return;
+  if (liveMode !== "human" || liveSocket?.readyState !== WebSocket.OPEN) return;
+  const now = Date.now();
+  if (active && typingSent && now - typingSentAt < TYPING_REFRESH_MS) return;
+  if (!active && !typingSent) return;
+  typingSent = active;
+  typingSentAt = now;
+  try {
+    liveSocket.send(
+      JSON.stringify({ version: 1, type: "typing", typing: active }),
+    );
+  } catch {
+    // Best-effort: a typing hint must never surface an error.
+  }
+}
+
+function showOperatorTyping(active: boolean) {
+  window.clearTimeout(operatorTypingTimer);
+  if (!active) {
+    operatorTypingRow?.remove();
+    operatorTypingRow = null;
+    return;
+  }
+  if (!operatorTypingRow?.isConnected) {
+    const bubble = addBubble("assistant", "");
+    bubble.classList.add("pending");
+    bubble.innerHTML = TYPING;
+    operatorTypingRow = bubble.closest<HTMLElement>(".wx-row") ?? bubble;
+  } else {
+    // Keep the dots below any message that arrived while they were up.
+    messagesEl.appendChild(operatorTypingRow);
+  }
+  scrollToBottom();
+  operatorTypingTimer = window.setTimeout(
+    () => showOperatorTyping(false),
+    TYPING_EXPIRE_MS,
+  );
+}
+
 async function liveResponseError(response: Response): Promise<string> {
-  const body = await response.json().catch(() => null) as { detail?: unknown } | null;
+  const body = (await response.json().catch(() => null)) as {
+    detail?: unknown;
+  } | null;
   return typeof body?.detail === "string"
     ? body.detail
     : `Live support failed (${response.status})`;
 }
 
 function setLiveMode(mode: LiveMode) {
+  if (mode !== "human") {
+    typingSent = false;
+    showOperatorTyping(false);
+  }
   liveMode = mode;
-  const showTalk = liveEnabled && (
-    mode === "waiting" || (
-      mode === "ai" &&
-      visitorMessageCount >= 3 &&
-      !streaming &&
-      conversationId !== null &&
-      conversationToken.length > 0
-    )
-  );
+  const actionsWereHidden = liveActionsEl.hidden;
+  const callbackWasHidden = callbackEl.hidden;
+  const showTalk =
+    liveEnabled &&
+    (mode === "waiting" ||
+      (mode === "ai" &&
+        !talkDismissed &&
+        (humanRequested ||
+          unansweredTurn ||
+          visitorMessageCount >= talkThreshold) &&
+        !streaming &&
+        conversationId !== null &&
+        conversationToken.length > 0));
   const showNewChat = mode === "closed";
   // Offer a rating on a real conversation once it has ended (closed) or once
   // the visitor has exchanged a few messages with the AI - independent of the
-  // live-escalation feature, so AI-only sites can be rated too.
-  const showRating = conversationId !== null && conversationToken.length > 0 && (
-    mode === "closed" || (mode === "ai" && visitorMessageCount >= 3 && !streaming)
-  );
+  // live-escalation feature, so AI-only sites can be rated too. Once rated
+  // (and briefly thanked), the offer is gone for good.
+  const showRating =
+    !ratingDismissed &&
+    conversationId !== null &&
+    conversationToken.length > 0 &&
+    (mode === "closed" ||
+      (mode === "ai" &&
+        visitorMessageCount >= RATING_MESSAGE_THRESHOLD &&
+        !streaming));
   liveActionsEl.hidden = !showTalk && !showNewChat && !showRating;
-  livePromptEl.hidden = !showTalk;
+  talkHeadingEl.hidden = !showTalk || mode !== "ai";
+  livePromptEl.hidden = !showTalk || mode !== "ai";
+  talkDismissEl.hidden = !showTalk || mode !== "ai";
   talkEl.hidden = !showTalk;
   talkEl.disabled = connectingToHuman;
-  talkLabelEl.textContent = mode === "waiting" ? "Cancel request" : "Talk to a person";
+  talkLabelEl.textContent =
+    mode === "waiting" ? "Cancel request" : "Talk to a person";
   ratingEl.hidden = !showRating;
   newChatEl.hidden = !showNewChat;
   callbackEl.hidden = mode !== "pending_ticket";
@@ -422,19 +718,38 @@ function setLiveMode(mode: LiveMode) {
   inputEl.disabled = mode === "waiting" || streaming || connectingToHuman;
   sendEl.disabled = mode === "waiting" || streaming || connectingToHuman;
   subtitleEl.textContent =
-    mode === "human" ? "Live with the team" :
-    mode === "waiting" ? "Finding someone…" :
-    mode === "pending_ticket" ? "Currently unavailable" :
-    mode === "closed" ? "Conversation closed" : "Online";
+    mode === "human"
+      ? "Live with the team"
+      : mode === "waiting"
+        ? "Finding someone…"
+        : mode === "pending_ticket"
+          ? "Currently unavailable"
+          : mode === "closed"
+            ? "Conversation closed"
+            : "Online";
+  // Un-hiding a panel between the messages and the composer shrinks the
+  // message scrollport, clipping the newest bubble - re-pin to the bottom.
+  if (
+    (actionsWereHidden && !liveActionsEl.hidden) ||
+    (callbackWasHidden && !callbackEl.hidden)
+  ) {
+    scrollToBottom();
+  }
 }
 
 function recordVisitorMessage() {
-  visitorMessageCount = Math.min(visitorMessageCount + 1, 3);
+  visitorMessageCount = Math.min(visitorMessageCount + 1, MAX_TALK_THRESHOLD);
   if (visitorMessageCountStorageKey) {
-    localStorage.setItem(visitorMessageCountStorageKey, String(visitorMessageCount));
+    localStorage.setItem(
+      visitorMessageCountStorageKey,
+      String(visitorMessageCount),
+    );
   }
   setLiveMode(liveMode);
 }
+
+// How long "Thanks for your feedback." stays up before the rating bar hides.
+const RATING_THANKS_MS = 1500;
 
 function renderRatingSelection() {
   const rated = conversationRated !== "";
@@ -448,7 +763,13 @@ function renderRatingSelection() {
 }
 
 async function submitRating(value: Rating) {
-  if (conversationRated || !conversationId || !conversationToken || !widgetToken) return;
+  if (
+    conversationRated ||
+    !conversationId ||
+    !conversationToken ||
+    !widgetToken
+  )
+    return;
   conversationRated = value; // optimistic; reverted below if the request fails
   renderRatingSelection();
 
@@ -477,6 +798,13 @@ async function submitRating(value: Rating) {
     if (conversationRatingStorageKey) {
       localStorage.setItem(conversationRatingStorageKey, value);
     }
+    // Leave the thanks up briefly, then retire the rating bar for good.
+    const ratedConversation = conversationId;
+    window.setTimeout(() => {
+      if (conversationId !== ratedConversation) return; // a new chat started
+      ratingDismissed = true;
+      setLiveMode(liveMode);
+    }, RATING_THANKS_MS);
   } catch {
     conversationRated = ""; // let the visitor try again
     renderRatingSelection();
@@ -498,7 +826,9 @@ async function liveTicketRequest(): Promise<Response> {
 
 async function openLiveConnection(): Promise<WebSocket> {
   if (liveMode === "closed") {
-    throw new Error("This conversation has ended. Start a new conversation to continue.");
+    throw new Error(
+      "This conversation has ended. Start a new conversation to continue.",
+    );
   }
   if (!conversationId || !conversationToken) {
     throw new Error("An existing conversation is required for live support.");
@@ -511,10 +841,23 @@ async function openLiveConnection(): Promise<WebSocket> {
     if (refreshed) {
       widgetToken = refreshed;
       response = await liveTicketRequest();
+      if (response.status === 401) {
+        // A fresh widget token still gets 401, so the stored conversation
+        // session is expired and cannot be re-minted. Drop it (mirrors the
+        // /chat/stream recovery in send()) so the visitor gets a working
+        // chat instead of hitting this dead end on every open.
+        clearConversationSession();
+        displayedLiveMessageIds.clear();
+        hydrateLiveHistory = false;
+        setLiveMode("ai");
+        throw new Error(
+          "Your previous conversation has expired. Send a message to start a new one.",
+        );
+      }
     }
   }
   if (!response.ok) throw new Error(await liveResponseError(response));
-  const ticket = await response.json() as {
+  const ticket = (await response.json()) as {
     ticket: string;
     websocket_path: string;
     conversation_id: number;
@@ -524,10 +867,15 @@ async function openLiveConnection(): Promise<WebSocket> {
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   const socket = new WebSocket(url, ["live-v1", `ticket.${ticket.ticket}`]);
   liveSocket = socket;
+  typingSupported = true; // a fresh connection may reach an upgraded Worker
   let opened = false;
   socket.onmessage = (message) => {
     let event: Record<string, unknown>;
-    try { event = JSON.parse(message.data); } catch { return; }
+    try {
+      event = JSON.parse(message.data);
+    } catch {
+      return;
+    }
     if (event.type === "state" && typeof event.mode === "string") {
       const previous = liveMode;
       const nextMode = event.mode as LiveMode;
@@ -554,31 +902,68 @@ async function openLiveConnection(): Promise<WebSocket> {
         }
         hydrateLiveHistory = true;
       }
-      const completesHandoff = pendingHandoffResult !== null &&
+      const completesHandoff =
+        pendingHandoffResult !== null &&
         ["waiting", "human", "pending_ticket"].includes(nextMode);
       if (completesHandoff && pendingHandoffResult) {
         const pending = pendingHandoffResult;
         pendingHandoffResult = null;
         window.clearTimeout(pending.timer);
-        const statusMessage =
-          nextMode === "waiting" ? "Looking for someone from the team…" :
-          nextMode === "human" ? "You’re now connected to the team." :
-          "No one is available right now. You can request a callback below.";
-        showConnectionStatus(statusMessage);
         pending.resolve(nextMode);
       }
-      if (previous !== nextMode && !completesHandoff) {
-        if (nextMode === "waiting") addBubble("assistant", "Looking for someone from the team…");
-        if (nextMode === "human") addBubble("assistant", "You’re now connected to the team.");
-        if (nextMode === "pending_ticket") addBubble("assistant", "No one is available right now. You can request a callback below.");
-        if (nextMode === "closed") addBubble("assistant", "This conversation has been closed.");
+      if (previous !== nextMode) {
+        // The "connecting" status bubble keeps its loader for the whole
+        // waiting phase (a static "looking for someone" note reads as
+        // stalled) and resolves in place into the outcome: accepted,
+        // callback offer, cancelled, or closed.
+        const fromWaiting = previous === "waiting" || completesHandoff;
+        if (nextMode === "waiting") {
+          showConnectionStatus("Give us a moment while we connect you…", true);
+        } else if (nextMode === "human") {
+          const message = "You’re now connected to the team.";
+          if (fromWaiting) showConnectionStatus(message);
+          else addBubble("assistant", message);
+        } else if (nextMode === "pending_ticket") {
+          const message =
+            "No one is available right now. You can request a callback below.";
+          if (fromWaiting) showConnectionStatus(message);
+          else addBubble("assistant", message);
+        } else if (nextMode === "ai" && previous === "waiting") {
+          showConnectionStatus(
+            "Request cancelled. You’re back with the AI assistant.",
+          );
+        } else if (nextMode === "closed") {
+          const message = "This conversation has been closed.";
+          if (previous === "waiting") showConnectionStatus(message);
+          else addBubble("assistant", message);
+        }
       }
-    } else if (event.type === "message" && typeof event.message === "object" && event.message) {
-      const item = event.message as { id?: number; sender_type?: string; content?: string };
+    } else if (
+      event.type === "message" &&
+      typeof event.message === "object" &&
+      event.message
+    ) {
+      const item = event.message as {
+        id?: number;
+        sender_type?: string;
+        content?: string;
+      };
       if (item.id) displayedLiveMessageIds.add(item.id);
-      if (item.sender_type === "operator" && item.content) addBubble("assistant", item.content);
+      if (item.sender_type === "operator" && item.content) {
+        showOperatorTyping(false);
+        addBubble("assistant", item.content);
+      }
+    } else if (event.type === "typing" && event.actor_type === "operator") {
+      showOperatorTyping(event.typing === true);
     } else if (event.type === "error") {
       const error = new Error(String(event.message || "Live support error."));
+      // Every event the widget sends besides `typing` is understood by all
+      // Worker versions, so this rejection can only be the typing hint
+      // bouncing off an older Worker. Go quiet instead of showing it.
+      if (error.message === LEGACY_TYPING_REJECTION) {
+        typingSupported = false;
+        return;
+      }
       if (pendingHandoffResult) {
         const pending = pendingHandoffResult;
         pendingHandoffResult = null;
@@ -593,6 +978,7 @@ async function openLiveConnection(): Promise<WebSocket> {
     if (liveSocket === socket) {
       liveSocket = null;
       liveConnectionPromise = null;
+      typingSent = false;
       if (pendingHandoffResult) {
         const pending = pendingHandoffResult;
         pendingHandoffResult = null;
@@ -600,7 +986,10 @@ async function openLiveConnection(): Promise<WebSocket> {
         pending.reject(new Error("Live connection closed."));
       }
       if (opened && conversationId && liveMode !== "closed") {
-        window.setTimeout(() => void connectLive().catch(() => undefined), 1500);
+        window.setTimeout(
+          () => void connectLive().catch(() => undefined),
+          1500,
+        );
       }
     }
   };
@@ -614,7 +1003,8 @@ async function openLiveConnection(): Promise<WebSocket> {
 }
 
 function connectLive(): Promise<WebSocket> {
-  if (liveSocket?.readyState === WebSocket.OPEN) return Promise.resolve(liveSocket);
+  if (liveSocket?.readyState === WebSocket.OPEN)
+    return Promise.resolve(liveSocket);
   if (liveConnectionPromise) return liveConnectionPromise;
   const connection = openLiveConnection();
   liveConnectionPromise = connection;
@@ -657,13 +1047,17 @@ function requestHumanHandoff(): void {
       await waitForHandoffState(socket);
     } catch {
       showConnectionStatus("We couldn’t connect you. Please try again.");
-    } finally {
-      connectingToHuman = false;
-      if (handoffPromise === request) handoffPromise = null;
-      setLiveMode(liveMode);
     }
   })();
   handoffPromise = request;
+
+  const finish = () => {
+    if (handoffPromise !== request) return;
+    connectingToHuman = false;
+    handoffPromise = null;
+    setLiveMode(liveMode);
+  };
+  void request.then(finish, finish);
 }
 
 function refreshToken(): Promise<string | null> {
@@ -685,17 +1079,29 @@ async function send(text: string) {
   if (liveMode === "human") {
     addBubble("user", trimmed);
     inputEl.value = "";
+    notifyTyping(false);
     try {
-      await liveAction("message", { content: trimmed, client_message_id: crypto.randomUUID() });
+      await liveAction("message", {
+        content: trimmed,
+        client_message_id: crypto.randomUUID(),
+      });
     } catch (error) {
       addBubble("assistant", (error as Error).message);
     }
     return;
   }
   if (liveMode !== "ai") return;
-  addBubble("user", trimmed);
+  const asksForHuman = HUMAN_REQUEST_PATTERN.test(trimmed);
+  let previousVisitorMessageCount = visitorMessageCount;
+  let previousHumanRequested = humanRequested;
+  const userBubble = addBubble("user", trimmed);
   inputEl.value = "";
   setStreaming(true);
+  if (asksForHuman) {
+    humanRequested = true;
+    talkDismissed = false;
+    localStorage.removeItem(talkDismissedStorageKey);
+  }
   recordVisitorMessage();
 
   const pending = addBubble("assistant", "");
@@ -732,14 +1138,53 @@ async function send(text: string) {
           liveSocket = null;
           liveConnectionPromise = null;
           clearConversationSession();
+          previousVisitorMessageCount = 0;
+          previousHumanRequested = false;
           displayedLiveMessageIds.clear();
           hydrateLiveHistory = false;
+          // clearConversationSession dropped the signal; the message being
+          // retried still applies to the replacement conversation.
+          if (asksForHuman) humanRequested = true;
           recordVisitorMessage();
           res = await request();
         }
       }
     }
-    if (!res.ok || !res.body) throw new Error(`Request failed (${res.status})`);
+    if (res.status === 404 && conversationId && conversationToken) {
+      const body = (await res.clone().json().catch(() => null)) as {
+        detail?: unknown;
+      } | null;
+      if (body?.detail === "Conversation not found.") {
+        // The stored conversation was deleted server-side (e.g. from the
+        // dashboard, or a site reset). Same recovery as the expired-session
+        // 401 above: start a fresh conversation instead of failing every
+        // message from now on.
+        liveSocket?.close(1000, "conversation reset");
+        liveSocket = null;
+        liveConnectionPromise = null;
+        clearConversationSession();
+        previousVisitorMessageCount = 0;
+        previousHumanRequested = false;
+        displayedLiveMessageIds.clear();
+        hydrateLiveHistory = false;
+        if (asksForHuman) humanRequested = true;
+        recordVisitorMessage();
+        res = await request();
+      }
+    }
+    if (!res.ok) {
+      // Surface the server's own message when it sends one (e.g. the daily
+      // message limit 429) instead of a bare status code.
+      const body = (await res.json().catch(() => null)) as {
+        detail?: unknown;
+      } | null;
+      throw new Error(
+        typeof body?.detail === "string"
+          ? body.detail
+          : `Request failed (${res.status})`,
+      );
+    }
+    if (!res.body) throw new Error(`Request failed (${res.status})`);
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -774,14 +1219,73 @@ async function send(text: string) {
             pending.textContent = answer;
             scrollToBottom();
             break;
+          case "product_results":
+            addProductResults(
+              Array.isArray(event.products)
+                ? (event.products as WidgetProductResult[])
+                : [],
+              event.has_more === true,
+              typeof event.more_prompt === "string"
+                ? event.more_prompt
+                : undefined,
+              typeof event.browse_url === "string"
+                ? event.browse_url
+                : undefined,
+              typeof event.browse_label === "string"
+                ? event.browse_label
+                : undefined,
+            );
+            break;
           case "error":
             pending.classList.remove("pending");
             pending.classList.add("wx-error");
-            pending.textContent =
-              (event.message as string) || "Something went wrong.";
+            pending.textContent = formatChatStreamError(event);
+            break;
+          case "input_blocked":
+            userBubble.remove();
+            visitorMessageCount = previousVisitorMessageCount;
+            humanRequested = previousHumanRequested;
+            if (visitorMessageCountStorageKey) {
+              if (previousVisitorMessageCount > 0) {
+                localStorage.setItem(
+                  visitorMessageCountStorageKey,
+                  String(previousVisitorMessageCount),
+                );
+              } else {
+                localStorage.removeItem(visitorMessageCountStorageKey);
+              }
+            }
+            answer =
+              typeof event.message === "string"
+                ? event.message
+                : "Sensitive information was not sent or saved.";
+            pending.classList.remove("pending");
+            pending.classList.add("wx-sensitive-block");
+            pending.textContent = answer;
+            scrollToBottom();
+            break;
+          case "done":
+            // Backends predating the flag omit it, and moderation warnings
+            // omit it on purpose - only an explicit false marks the turn
+            // unanswered. setStreaming(false) in finally re-runs setLiveMode.
+            if (event.answered === false) unansweredTurn = true;
             break;
           case "mode_changed":
           case "interrupted":
+            if (event.mode === "closed") {
+              // Server-side close (e.g. abuse moderation). The canned closing
+              // message arrived as "token" events; keep the bubble. Setting
+              // `answer` also stops the post-loop "(no response)" overwrite
+              // when the close carried no text (already-closed conversation).
+              if (!answer) {
+                answer = "This conversation has been closed.";
+                pending.textContent = answer;
+              }
+              pending.classList.remove("pending");
+              setLiveMode("closed");
+              scrollToBottom();
+              break;
+            }
             pending.remove();
             void connectLive().catch(() => undefined);
             break;
@@ -820,6 +1324,16 @@ talkEl.addEventListener("click", async () => {
   }
 });
 
+talkDismissEl.addEventListener("click", () => {
+  if (liveMode !== "ai") return;
+  talkDismissed = true;
+  if (talkDismissedStorageKey) {
+    localStorage.setItem(talkDismissedStorageKey, "true");
+  }
+  setLiveMode(liveMode);
+  inputEl.focus();
+});
+
 rateUpEl.addEventListener("click", () => void submitRating("up"));
 rateDownEl.addEventListener("click", () => void submitRating("down"));
 
@@ -854,6 +1368,10 @@ callbackEl.addEventListener("submit", async (event) => {
 formEl.addEventListener("submit", (event) => {
   event.preventDefault();
   void send(inputEl.value);
+});
+
+inputEl.addEventListener("input", () => {
+  notifyTyping(inputEl.value.trim().length > 0);
 });
 
 window.addEventListener("load", renderVerification, { once: true });

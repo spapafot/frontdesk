@@ -1,0 +1,59 @@
+---
+import DeviceFrame from "./DeviceFrame.astro";
+---
+
+<DeviceFrame label="shop.yoursite.com">
+  <div class="space-y-4 bg-slate-50 p-3 sm:p-4">
+    <div class="flex justify-end">
+      <div class="max-w-[90%] rounded-2xl rounded-br-sm bg-sky-600 px-4 py-2.5 text-sm text-white shadow-sm sm:max-w-[80%]">
+        Show me medium-sized dresses under €60
+      </div>
+    </div>
+
+    <div class="flex justify-start">
+      <div class="rounded-2xl rounded-bl-sm border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 shadow-sm">
+        I found 2 matching products.
+      </div>
+    </div>
+
+    <div class="grid grid-cols-2 gap-2 sm:gap-3" aria-label="Product catalog results">
+      <article class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div class="flex h-24 items-center justify-center bg-gradient-to-br from-sky-50 to-indigo-100 text-4xl sm:h-28">
+          👗
+        </div>
+        <div class="p-3">
+          <h3 class="text-sm font-semibold text-slate-900">Linen Midi Dress</h3>
+          <p class="mt-1 text-sm font-semibold text-sky-700">€49.00</p>
+          <p class="mt-1 text-xs text-slate-500">Size: Medium</p>
+          <p class="mt-2 text-xs font-semibold text-sky-700">View product →</p>
+        </div>
+      </article>
+      <article class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div class="flex h-24 items-center justify-center bg-gradient-to-br from-rose-50 to-orange-100 text-4xl sm:h-28">
+          👗
+        </div>
+        <div class="p-3">
+          <h3 class="text-sm font-semibold text-slate-900">Summer Wrap Dress</h3>
+          <p class="mt-1 text-sm font-semibold text-sky-700">€55.00</p>
+          <p class="mt-1 text-xs text-slate-500">Size: Medium</p>
+          <p class="mt-2 text-xs font-semibold text-sky-700">View product →</p>
+        </div>
+      </article>
+    </div>
+
+    <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+      <span class="flex items-center gap-2">
+        <span class="h-2 w-2 rounded-full bg-emerald-500"></span>
+        Live product discovery
+      </span>
+      <span class="flex items-center gap-1.5" aria-label="Supported catalog providers">
+        <span class="rounded-full border border-violet-200 bg-violet-50 px-2 py-1 font-semibold text-violet-700">
+          WooCommerce
+        </span>
+        <span class="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 font-semibold text-emerald-700">
+          Shopify
+        </span>
+      </span>
+    </div>
+  </div>
+</DeviceFrame>

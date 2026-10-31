@@ -12,13 +12,65 @@ export interface Source {
   snippet: string;
 }
 
+export interface ProductAttribute {
+  name: string;
+  taxonomy: string | null;
+  terms: Array<{ name: string; slug: string | null; available?: boolean }>;
+}
+
+export interface ProductResult {
+  id: number | string;
+  name: string;
+  slug: string | null;
+  summary: string;
+  price: string | null;
+  regular_price: string | null;
+  sale_price: string | null;
+  currency_code: string | null;
+  currency_symbol: string;
+  on_sale: boolean;
+  is_in_stock: boolean;
+  has_options: boolean;
+  image_url: string | null;
+  product_url: string;
+  attributes: ProductAttribute[];
+}
+
+export interface ProductResults {
+  products: ProductResult[];
+  page: number;
+  has_more: boolean;
+}
+
+export interface ChatErrorEvent {
+  type: "error";
+  code: "assistant_unavailable";
+  message: string;
+  correlation_id: string;
+}
+
+export interface InputBlockedEvent {
+  type: "input_blocked";
+  code: "sensitive_data_detected";
+  message: string;
+}
+
 export type StreamEvent =
   | { type: "conversation"; conversation_id: number }
   | { type: "tool_call"; name: string; arguments: Record<string, unknown>; result: unknown }
   | { type: "sources"; sources: Source[] }
+  | ({ type: "product_results" } & ProductResults)
   | { type: "token"; content: string }
-  | { type: "done"; conversation_id: number }
-  | { type: "error"; message: string };
+  | { type: "done"; conversation_id: number; answered?: boolean }
+  | InputBlockedEvent
+  | ChatErrorEvent;
+
+export function formatChatError(event: ChatErrorEvent): string {
+  const correlationId =
+    typeof event.correlation_id === "string" ? event.correlation_id : "";
+  const reference = correlationId.slice(0, 12).toUpperCase();
+  return reference ? `${event.message} Reference: ${reference}.` : event.message;
+}
 
 export interface ChatRequest {
   message: string;

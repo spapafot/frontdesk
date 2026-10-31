@@ -9,8 +9,8 @@ from app.core.db import Base
 class TeamMember(Base):
     """One invited member of an account's team.
 
-    The team is keyed by the admin's Supabase ``sub`` (``owner_user_id``) — the
-    same value that scopes ``assistant_profiles`` — so membership grants access
+    The team is keyed by the admin's Supabase ``sub`` (``owner_user_id``) - the
+    same value that scopes ``assistant_profiles`` - so membership grants access
     to every site the admin owns. Rows are created from an email invite and
     bound to the member's own ``sub`` on their first matching login; after
     binding, access follows the user id, never the email again.

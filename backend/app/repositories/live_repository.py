@@ -119,6 +119,36 @@ class LiveRepository:
         )
         return result.scalar_one_or_none()
 
+    async def add_strike(self, conversation_id: int) -> int | None:
+        """Atomically increment the abuse-strike counter; returns the new total."""
+        result = await self.session.execute(
+            update(Conversation)
+            .where(Conversation.id == conversation_id)
+            .values(moderation_strikes=Conversation.moderation_strikes + 1)
+            .returning(Conversation.moderation_strikes)
+        )
+        return result.scalar_one_or_none()
+
+    async def close_flagged(
+        self, conversation_id: int, closed_at: datetime
+    ) -> Conversation | None:
+        """Atomically close an AI conversation (system auto-close: moderation
+        strike limit or the per-conversation message cap).
+
+        ``None`` on a lost race - e.g. a concurrent escalation already left
+        ``ai`` - in which case the caller must not record an auto-close.
+        """
+        result = await self.session.execute(
+            update(Conversation)
+            .where(
+                Conversation.id == conversation_id,
+                Conversation.mode == "ai",
+            )
+            .values(mode="closed", closed_at=closed_at)
+            .returning(Conversation)
+        )
+        return result.scalar_one_or_none()
+
     async def timeout(self, conversation_id: int, now: datetime) -> Conversation | None:
         """Atomically expire a waiting escalation whose deadline has passed."""
         result = await self.session.execute(
@@ -182,6 +212,9 @@ class LiveRepository:
             conversation = await self.session.get(Conversation, conversation_id)
             if conversation is not None:
                 conversation.last_message_at = datetime.now(timezone.utc)
+                # New activity resurfaces an archived conversation in History
+                # (mirrors ConversationRepository.add_message).
+                conversation.archived_at = None
             return inserted, True
         existing = (
             await self.session.execute(

@@ -10,7 +10,7 @@ class DocumentOut(BaseModel):
     type: str
     source_url: str | None = None
     # FAQ answer text (type == "faq") so the edit dialog can prefill; None for
-    # every other type — file/page full text must not leak into list responses.
+    # every other type - file/page full text must not leak into list responses.
     content: str | None = None
     is_active: bool
     processing_status: Literal["queued", "processing", "ready", "failed"]

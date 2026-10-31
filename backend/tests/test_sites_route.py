@@ -23,7 +23,6 @@ def _installation(**over) -> SimpleNamespace:
         public_key="pk_live_abc",
         allowed_origin="https://acme.example",
         is_enabled=True,
-        monthly_limit=5000,
     )
     base.update(over)
     return SimpleNamespace(**base)

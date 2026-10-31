@@ -43,6 +43,7 @@ class WidgetSession(BaseModel):
     assistant_name: str
     business_name: str
     live_human_escalation_enabled: bool = False
+    talk_to_person_after: int = 3
 
 
 @router.post("/session", response_model=WidgetSession)
@@ -92,6 +93,7 @@ async def create_session(
             settings.live_human_escalation_enabled
             and profile.live_human_escalation_enabled
         ),
+        talk_to_person_after=profile.talk_to_person_after,
     )
 
 

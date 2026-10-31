@@ -1,3 +1,5 @@
+import json
+from collections.abc import AsyncGenerator
 from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -6,16 +8,25 @@ from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_admin
+from app.core.config import settings
 from app.core.db import get_session
 from app.repositories.profile_repository import ProfileRepository
 from app.repositories.conversation_repository import ConversationRepository
+from app.repositories.subscription_repository import SubscriptionRepository
 from app.repositories.widget_repository import WidgetRepository
 from app.schemas.chat import ChatRequest
+from app.services import billing
 from app.services.chat_service import stream_chat
 from app.services.widget_auth import decode_widget_token
 from app.services.live_auth import (
     conversation_token_matches,
     new_visitor_session_id,
+    visitor_session_hash,
+)
+from app.services.sensitive_data_policy import (
+    blocked_input_event,
+    record_policy_decision,
+    sensitive_data_policy,
 )
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -24,6 +35,26 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 def _period() -> date:
     now = datetime.now(timezone.utc)
     return date(now.year, now.month, 1)
+
+
+def _today() -> date:
+    return datetime.now(timezone.utc).date()
+
+
+async def _single_sse_event(event: dict) -> AsyncGenerator[str, None]:
+    yield f"data: {json.dumps(event)}\n\n"
+
+
+def _stream_response(stream) -> StreamingResponse:
+    return StreamingResponse(
+        stream,
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("/stream")
@@ -45,9 +76,6 @@ async def chat_stream(
             or not installation.is_enabled
         ):
             raise HTTPException(status_code=401, detail="Widget installation is unavailable.")
-        if not await WidgetRepository(session).reserve_message(installation, _period()):
-            await session.rollback()
-            raise HTTPException(status_code=429, detail="Monthly widget message quota exceeded.")
         if body.conversation_id is not None:
             conversation = await ConversationRepository(session).get(body.conversation_id)
             if conversation is None or conversation.profile_id != profile_id:
@@ -60,7 +88,50 @@ async def chat_stream(
                 conversation_id=conversation.id,
                 stored_hash=conversation.visitor_session_id_hash,
             )
-        else:
+
+        decision = sensitive_data_policy.evaluate(body.message)
+        if decision.blocked:
+            record_policy_decision(
+                decision,
+                profile_id=profile_id,
+                installation_id=installation_id,
+            )
+            return _stream_response(_single_sse_event(blocked_input_event(body.message)))
+
+        # Daily per-IP budget, checked before any subscription work so a
+        # rejected visitor consumes no monthly quota and creates no trial row.
+        # The edge Worker attests the IP (spoofed inbound copies are stripped);
+        # no header (local dev, no Worker) skips the check. If the later
+        # monthly-quota reservation fails, its rollback undoes this one too -
+        # intended, since the message is never served.
+        if settings.chat_daily_ip_message_limit > 0:
+            visitor_ip = request.headers.get(settings.visitor_ip_header)
+            if visitor_ip and not await WidgetRepository(session).reserve_visitor_message(
+                installation_id,
+                visitor_session_hash(visitor_ip),
+                _today(),
+                settings.chat_daily_ip_message_limit,
+            ):
+                await session.rollback()
+                raise HTTPException(
+                    status_code=429,
+                    detail="Daily message limit reached. Please try again tomorrow.",
+                )
+        profile = await ProfileRepository(session).get(profile_id)
+        if profile is None:
+            raise HTTPException(status_code=401, detail="Widget installation is unavailable.")
+        # Quota is enforced account-wide (pooled across all the owner's sites)
+        # against the owner's plan; the per-site counter below is display-only.
+        subscription_repo = SubscriptionRepository(session)
+        subscription = await subscription_repo.get_or_create_trial(profile.owner_user_id)
+        base_limit = billing.limits_for(subscription).messages
+        if base_limit is not None and not await subscription_repo.reserve_account_message(
+            profile.owner_user_id, _period(), base_limit
+        ):
+            await session.rollback()
+            raise HTTPException(status_code=429, detail="Monthly message quota exceeded.")
+        await WidgetRepository(session).increment_usage(installation, _period())
+        if body.conversation_id is None:
             visitor_session_id = new_visitor_session_id()
         await session.commit()
     else:
@@ -82,7 +153,36 @@ async def chat_stream(
         await session.commit()
         profile_id = profile.id
 
-    return StreamingResponse(
+        # An admin/operator must never continue a website visitor's conversation
+        # through this endpoint: doing so would append messages as if the visitor
+        # sent them and poison the stored transcript. Visitor conversations are
+        # read-only from the dashboard; live handoff goes through the live socket
+        # instead. The admin's own test chats have no visitor session, so they
+        # are unaffected.
+        if body.conversation_id is not None:
+            conversation = await ConversationRepository(session).get(
+                body.conversation_id
+            )
+            if (
+                conversation is not None
+                and conversation.profile_id == profile_id
+                and conversation.visitor_session_id_hash is not None
+            ):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Visitor conversations are read-only from the dashboard.",
+                )
+
+        decision = sensitive_data_policy.evaluate(body.message)
+        if decision.blocked:
+            record_policy_decision(
+                decision,
+                profile_id=profile_id,
+                installation_id=None,
+            )
+            return _stream_response(_single_sse_event(blocked_input_event(body.message)))
+
+    return _stream_response(
         stream_chat(
             message=body.message,
             profile_id=profile_id,
@@ -90,11 +190,5 @@ async def chat_stream(
             include_sources=not is_widget,
             installation_id=installation_id,
             visitor_session_id=visitor_session_id,
-        ),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
+        )
     )

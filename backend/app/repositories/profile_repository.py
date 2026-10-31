@@ -6,7 +6,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.profile import AssistantProfile
 from app.models.widget import WidgetInstallation
-from app.core.config import settings
 from app.repositories.team_repository import TeamRepository
 
 
@@ -52,7 +51,6 @@ class ProfileRepository:
                 WidgetInstallation(
                     profile_id=profile_id,
                     public_key=generate_public_key(),
-                    monthly_limit=settings.widget_monthly_limit,
                     allowed_origin=allowed_origin,
                 )
             )

@@ -4,9 +4,9 @@ export const SITE = {
   name: "Plug & Play",
   // Used in <title> suffixes and schema. The ampersand is safe in text nodes;
   // it is only escaped when placed inside attributes.
-  tagline: "Customer support, grounded in your own documents",
+  tagline: "AI customer support, grounded in your business knowledge",
   description:
-    "Plug & Play turns the documents you already have into a support assistant that answers in your customer's language- grounded only in what you've approved. Add one line of code and it's live.",
+    "Plug & Play is an AI customer-support chatbot for your website. It answers from your approved business knowledge and helps shoppers find products in WooCommerce and Shopify catalogs.",
   url: "https://plugandplay.gr",
   // Where the marketing CTAs send people to sign in / register.
   appUrl: import.meta.env.PUBLIC_APP_URL ?? "https://app.plugandplay.gr",

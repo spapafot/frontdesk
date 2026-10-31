@@ -2,7 +2,7 @@ from typing import Any
 
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.conversation import Conversation, ConversationMessage
@@ -54,6 +54,15 @@ class ConversationRepository:
         await self.session.flush()
         return conversation
 
+    async def set_archived(
+        self, conversation: Conversation, archived: bool
+    ) -> Conversation:
+        conversation.archived_at = (
+            datetime.now(timezone.utc) if archived else None
+        )
+        await self.session.flush()
+        return conversation
+
     async def delete(self, conversation: Conversation) -> None:
         await self.session.delete(conversation)
         await self.session.flush()
@@ -85,8 +94,23 @@ class ConversationRepository:
         conversation = await self.get(conversation_id)
         if conversation is not None:
             conversation.last_message_at = datetime.now(timezone.utc)
+            # New activity resurfaces an archived conversation in History so
+            # a returning visitor's messages are never invisible to the owner.
+            conversation.archived_at = None
         await self.session.flush()
         return message
+
+    async def count_user_messages(self, conversation_id: int) -> int:
+        """All persisted visitor turns, including moderation-flagged ones."""
+        result = await self.session.execute(
+            select(func.count())
+            .select_from(ConversationMessage)
+            .where(
+                ConversationMessage.conversation_id == conversation_id,
+                ConversationMessage.role == "user",
+            )
+        )
+        return int(result.scalar_one())
 
     async def get_messages(self, conversation_id: int) -> list[ConversationMessage]:
         stmt = (
@@ -96,3 +120,18 @@ class ConversationRepository:
         )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
+
+    async def latest_catalog_state(self, conversation_id: int) -> dict[str, Any] | None:
+        """Return the latest sanitized catalog-search state for refinements."""
+        result = await self.session.execute(
+            select(ConversationMessage.meta)
+            .where(
+                ConversationMessage.conversation_id == conversation_id,
+                ConversationMessage.role == "assistant",
+                ConversationMessage.meta.has_key("catalog_search"),  # type: ignore[attr-defined]
+            )
+            .order_by(ConversationMessage.id.desc())
+            .limit(1)
+        )
+        meta = result.scalar_one_or_none()
+        return meta if isinstance(meta, dict) else None

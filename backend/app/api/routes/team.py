@@ -1,9 +1,9 @@
 """Team management: the account owner invites members who can then work every
-site the owner has (tickets, live escalations, knowledge, history, analytics —
+site the owner has (tickets, live escalations, knowledge, history, analytics -
 everything except site/settings/team management).
 
 Routes are keyed by the caller's own user id, so each account can only ever
-manage its own team — "owner-only" is structural, not a role check. Invitation
+manage its own team - "owner-only" is structural, not a role check. Invitation
 email delivery happens at the edge: the invite response carries an
 ``invite_notify`` payload that the Cloudflare Worker strips and turns into an
 email (see ``deploy/cloudflare/worker/src/index.ts``).
@@ -18,7 +18,7 @@ from app.core.db import get_session
 from app.repositories.profile_repository import ProfileRepository
 from app.repositories.team_repository import TeamRepository
 from app.schemas.team import TeamInvite, TeamInviteOut, TeamMemberOut
-from app.services import supabase_admin
+from app.services import billing, supabase_admin
 
 router = APIRouter(prefix="/team", tags=["team"])
 
@@ -56,6 +56,16 @@ async def invite_member(
         raise HTTPException(status_code=409, detail="You are the team admin.")
 
     repo = TeamRepository(session)
+    entitlements = await billing.resolve_entitlements(session, user, user.id)
+    if entitlements.seats is not None:
+        # ``seats`` counts the whole team including the owner, so invited members
+        # are capped at ``seats - 1``.
+        members = await repo.list_members(user.id)
+        if len(members) >= max(entitlements.seats - 1, 0):
+            raise HTTPException(
+                status_code=402,
+                detail="Your plan's team-member limit has been reached. Upgrade to invite more teammates.",
+            )
     try:
         member = await repo.add_member(user.id, email)
     except IntegrityError:
@@ -76,7 +86,7 @@ async def invite_member(
     detail = link.warning
     if link.already_registered:
         detail = (
-            "This person already has an account — they'll see your sites the "
+            "This person already has an account - they'll see your sites the "
             "next time they sign in."
         )
 

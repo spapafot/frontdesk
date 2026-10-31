@@ -8,6 +8,8 @@ import {
 } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { authEnabled, supabase } from "../lib/supabase";
+import { ForgotPasswordPanel } from "./ForgotPasswordPanel";
+import { MfaChallenge } from "./MfaChallenge";
 import { SetPasswordPanel } from "./SetPasswordPanel";
 import { Spinner } from "./Spinner";
 import { AlertTriangle } from "lucide-react";
@@ -16,10 +18,14 @@ interface AuthContextValue {
   /** True only when a real session exists and can be signed out. */
   canSignOut: boolean;
   signOut: () => void;
-  /** Supabase user id (`sub`) — the same value the backend sees as the admin
+  /** Supabase user id (`sub`) - the same value the backend sees as the admin
    * user id, so it can be compared against e.g. a ticket's assignee. */
   userId: string | null;
   userEmail: string | null;
+  /** Manual Supabase role (`app_metadata.role == "superadmin"`). Purely a UI
+   * hint - the backend independently verifies the claim. Lifts billing/plan
+   * limits on the holder's own account; grants no cross-tenant access. */
+  isSuperAdmin: boolean;
 }
 
 const AuthContext = createContext<AuthContextValue>({
@@ -27,6 +33,7 @@ const AuthContext = createContext<AuthContextValue>({
   signOut: () => {},
   userId: null,
   userEmail: null,
+  isSuperAdmin: false,
 });
 
 /** Lets any descendant (e.g. the sidebar) trigger sign-out. */
@@ -43,13 +50,31 @@ export function AuthGate({ children }: { children: ReactNode }) {
   // If auth is disabled we're "ready" immediately.
   const [ready, setReady] = useState(!authEnabled);
   // A team-invite link lands here with `type=invite` in the URL hash. Capture
-  // it synchronously on first render — supabase-js consumes the hash to create
+  // it synchronously on first render - supabase-js consumes the hash to create
   // the session and strips it from the URL. The invitee has no password yet,
   // so they must set one before entering the app (or they could never sign in
   // a second time).
   const [invitePending, setInvitePending] = useState(() =>
-    window.location.hash.includes("type=invite")
+    window.location.hash.includes("type=invite"),
   );
+  // A password-recovery link lands the same way (`type=recovery` in the hash,
+  // captured synchronously for the same reason as invites).
+  const [recoveryPending, setRecoveryPending] = useState(() =>
+    window.location.hash.includes("type=recovery"),
+  );
+  // An expired/used action link arrives as an error hash instead of a session.
+  const [expiredLink] = useState(() =>
+    window.location.hash.includes("error_code=otp_expired"),
+  );
+  const [screen, setScreen] = useState<"login" | "forgot">("login");
+  // Assurance level of the current session vs. what the account can reach:
+  // null while the check is in flight (never flash the app before it lands).
+  const [aal, setAal] = useState<{ current: string; next: string } | null>(null);
+  // Sticky for the lifetime of the signed-in user: mid-app re-logins (the
+  // Account page verifies the current password via signInWithPassword, which
+  // downgrades the client session to aal1) must not unmount the app. The
+  // backend still rejects aal1 API calls, so this is UX, not enforcement.
+  const [mfaVerified, setMfaVerified] = useState(false);
 
   useEffect(() => {
     if (!authEnabled || !supabase) return;
@@ -62,6 +87,24 @@ export function AuthGate({ children }: { children: ReactNode }) {
     });
     return () => sub.subscription.unsubscribe();
   }, []);
+
+  const userId = session?.user.id ?? null;
+  useEffect(() => {
+    setAal(null);
+    setMfaVerified(false);
+    if (!supabase || !userId) return;
+    let cancelled = false;
+    supabase.auth.mfa.getAuthenticatorAssuranceLevel().then(({ data }) => {
+      if (cancelled) return;
+      setAal({
+        current: data?.currentLevel ?? "aal1",
+        next: data?.nextLevel ?? "aal1",
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
 
   const signOut = () => {
     void supabase?.auth.signOut();
@@ -77,7 +120,44 @@ export function AuthGate({ children }: { children: ReactNode }) {
       </div>
     );
   }
-  if (!session) return <LoginForm />;
+  if (!session) {
+    if (screen === "forgot") {
+      return <ForgotPasswordPanel onBack={() => setScreen("login")} />;
+    }
+    return (
+      <LoginForm
+        expiredLink={expiredLink}
+        onForgotPassword={() => setScreen("forgot")}
+      />
+    );
+  }
+  if (aal === null) {
+    return (
+      <div className="flex h-full items-center justify-center bg-slate-50">
+        <Spinner className="h-8 w-8" label="Checking session" />
+      </div>
+    );
+  }
+  // The MFA gate comes BEFORE the recovery/invite panels: for an enrolled
+  // account a recovery email alone must not be enough to set a new password
+  // (Supabase would refuse updateUser at aal1 anyway), so the code challenge
+  // runs first. Invitees have no factors and pass straight through.
+  if (aal.current === "aal1" && aal.next === "aal2" && !mfaVerified) {
+    return (
+      <MfaChallenge onVerified={() => setMfaVerified(true)} onSignOut={signOut} />
+    );
+  }
+  if (recoveryPending) {
+    return (
+      <SetPasswordPanel
+        title="Choose a new password"
+        description="Enter a new password for your account. You'll use it to sign in from now on."
+        submitLabel="Save new password"
+        requireAgreement={false}
+        onDone={() => setRecoveryPending(false)}
+      />
+    );
+  }
   if (invitePending) {
     return <SetPasswordPanel onDone={() => setInvitePending(false)} />;
   }
@@ -89,6 +169,9 @@ export function AuthGate({ children }: { children: ReactNode }) {
         signOut,
         userId: session.user.id,
         userEmail: session.user.email ?? null,
+        isSuperAdmin:
+          (session.user.app_metadata as { role?: string } | undefined)?.role ===
+          "superadmin",
       }}
     >
       {children}
@@ -99,17 +182,34 @@ export function AuthGate({ children }: { children: ReactNode }) {
 function AuthConfigurationError() {
   return (
     <div className="flex h-full items-center justify-center bg-slate-50 p-4">
-      <div role="alert" aria-labelledby="auth-config-title" className="max-w-md rounded-2xl border border-red-200 bg-white p-6 text-center shadow-sm">
-        <h1 id="auth-config-title" className="text-lg font-semibold text-slate-900">Authentication is not configured</h1>
+      <div
+        role="alert"
+        aria-labelledby="auth-config-title"
+        className="max-w-md rounded-2xl border border-red-200 bg-white p-6 text-center shadow-sm"
+      >
+        <h1
+          id="auth-config-title"
+          className="text-lg font-semibold text-slate-900"
+        >
+          Authentication is not configured
+        </h1>
         <p className="mt-2 text-sm text-slate-600">
-          Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY before starting the admin app.
+          Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY before starting the
+          admin app.
         </p>
       </div>
     </div>
   );
 }
 
-function LoginForm() {
+function LoginForm({
+  expiredLink = false,
+  onForgotPassword,
+}: {
+  /** The user followed an expired/used reset link; explain and offer a redo. */
+  expiredLink?: boolean;
+  onForgotPassword?: () => void;
+}) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -148,6 +248,13 @@ function LoginForm() {
           </p>
         </div>
 
+        {expiredLink && (
+          <p className="flex items-center gap-1.5 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            That reset link has expired — request a new one below.
+          </p>
+        )}
+
         <label className="block text-sm font-medium text-slate-700">
           Email
           <input
@@ -172,7 +279,24 @@ function LoginForm() {
           />
         </label>
 
-        {error && <p className="flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600"><AlertTriangle className="h-3.5 w-3.5 shrink-0" />{error}</p>}
+        {onForgotPassword && (
+          <div className="-mt-3 text-right">
+            <button
+              type="button"
+              onClick={onForgotPassword}
+              className="text-sm font-medium text-sky-700 hover:text-sky-800"
+            >
+              Forgot password?
+            </button>
+          </div>
+        )}
+
+        {error && (
+          <p className="flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            {error}
+          </p>
+        )}
 
         <button
           type="submit"

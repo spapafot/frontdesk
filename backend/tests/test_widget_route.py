@@ -40,7 +40,9 @@ async def test_verified_request_keeps_existing_origin_and_session_checks(
         allowed_origin="https://customer.example",
         is_enabled=True,
     )
-    profile = SimpleNamespace(id=11, assistant_name="Helper", name="Acme")
+    profile = SimpleNamespace(
+        id=11, assistant_name="Helper", name="Acme", talk_to_person_after=3
+    )
 
     async def get_installation(_self, key):
         return installation if key == installation.public_key else None
@@ -74,6 +76,7 @@ async def test_verified_request_keeps_existing_origin_and_session_checks(
     assert body["installation_id"] == 17
     assert body["origin"] == "https://customer.example"
     assert body["assistant_name"] == "Helper"
+    assert body["talk_to_person_after"] == 3
 
 
 async def test_local_session_can_skip_turnstile_when_disabled(
@@ -86,7 +89,9 @@ async def test_local_session_can_skip_turnstile_when_disabled(
         allowed_origin="http://localhost:5173",
         is_enabled=True,
     )
-    profile = SimpleNamespace(id=11, assistant_name="Helper", name="Local")
+    profile = SimpleNamespace(
+        id=11, assistant_name="Helper", name="Local", talk_to_person_after=7
+    )
 
     async def get_installation(_self, _key):
         return installation
@@ -112,3 +117,5 @@ async def test_local_session_can_skip_turnstile_when_disabled(
     )
 
     assert response.status_code == 200
+    # The configured threshold passes through to the widget session verbatim.
+    assert response.json()["talk_to_person_after"] == 7

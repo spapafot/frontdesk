@@ -90,7 +90,7 @@ async def test_add_faq_creates_ready_active_document_with_chunks(monkeypatch):
     result = await knowledge.add_faq(
         body=SimpleNamespace(question=QUESTION, answer=ANSWER),
         session=session,
-        profile=SimpleNamespace(id=7),
+        profile=SimpleNamespace(id=7, owner_user_id="owner-1"),
     )
 
     assert result.type == "faq"
@@ -126,7 +126,7 @@ async def test_add_faq_does_not_require_aws_ingestion(monkeypatch):
     result = await knowledge.add_faq(
         body=SimpleNamespace(question=QUESTION, answer=ANSWER),
         session=_Session(),
-        profile=SimpleNamespace(id=7),
+        profile=SimpleNamespace(id=7, owner_user_id="owner-1"),
     )
     assert result.processing_status == "ready"
 
@@ -144,7 +144,7 @@ async def test_add_faq_embedding_failure_rolls_back_with_502(monkeypatch):
         await knowledge.add_faq(
             body=SimpleNamespace(question=QUESTION, answer=ANSWER),
             session=session,
-            profile=SimpleNamespace(id=7),
+            profile=SimpleNamespace(id=7, owner_user_id="owner-1"),
         )
     assert getattr(exc.value, "status_code", None) == 502
     assert session.rollbacks == 1
@@ -161,7 +161,7 @@ async def test_add_faq_unindexable_text_returns_422(monkeypatch):
         await knowledge.add_faq(
             body=SimpleNamespace(question=".....", answer=".........."),
             session=session,
-            profile=SimpleNamespace(id=7),
+            profile=SimpleNamespace(id=7, owner_user_id="owner-1"),
         )
     assert getattr(exc.value, "status_code", None) == 422
     assert session.rollbacks == 1
@@ -194,7 +194,7 @@ async def test_update_faq_replaces_chunks_and_preserves_active(monkeypatch):
         document_id=42,
         body=SimpleNamespace(question=new_question, answer=new_answer),
         session=session,
-        profile=SimpleNamespace(id=7),
+        profile=SimpleNamespace(id=7, owner_user_id="owner-1"),
     )
 
     assert calls["deleted_chunks"] == 42
@@ -222,7 +222,7 @@ async def test_update_faq_rejects_non_faq_document(monkeypatch):
             document_id=42,
             body=SimpleNamespace(question=QUESTION, answer=ANSWER),
             session=_Session(),
-            profile=SimpleNamespace(id=7),
+            profile=SimpleNamespace(id=7, owner_user_id="owner-1"),
         )
     assert getattr(exc.value, "status_code", None) == 409
     assert "deleted_chunks" not in calls
@@ -237,7 +237,7 @@ async def test_update_faq_missing_document_returns_404(monkeypatch):
             document_id=42,
             body=SimpleNamespace(question=QUESTION, answer=ANSWER),
             session=_Session(),
-            profile=SimpleNamespace(id=7),
+            profile=SimpleNamespace(id=7, owner_user_id="owner-1"),
         )
     assert getattr(exc.value, "status_code", None) == 404
 
@@ -247,7 +247,7 @@ async def test_preview_returns_chunks_for_ready_faq(monkeypatch):
     _configure(monkeypatch, calls, existing=_faq_document())
 
     chunks = await knowledge.preview_chunks(
-        document_id=42, session=_Session(), profile=SimpleNamespace(id=7)
+        document_id=42, session=_Session(), profile=SimpleNamespace(id=7, owner_user_id="owner-1")
     )
 
     assert len(chunks) == 1

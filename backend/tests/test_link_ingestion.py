@@ -77,7 +77,7 @@ async def test_add_link_fetches_stores_and_queues(monkeypatch):
     result = await knowledge.add_link(
         body=SimpleNamespace(url="https://example.com/page"),
         session=_Session(),
-        profile=SimpleNamespace(id=7),
+        profile=SimpleNamespace(id=7, owner_user_id="owner-1"),
     )
 
     assert result.processing_status == "queued"
@@ -107,7 +107,7 @@ async def test_add_link_requires_ingestion_configured(monkeypatch):
         await knowledge.add_link(
             body=SimpleNamespace(url="https://example.com/page"),
             session=_Session(),
-            profile=SimpleNamespace(id=7),
+            profile=SimpleNamespace(id=7, owner_user_id="owner-1"),
         )
     assert getattr(exc.value, "status_code", None) == 503
 
@@ -120,7 +120,7 @@ async def test_add_link_rejects_duplicate_url(monkeypatch):
         await knowledge.add_link(
             body=SimpleNamespace(url="https://example.com/page"),
             session=_Session(),
-            profile=SimpleNamespace(id=7),
+            profile=SimpleNamespace(id=7, owner_user_id="owner-1"),
         )
     assert getattr(exc.value, "status_code", None) == 409
     assert "upload" not in calls  # never touched storage
@@ -138,7 +138,7 @@ async def test_add_link_surfaces_fetch_failure(monkeypatch):
         await knowledge.add_link(
             body=SimpleNamespace(url="https://example.com/page"),
             session=_Session(),
-            profile=SimpleNamespace(id=7),
+            profile=SimpleNamespace(id=7, owner_user_id="owner-1"),
         )
     assert getattr(exc.value, "status_code", None) == 502
     assert "upload" not in calls
@@ -151,7 +151,7 @@ async def test_rescan_refetches_and_requeues(monkeypatch):
     document.storage_key = None
 
     result = await knowledge.rescan_document(
-        document_id=42, session=_Session(), profile=SimpleNamespace(id=7)
+        document_id=42, session=_Session(), profile=SimpleNamespace(id=7, owner_user_id="owner-1")
     )
 
     assert result.processing_status == "queued"
@@ -173,7 +173,7 @@ async def test_rescan_rejects_non_link_document(monkeypatch):
 
     with pytest.raises(Exception) as exc:
         await knowledge.rescan_document(
-            document_id=42, session=_Session(), profile=SimpleNamespace(id=7)
+            document_id=42, session=_Session(), profile=SimpleNamespace(id=7, owner_user_id="owner-1")
         )
     assert getattr(exc.value, "status_code", None) == 409
     assert "fetch" not in calls

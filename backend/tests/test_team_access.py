@@ -2,7 +2,7 @@
 
 Covers the three (previously owner-only) live gates made team-aware:
 ``operator_socket_ticket``, ``internal_authorize``, and the shared
-``_authorized_conversation`` check behind ``/internal/live/action`` — plus the
+``_authorized_conversation`` check behind ``/internal/live/action`` - plus the
 owner-only gate on settings writes.
 """
 
